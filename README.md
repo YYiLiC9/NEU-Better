@@ -2,7 +2,7 @@
 
 东北大学校园客户端（非官方，开源）。目标是用一套 Flutter 代码库覆盖 Windows 与 Android，先解决登录与课表，再逐步扩展其他校园功能。
 
-> 当前阶段：**M0 工程底座 + 设计概念稿**。功能实现尚未开始。
+> 当前阶段：**M1 登录与持久会话**。M0 工程底座与 A 静蓝设计方向已完成；M2 课表待开始。
 
 ## 为什么做
 
@@ -12,6 +12,14 @@
 - 干净、可读的周课表；
 - 多端一致的界面与操作逻辑；
 - 本地优先、可导入导出、无自建后端。
+
+## 当前能力
+
+- 统一身份认证（pass.neu.edu.cn）原生 HTTP 登录，支持 `lt/execution` 表单与 RSA 加密；
+- 登录会话本地加密保存（`flutter_secure_storage`），重启后自动恢复；
+- 遇到验证码 / 设备二次验证时，提供 WebView 网页登录兜底，并回传 Cookie；
+- Windows 双栏登录页 / Android 移动端 Hero + 浮层表单，统一 A 静蓝视觉；
+- 登录成功后的 M1 状态主页，为 M2 课表预留入口。
 
 ## 平台
 
@@ -69,9 +77,16 @@ tools/                辅助脚本
 .\tools\flutter.cmd build apk --debug
 ```
 
+M1 已验证：
+
+- `flutter analyze`：No issues found
+- `flutter test`：2 个测试通过
+- Windows release：`build\windows\x64\runner\Release\neu_better_pro.exe`
+- Android debug APK：`build\app\outputs\flutter-apk\app-debug.apk`
+
 ## 设计
 
-M0 产出 3 套 Windows + Android 概念稿，位于 `docs/design/concepts/`。选定方向后会整理为 `docs/design/spec.md` 并落地为 Flutter 设计令牌。
+已选定 **A 静蓝** 作为默认方向，B 流光 / C 纸感保留为后续可选主题。设计令牌与组件规范见 [`docs/design/spec.md`](docs/design/spec.md)；三套概念稿位于 `docs/design/concepts/`。
 
 ## 许可证
 

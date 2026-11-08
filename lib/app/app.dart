@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../features/landing/m0_landing_page.dart';
+import '../features/auth/auth_gate.dart';
 import 'theme/app_theme.dart';
 
 class NeuBetterApp extends StatelessWidget {
@@ -12,7 +12,7 @@ class NeuBetterApp extends StatelessWidget {
       title: 'NEU Better',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: const M0LandingPage(),
+      home: const AuthGate(),
     );
   }
 }

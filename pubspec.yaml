@@ -7,8 +7,17 @@ environment:
   sdk: ^3.13.7
 
 dependencies:
+  asn1lib: ^1.6.8
+  cookie_jar: ^4.0.9
+  dio: ^5.11.1
+  dio_cookie_manager: ^3.5.0
   flutter:
     sdk: flutter
+  flutter_riverpod: ^3.5.0
+  flutter_secure_storage: ^11.2.0
+  go_router: ^18.1.3
+  pointycastle: ^4.0.0
+  webview_all: ^1.4.12
 
 dev_dependencies:
   flutter_test:

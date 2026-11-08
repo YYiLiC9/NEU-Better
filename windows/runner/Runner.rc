@@ -89,7 +89,7 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "NEU Better contributors" "\0"
+            VALUE "CompanyName", "NEU Better" "\0"
             VALUE "FileDescription", "NEU Better" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "neu_better_pro" "\0"
