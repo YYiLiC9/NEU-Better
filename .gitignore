@@ -1,0 +1,41 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+windows/flutter/ephemeral/
+android/.gradle/
+android/local.properties
+android/key.properties
+ios/Flutter/ephemeral/
+
+# Local toolchain (Flutter SDK, Android SDK, downloads)
+.tools/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# Secrets / signing
+*.jks
+*.keystore
+*.p12
+*.pfx
+.env
+.env.*
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+*.exe
+*.msi
+*.apk
+*.aab
