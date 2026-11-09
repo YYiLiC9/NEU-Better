@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -38,6 +39,9 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
       _error = null;
     });
     try {
+      if (!Platform.isWindows) {
+        throw const FormatException('当前平台暂不支持新研究生系统同步，请使用旧版选课系统。');
+      }
       final credentials = await const SecureCredentialStore().read();
       if (credentials == null ||
           credentials.username.trim().isEmpty ||

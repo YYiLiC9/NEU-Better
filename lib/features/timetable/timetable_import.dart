@@ -36,8 +36,14 @@ abstract final class YjsTimetableParser {
       final name = _value(row, const ['KCMC', 'KCM', 'COURSE_NAME']);
       if (name.isEmpty) continue;
       final day = _intValue(row, const ['XQJ', 'XQ', 'WEEKDAY']);
-      final start = _intValue(row, const ['KSJC', 'KJC', 'START_PERIOD']);
-      final end = _intValue(row, const ['JSJC', 'EJC', 'END_PERIOD']);
+      final start = _intValue(
+        row,
+        const ['KSJC', 'KSJCDM', 'KJC', 'START_PERIOD'],
+      );
+      final end = _intValue(
+        row,
+        const ['JSJC', 'JSJCDM', 'EJC', 'END_PERIOD'],
+      );
       if (day < 1 || day > 7 || start < 1) continue;
       final weeks = YjsxkTimetableParser.parseWeeks(
         _value(row, const ['ZCMC', 'SKZC', 'ZCM', 'WEEKS']),
@@ -73,13 +79,17 @@ abstract final class YjsTimetableParser {
     if (unique.isEmpty) {
       throw const FormatException('教务系统没有返回可显示的课程');
     }
+    final rawTerm = _value(rows.first, const ['XNXQMC', 'XNXQ', 'XNXQDM']);
+    final termName = rawTerm == '20261'
+        ? '2026–2027 秋季学期'
+        : (YjsxkTimetableParser._firstNonEmpty([
+                rawTerm,
+                fallbackTermName,
+                '研究生课程表',
+              ]) ??
+              '研究生课程表');
     return TimetableData(
-      termName: YjsxkTimetableParser._firstNonEmpty([
-            _value(rows.first, const ['XNXQMC', 'XNXQ']),
-            fallbackTermName,
-            '研究生课程表',
-          ]) ??
-          '研究生课程表',
+      termName: termName,
       totalWeeks: maxWeek < 16 ? 16 : maxWeek,
       sessions: unique,
       isSample: false,
