@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ import 'package:neu_better_pro/core/auth/session_store.dart';
 import 'package:neu_better_pro/core/auth/student_identity.dart';
 import 'package:neu_better_pro/core/auth/webview_login_result.dart';
 import 'package:neu_better_pro/core/crypto/rsa_encryptor.dart';
+import 'package:neu_better_pro/core/network/neu_cas_client.dart';
 import 'package:neu_better_pro/core/network/portal_identity_client.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
 
@@ -54,6 +56,19 @@ class _TestPortalIdentityClient implements PortalIdentityClient {
 
   @override
   Future<StudentIdentity?> fetch(Map<String, String> cookies) async => identity;
+}
+
+class _TestCasClient implements CasClient {
+  @override
+  Future<CasLoginResult> login({
+    required String username,
+    required String password,
+  }) async {
+    return CasLoginResult(
+      cookies: {'personal.neu.edu.cn': 'SESS_ID=abc'},
+      finalUri: Uri.parse('https://personal.neu.edu.cn/portal'),
+    );
+  }
 }
 
 void main() {
@@ -283,4 +298,60 @@ void main() {
     expect(session.accountLabel, '张三');
     expect(credentials.credentials?.username, '20260001');
   });
+
+  test('native login refreshes the real name from the portal', () async {
+    final credentials = _TestCredentialStore();
+    final identity = _TestPortalIdentityClient(
+      const StudentIdentity(studentId: '20260001', displayName: '张三'),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        sessionStoreProvider.overrideWithValue(_TestSessionStore()),
+        credentialStoreProvider.overrideWithValue(credentials),
+        casClientProvider.overrideWithValue(_TestCasClient()),
+        portalIdentityClientProvider.overrideWithValue(identity),
+      ],
+    );
+    addTearDown(container.dispose);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    await container
+        .read(authControllerProvider.notifier)
+        .login(
+          username: '20260001',
+          password: 'pw',
+          saveCredentials: true,
+        );
+
+    final immediate = container.read(authControllerProvider);
+    expect(immediate, isA<AuthAuthenticated>());
+    expect((immediate as AuthAuthenticated).session.studentId, '20260001');
+
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final refreshed = container.read(authControllerProvider);
+    expect(refreshed, isA<AuthAuthenticated>());
+    final session = (refreshed as AuthAuthenticated).session;
+    expect(session.displayName, '张三');
+    expect(session.accountLabel, '张三');
+    expect(credentials.credentials?.username, '20260001');
+    expect(credentials.credentials?.password, 'pw');
+  });
+
+  test(
+    'secure credential store round-trips on Windows',
+    () async {
+      final store = SecureCredentialStore();
+      const credentials = SavedCredentials(
+        username: '20260001',
+        password: 'probe-password',
+      );
+      await store.clear();
+      await store.save(credentials);
+      final loaded = await store.read();
+      expect(loaded?.username, credentials.username);
+      expect(loaded?.password, credentials.password);
+      await store.clear();
+    },
+    skip: !Platform.isWindows,
+  );
 }

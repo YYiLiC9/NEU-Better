@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Directory, FileSystemException, Platform;
 
 import 'package:flutter/material.dart';
@@ -62,6 +63,35 @@ Future<void> _captureAndroidUsername(
   }
 }
 
+const String _localIdentityScript = r'''
+(function () {
+  try {
+    const raw = localStorage.getItem('userInfo') ||
+      sessionStorage.getItem('userInfo');
+    return raw || '';
+  } catch (e) {
+    return '';
+  }
+})();
+''';
+
+StudentIdentity? _parseIdentityPayload(Object? raw) {
+  if (raw == null) return null;
+  var value = raw;
+  for (var i = 0; i < 2; i++) {
+    if (value is Map) {
+      return StudentIdentity.fromUserInfo(value);
+    }
+    if (value is! String || value.trim().isEmpty) return null;
+    try {
+      value = jsonDecode(value);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
 String? _cookieStudentId(Iterable<dynamic> cookies) {
   for (final cookie in cookies) {
     final name = '${cookie.name}';
@@ -115,10 +145,22 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
       ..loadRequest(NeuCasClient.loginUri);
   }
 
+  Future<StudentIdentity?> _readIdentity() async {
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(
+        _localIdentityScript,
+      );
+      return _parseIdentityPayload(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _finish() async {
     if (_reading) return;
     setState(() => _reading = true);
     try {
+      final identityFuture = _readIdentity();
       final result = <String, String>{};
       final allCookies = <dynamic>[];
       for (final host in const ['pass.neu.edu.cn', 'personal.neu.edu.cn']) {
@@ -142,15 +184,20 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
         return;
       }
 
-      // Pop immediately. The shell resolves the authoritative portal profile
-      // in the background; waiting for another JS probe here makes "完成"
-      // feel like the login page is hanging.
-      final studentId = _cookieStudentId(allCookies);
+      // A localStorage read is local and fast; it gives the real name without
+      // adding a visible pause. If the portal has not stored it yet, the
+      // shell refreshes identity from /site/user_info in the background.
+      final identity = await identityFuture.timeout(
+        const Duration(milliseconds: 500),
+        onTimeout: () => null,
+      );
+      final studentId = identity?.studentId ?? _cookieStudentId(allCookies);
       if (!mounted) return;
       Navigator.of(context).pop(
         WebViewLoginResult(
           cookies: result,
           studentId: studentId,
+          displayName: identity?.displayName,
         ),
       );
     } finally {
@@ -240,11 +287,21 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
     }
   }
 
+  Future<StudentIdentity?> _readIdentity() async {
+    try {
+      final raw = await _controller?.executeScript(_localIdentityScript);
+      return _parseIdentityPayload(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _finish() async {
     final controller = _controller;
     if (controller == null || _reading) return;
     setState(() => _reading = true);
     try {
+      final identityFuture = _readIdentity();
       final cookies = await controller.getCookies();
       final byDomain = <String, List<String>>{};
       for (final cookie in cookies) {
@@ -267,14 +324,19 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
         return;
       }
 
-      // Pop immediately; the shell refreshes identity from /site/user_info
-      // without holding the WebView page open.
-      final studentId = _cookieStudentId(cookies);
+      // Read the portal's cached userInfo before popping; this is local and
+      // bounded, so it does not hold the page open on a network round trip.
+      final identity = await identityFuture.timeout(
+        const Duration(milliseconds: 500),
+        onTimeout: () => null,
+      );
+      final studentId = identity?.studentId ?? _cookieStudentId(cookies);
       if (!mounted) return;
       Navigator.of(context).pop(
         WebViewLoginResult(
           cookies: result,
           studentId: studentId,
+          displayName: identity?.displayName,
         ),
       );
     } finally {

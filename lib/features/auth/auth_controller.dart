@@ -97,7 +97,6 @@ class AuthController extends Notifier<AuthState> {
       final trimmed = username.trim();
       final session = AuthSession(
         studentId: trimmed,
-        displayName: trimmed,
         cookies: result.cookies,
         createdAt: DateTime.now(),
         source: 'cas',
@@ -114,6 +113,16 @@ class AuthController extends Notifier<AuthState> {
           enabled: saveCredentials,
           username: trimmed,
           password: password,
+        ),
+      );
+      // The CAS redirect usually establishes a portal session too. Resolve
+      // the real name in the background so native and web login display the
+      // same identity.
+      unawaited(
+        _resolveAndPersistIdentity(
+          session,
+          saveCredentials: saveCredentials,
+          typedPassword: password,
         ),
       );
     } on SecondaryVerificationRequired catch (error) {
@@ -147,7 +156,7 @@ class AuthController extends Notifier<AuthState> {
         ? result.studentId
         : null;
     final id = _firstNonEmpty([resultId, fallbackStudentId, typedUsername]);
-    final name = _firstNonEmpty([result.displayName, id, '已登录']);
+    final name = _firstNonEmpty([result.displayName, id, '已连接学校账号']);
     final session = AuthSession(
       studentId: id ?? '',
       displayName: name,

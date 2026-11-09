@@ -102,6 +102,6 @@ class AuthSession {
       return name;
     }
     if (id.isNotEmpty) return id;
-    return '已登录';
+    return '已连接学校账号';
   }
 }
