@@ -10,16 +10,17 @@ class StudentIdentity {
   bool get hasDisplayName =>
       displayName != null && displayName!.trim().isNotEmpty;
 
-  static final RegExp _studentIdPattern = RegExp(r'^\d{8,12}$');
+  static final RegExp _studentIdPattern = RegExp(r'^\d{7,12}$');
   static final RegExp _labeledStudentId = RegExp(
-    r'(?:学号|账号|用户名|工号)\s*[:：]?\s*(\d{8,12})',
+    r'(?:学号|账号|用户名|工号)\s*[:：]?\s*(\d{7,12})',
   );
   static final RegExp _labeledName = RegExp(
     r'(?:姓名|用户姓名|真实姓名)\s*[:：]?\s*([\u4e00-\u9fa5]{2,8})',
   );
 
-  /// NEU student numbers are 8-12 digits. Keep this check centralized so a
-  /// date or course code can never be mistaken for an account number.
+  /// NEU student numbers are 7-12 digits (graduate IDs may be shorter than
+  /// undergraduate IDs). Keep this check centralized so a date or course code
+  /// can never be mistaken for an account number.
   static bool isValidStudentId(String? value) {
     final trimmed = value?.trim();
     return trimmed != null && _studentIdPattern.hasMatch(trimmed);

@@ -10,6 +10,7 @@ import '../../core/auth/saved_credentials.dart';
 import '../../core/auth/session_store.dart';
 import '../../core/auth/student_identity.dart';
 import '../../core/auth/webview_login_result.dart';
+import '../../core/network/cas_identity_client.dart';
 import '../../core/network/neu_cas_client.dart';
 import '../../core/network/portal_identity_client.dart';
 
@@ -163,9 +164,18 @@ class AuthController extends Notifier<AuthState> {
           );
       debugPrint('[auth] native login response: ${result.finalUri.host}');
       final trimmed = username.trim();
+      StudentIdentity? casIdentity;
+      try {
+        casIdentity = await ref
+            .read(casIdentityClientProvider)
+            .fetch(result)
+            .timeout(const Duration(seconds: 4));
+      } catch (error) {
+        debugPrint('[auth] CAS identity lookup failed: $error');
+      }
       final session = AuthSession(
-        studentId: trimmed,
-        displayName: initialDisplayName,
+        studentId: casIdentity?.studentId ?? trimmed,
+        displayName: casIdentity?.displayName ?? initialDisplayName,
         cookies: result.cookies,
         createdAt: DateTime.now(),
         source: 'cas',
@@ -273,23 +283,32 @@ class AuthController extends Notifier<AuthState> {
   }) async {
     var session = initial;
     try {
-      final client = ref.read(portalIdentityClientProvider);
-      final PortalLoginIdentityClient? loginClient =
-          client is PortalLoginIdentityClient
-              ? client as PortalLoginIdentityClient
-              : null;
       StudentIdentity? identity;
-      if (typedPassword != null &&
-          typedPassword.isNotEmpty &&
-          loginClient != null) {
-        identity = await loginClient
-            .fetchWithCredentials(
-              username: initial.studentId,
-              password: typedPassword,
-            )
-            .timeout(const Duration(seconds: 25));
-      } else {
-        identity = await client.fetch(initial.cookies);
+      final passCookie = initial.cookies['pass.neu.edu.cn'];
+      if (passCookie != null && passCookie.isNotEmpty) {
+        identity = await ref
+            .read(casIdentityClientProvider)
+            .fetchFromCookieHeader(passCookie)
+            .timeout(const Duration(seconds: 4));
+      }
+      if (identity == null) {
+        final client = ref.read(portalIdentityClientProvider);
+        final PortalLoginIdentityClient? loginClient =
+            client is PortalLoginIdentityClient
+                ? client as PortalLoginIdentityClient
+                : null;
+        if (typedPassword != null &&
+            typedPassword.isNotEmpty &&
+            loginClient != null) {
+          identity = await loginClient
+              .fetchWithCredentials(
+                username: initial.studentId,
+                password: typedPassword,
+              )
+              .timeout(const Duration(seconds: 25));
+        } else {
+          identity = await client.fetch(initial.cookies);
+        }
       }
       if (identity != null && (identity.hasStudentId || identity.hasDisplayName)) {
         session = initial.copyWith(

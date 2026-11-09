@@ -82,12 +82,12 @@ class WindowsPortalIdentityClient
     Future<StudentIdentity?> Function(WebviewController) body,
   ) async {
     final controller = WebviewController();
+    Directory? dataDir;
     try {
-      final dataDir = Directory(
-        '${Directory.systemTemp.path}${Platform.pathSeparator}NEU Better'
-        '${Platform.pathSeparator}WebView2',
-      );
-      await dataDir.create(recursive: true);
+      // Never reuse a WebView2 profile here: the profile keeps CAS/portal
+      // cookies, and reusing it would return the previously logged-in
+      // student's identity when a second account is tested.
+      dataDir = await Directory.systemTemp.createTemp('neu_better_identity_');
       await WebviewController.initializeEnvironment(
         userDataPath: dataDir.path,
       );
@@ -101,6 +101,13 @@ class WindowsPortalIdentityClient
       try {
         await controller.dispose();
       } catch (_) {}
+      if (dataDir != null) {
+        try {
+          await dataDir.delete(recursive: true);
+        } catch (_) {
+          // WebView2 may keep a lock briefly; the OS temp directory is fine.
+        }
+      }
     }
   }
 

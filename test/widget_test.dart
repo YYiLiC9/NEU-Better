@@ -11,6 +11,7 @@ import 'package:neu_better_pro/core/auth/session_store.dart';
 import 'package:neu_better_pro/core/auth/student_identity.dart';
 import 'package:neu_better_pro/core/auth/webview_login_result.dart';
 import 'package:neu_better_pro/core/crypto/rsa_encryptor.dart';
+import 'package:neu_better_pro/core/network/cas_identity_client.dart';
 import 'package:neu_better_pro/core/network/neu_cas_client.dart';
 import 'package:neu_better_pro/core/network/portal_identity_client.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
@@ -223,6 +224,23 @@ void main() {
     expect(identity.studentId, '20260001');
     expect(identity.displayName, '张三');
     expect(identity.hasStudentId, isTrue);
+  });
+
+  test('CasIdentityClient parses CAS attributes with a 7-digit id', () {
+    const xml = '''
+<sso:serviceResponse xmlns:sso="http://www.yale.edu/tp/cas" xmlns:cas="http://www.yale.edu/tp/cas">
+  <sso:authenticationSuccess>
+    <sso:user>2672281</sso:user>
+    <cas:attributes>
+      <cas:ID_NUMBER>2672281</cas:ID_NUMBER>
+      <cas:USER_NAME>杨逸伦</cas:USER_NAME>
+    </cas:attributes>
+  </sso:authenticationSuccess>
+</sso:serviceResponse>
+''';
+    final identity = CasIdentityClient.parse(xml);
+    expect(identity?.studentId, '2672281');
+    expect(identity?.displayName, '杨逸伦');
   });
 
   test('StudentIdentity rejects a date as a student id', () {
