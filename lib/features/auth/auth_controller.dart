@@ -8,8 +8,10 @@ import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/auth/saved_credentials.dart';
 import '../../core/auth/session_store.dart';
+import '../../core/auth/student_identity.dart';
 import '../../core/auth/webview_login_result.dart';
 import '../../core/network/neu_cas_client.dart';
+import '../../core/network/portal_identity_client.dart';
 
 sealed class AuthState {
   const AuthState();
@@ -141,11 +143,10 @@ class AuthController extends Notifier<AuthState> {
       return;
     }
 
-    final id = _firstNonEmpty([
-      result.studentId,
-      fallbackStudentId,
-      typedUsername,
-    ]);
+    final resultId = StudentIdentity.isValidStudentId(result.studentId)
+        ? result.studentId
+        : null;
+    final id = _firstNonEmpty([resultId, fallbackStudentId, typedUsername]);
     final name = _firstNonEmpty([result.displayName, id, '已登录']);
     final session = AuthSession(
       studentId: id ?? '',
@@ -160,7 +161,21 @@ class AuthController extends Notifier<AuthState> {
     // return to the shell immediately; persistence is best-effort background
     // work.
     state = AuthAuthenticated(session);
-    unawaited(_persistSession(session));
+    final needsIdentityRefresh =
+        resultId == null ||
+        result.displayName == null ||
+        result.displayName == resultId;
+    if (needsIdentityRefresh) {
+      unawaited(
+        _resolveAndPersistIdentity(
+          session,
+          saveCredentials: saveCredentials,
+          typedPassword: typedPassword,
+        ),
+      );
+    } else {
+      unawaited(_persistSession(session));
+    }
     unawaited(
       _persistCredentials(
         enabled: saveCredentials,
@@ -168,6 +183,52 @@ class AuthController extends Notifier<AuthState> {
         password: typedPassword,
       ),
     );
+  }
+
+  Future<void> _resolveAndPersistIdentity(
+    AuthSession initial, {
+    required bool saveCredentials,
+    String? typedPassword,
+  }) async {
+    var session = initial;
+    try {
+      final identity = await ref
+          .read(portalIdentityClientProvider)
+          .fetch(initial.cookies);
+      if (identity != null && (identity.hasStudentId || identity.hasDisplayName)) {
+        session = initial.copyWith(
+          studentId: identity.hasStudentId ? identity.studentId : null,
+          displayName: identity.displayName ??
+              (identity.hasStudentId ? identity.studentId : null),
+        );
+        if (identity.hasStudentId) {
+          unawaited(
+            _persistCredentials(
+              enabled: saveCredentials,
+              username: identity.studentId!,
+              password: typedPassword,
+            ),
+          );
+        }
+        if (ref.mounted) {
+          final current = state;
+          if (current is AuthAuthenticated &&
+              current.session.createdAt == initial.createdAt) {
+            state = AuthAuthenticated(session);
+          }
+        }
+      }
+    } catch (error) {
+      debugPrint('[auth] identity refresh failed: $error');
+    }
+
+    if (!ref.mounted) return;
+    final current = state;
+    if (current is! AuthAuthenticated ||
+        current.session.createdAt != initial.createdAt) {
+      return;
+    }
+    await _persistSession(session);
   }
 
   Future<void> _persistSession(AuthSession session) async {

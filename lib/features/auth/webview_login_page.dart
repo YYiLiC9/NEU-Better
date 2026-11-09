@@ -56,17 +56,56 @@ const String _captureUsernameScript = r'''
 const String _identityProbeScript = r'''
 (() => {
   try {
-    const text = [
-      document.body ? document.body.innerText : '',
-      ...Object.values(window.localStorage || {}),
-      ...Object.values(window.sessionStorage || {})
-    ].join('\n');
-    const idMatch = text.match(/(?:学号|账号|用户名|工号)\s*[:：]?\s*(20\d{6,10})/);
-    const idFallback = text.match(/(20\d{6,10})/);
-    const nameMatch = text.match(/(?:姓名|用户姓名|真实姓名)\s*[:：]?\s*([\u4e00-\u9fa5]{2,4})/);
+    let info = null;
+    const host = window.location.hostname;
+    // The portal is a same-origin Vue SPA. Its own API is authoritative and
+    // avoids guessing an account number from arbitrary page text.
+    if (host === 'personal.neu.edu.cn' || host.endsWith('.personal.neu.edu.cn')) {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', '/site/user_info?t=' + Date.now(), false);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('Source-Version', '0');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.send(null);
+        if (xhr.status === 200) {
+          const payload = JSON.parse(xhr.responseText);
+          if (Number(payload.e) === 0 && payload.d) info = payload.d;
+        }
+      } catch (_) {}
+    }
+
+    let cached = null;
+    try {
+      const raw = window.localStorage.getItem('userInfo') ||
+        window.localStorage.getItem('hitstudent_userInfo');
+      if (raw) cached = JSON.parse(raw);
+    } catch (_) {}
+
+    let cookieId = '';
+    try {
+      const match = document.cookie.match(/(?:^|;\s*)neu_better_un=([^;]+)/);
+      if (match) cookieId = decodeURIComponent(match[1]);
+    } catch (_) {}
+
+    const infoId = info && info.user_number ? String(info.user_number) : '';
+    const cachedId = cached && cached.user_number ? String(cached.user_number) : '';
+    // Never trust a cached id unless it matches the id the user just typed in
+    // the CAS form; this prevents an old WebView cache from showing another
+    // account's number.
+    const id = infoId || (cachedId && cookieId && cachedId === cookieId ? cachedId : '');
+    const name = info && info.user_name
+      ? String(info.user_name)
+      : (cached && cached.user_name ? String(cached.user_name) : '');
+
+    const text = document.body ? document.body.innerText : '';
+    const labeledId = text.match(/(?:学号|账号|用户名|工号)\s*[:：]?\s*(\d{8,12})/);
+    const labeledName = text.match(/(?:姓名|用户姓名|真实姓名)\s*[:：]?\s*([\u4e00-\u9fa5]{2,8})/);
+
     return JSON.stringify({
-      studentId: (idMatch && idMatch[1]) || (idFallback && idFallback[1]) || '',
-      displayName: (nameMatch && nameMatch[1]) || '',
+      studentId: id || (labeledId ? labeledId[1] : ''),
+      displayName: name || (labeledName ? labeledName[1] : ''),
     });
   } catch (error) {
     return JSON.stringify({ studentId: '', displayName: '' });
@@ -148,11 +187,13 @@ String? _cookieStudentId(Iterable<dynamic> cookies) {
     if (name == 'neu_cas_un' || name == 'neu_better_un') {
       final value = '${cookie.value}'.trim();
       if (value.isEmpty) continue;
+      String decoded;
       try {
-        return Uri.decodeComponent(value);
+        decoded = Uri.decodeComponent(value).trim();
       } catch (_) {
-        return value;
+        decoded = value;
       }
+      if (StudentIdentity.isValidStudentId(decoded)) return decoded;
     }
   }
   return null;

@@ -10,6 +10,7 @@ import 'package:neu_better_pro/core/auth/session_store.dart';
 import 'package:neu_better_pro/core/auth/student_identity.dart';
 import 'package:neu_better_pro/core/auth/webview_login_result.dart';
 import 'package:neu_better_pro/core/crypto/rsa_encryptor.dart';
+import 'package:neu_better_pro/core/network/portal_identity_client.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
 
 class _TestCredentialStore implements CredentialStore {
@@ -44,6 +45,15 @@ class _TestSessionStore implements SessionStore {
 
   @override
   Future<void> clear() async {}
+}
+
+class _TestPortalIdentityClient implements PortalIdentityClient {
+  _TestPortalIdentityClient(this.identity);
+
+  final StudentIdentity? identity;
+
+  @override
+  Future<StudentIdentity?> fetch(Map<String, String> cookies) async => identity;
 }
 
 void main() {
@@ -177,10 +187,30 @@ void main() {
     expect(identity.displayName, '张三');
   });
 
-  test('StudentIdentity falls back to an unlabeled 20-prefixed id', () {
-    final identity = StudentIdentity.fromText('欢迎 20260001 同学');
-    expect(identity.studentId, '20260001');
+  test('StudentIdentity ignores bare dates and course codes', () {
+    final identity = StudentIdentity.fromText('2025-09-01 课程 20250001');
+    expect(identity.studentId, isNull);
     expect(identity.displayName, isNull);
+  });
+
+  test('StudentIdentity reads structured portal userInfo', () {
+    final identity = StudentIdentity.fromUserInfo({
+      'user_number': '20260001',
+      'user_name': '张三',
+      'user_depart': '信息科学与工程学院',
+    });
+    expect(identity.studentId, '20260001');
+    expect(identity.displayName, '张三');
+    expect(identity.hasStudentId, isTrue);
+  });
+
+  test('StudentIdentity rejects a date as a student id', () {
+    final identity = StudentIdentity.fromUserInfo({
+      'user_number': '2025-09-01',
+      'user_name': '张三',
+    });
+    expect(identity.studentId, isNull);
+    expect(identity.displayName, '张三');
   });
 
   test('web login can authenticate without a typed username', () async {
@@ -211,5 +241,46 @@ void main() {
     expect((state).session.displayName, '测试同学');
     expect(credentials.credentials?.username, '20260001');
     expect(credentials.credentials?.password, isNull);
+  });
+
+  test('web login refreshes missing identity from the portal', () async {
+    final credentials = _TestCredentialStore();
+    final forceRefresh = _TestPortalIdentityClient(
+      const StudentIdentity(studentId: '20260001', displayName: '张三'),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        sessionStoreProvider.overrideWithValue(_TestSessionStore()),
+        credentialStoreProvider.overrideWithValue(credentials),
+        portalIdentityClientProvider.overrideWithValue(forceRefresh),
+      ],
+    );
+    addTearDown(container.dispose);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    await container
+        .read(authControllerProvider.notifier)
+        .loginWithCookies(
+          result: const WebViewLoginResult(
+            cookies: {'personal.neu.edu.cn': 'SESS_ID=abc'},
+            studentId: '',
+            displayName: '',
+          ),
+          saveCredentials: true,
+        );
+
+    // The shell must become authenticated immediately, before the portal
+    // identity lookup or secure-storage write completes.
+    final immediate = container.read(authControllerProvider);
+    expect(immediate, isA<AuthAuthenticated>());
+
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final refreshed = container.read(authControllerProvider);
+    expect(refreshed, isA<AuthAuthenticated>());
+    final session = (refreshed as AuthAuthenticated).session;
+    expect(session.studentId, '20260001');
+    expect(session.displayName, '张三');
+    expect(session.accountLabel, '张三');
+    expect(credentials.credentials?.username, '20260001');
   });
 }
