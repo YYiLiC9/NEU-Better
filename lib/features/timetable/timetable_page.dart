@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme/app_theme.dart';
 import 'timetable_models.dart';
+import 'yjsxk_timetable_page.dart';
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const _periodStarts = [
@@ -32,7 +33,7 @@ class TimetablePage extends StatefulWidget {
 }
 
 class _TimetablePageState extends State<TimetablePage> {
-  final TimetableData _data = SampleTimetable.data;
+  TimetableData _data = SampleTimetable.data;
   int _week = 8;
   int _selectedDay = DateTime.now().weekday.clamp(1, 5);
   bool _weekView = true;
@@ -44,6 +45,18 @@ class _TimetablePageState extends State<TimetablePage> {
 
   void _changeWeek(int value) {
     setState(() => _week = value.clamp(1, _data.totalWeeks));
+  }
+
+  Future<void> _syncTimetable() async {
+    final imported = await Navigator.of(context).push<TimetableData>(
+      MaterialPageRoute(builder: (_) => const YjsxkTimetablePage()),
+    );
+    if (imported == null || !mounted) return;
+    setState(() {
+      _data = imported;
+      _week = _week.clamp(1, _data.totalWeeks);
+      _selectedDay = _selectedDay.clamp(1, 7);
+    });
   }
 
   @override
@@ -79,9 +92,9 @@ class _TimetablePageState extends State<TimetablePage> {
               onDayChanged: (day) => setState(() => _selectedDay = day),
             ),
           const SizedBox(height: 18),
-          const Text(
-            '示例课表 · 数据接入教务系统后可自动同步',
-            style: TextStyle(color: AppColors.faint, fontSize: 10),
+          Text(
+            _data.isSample ? '示例课表 · 数据接入教务系统后可自动同步' : '来自研究生教务系统 · 本地缓存',
+            style: const TextStyle(color: AppColors.faint, fontSize: 10),
           ),
         ],
       ),
@@ -134,6 +147,19 @@ class _TimetablePageState extends State<TimetablePage> {
             weekView: _weekView,
             onChanged: (value) => setState(() => _weekView = value),
           ),
+        if (!widget.compact)
+          FilledButton.icon(
+            onPressed: _syncTimetable,
+            icon: const Icon(Icons.sync_rounded, size: 15),
+            label: const Text('同步课表'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              textStyle: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
       ],
     );
 
@@ -146,7 +172,7 @@ class _TimetablePageState extends State<TimetablePage> {
               Expanded(child: title),
               IconButton(
                 tooltip: '同步课表',
-                onPressed: null,
+                onPressed: _syncTimetable,
                 icon: const Icon(Icons.sync_rounded, size: 19),
               ),
             ],

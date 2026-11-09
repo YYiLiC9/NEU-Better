@@ -36,11 +36,13 @@ class TimetableData {
     required this.termName,
     required this.totalWeeks,
     required this.sessions,
+    this.isSample = false,
   });
 
   final String termName;
   final int totalWeeks;
   final List<CourseSession> sessions;
+  final bool isSample;
 
   Set<String> get courseIds => sessions.map((session) => session.id).toSet();
 
@@ -70,6 +72,7 @@ abstract final class SampleTimetable {
   static const data = TimetableData(
     termName: '2026–2027 秋季学期',
     totalWeeks: 16,
+    isSample: true,
     sessions: [
       CourseSession(
         id: 'algorithms',

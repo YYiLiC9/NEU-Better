@@ -14,6 +14,7 @@ import 'package:neu_better_pro/core/crypto/rsa_encryptor.dart';
 import 'package:neu_better_pro/core/network/neu_cas_client.dart';
 import 'package:neu_better_pro/core/network/portal_identity_client.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
+import 'package:neu_better_pro/features/timetable/timetable_import.dart';
 
 class _TestCredentialStore implements CredentialStore {
   _TestCredentialStore([this.credentials]);
@@ -387,4 +388,41 @@ void main() {
     },
     skip: !Platform.isWindows,
   );
+
+  test('parses yjsxk weeks and course rows', () {
+    final data = YjsxkTimetableParser.parse(
+      jsonEncode({
+        'results': [
+          {
+            'WID': 'w1',
+            'BJDM': 'b1',
+            'BJMC': '计算机硕 1 班',
+            'KCMC': '机器学习',
+            'JSXM': '李老师',
+            'JASMC': '浑南 2-305',
+            'ZCMC': '1-8,10-16周',
+            'XQ': '2',
+            'KSJCDM': '3',
+            'JSJCDM': '4',
+          },
+        ],
+        'xkjgList': [
+          {'XNXQMC': '2026-2027 秋季学期'},
+        ],
+      }),
+    );
+
+    expect(data.isSample, isFalse);
+    expect(data.totalWeeks, 16);
+    expect(data.sessions.single.name, '机器学习');
+    expect(data.sessions.single.day, 2);
+    expect(data.sessions.single.startPeriod, 3);
+    expect(data.sessions.single.weeks.contains(9), isFalse);
+    expect(data.sessions.single.weeks.contains(10), isTrue);
+  });
+
+  test('timetable week parser handles single and ranged weeks', () {
+    expect(YjsxkTimetableParser.parseWeeks('第1-4周'), {1, 2, 3, 4});
+    expect(YjsxkTimetableParser.parseWeeks('2,6,8-9周'), {2, 6, 8, 9});
+  });
 }
