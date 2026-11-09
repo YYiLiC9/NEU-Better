@@ -22,7 +22,7 @@
 - 网页登录不要求预先填写学号，登录后从门户 localStorage / 页面内接口识别真实姓名与学号，并与账号密码登录统一显示；
 - Windows 双栏登录页 / Android 移动端 Hero + 浮层表单，统一 A 静蓝视觉；
 - M2 课表：周视图 / 日视图、周次切换、课程卡片、当日课程列表与响应式移动布局；
-- 课表同步：优先“研究生系统（新）—培养—学生课程表”，保留“研究生选课系统（旧）—学生课表查询”作为兜底；未同步时展示示例数据。
+- 课表同步：从“研究生系统（新）—培养—学生课程表”自动读取并保存到本地，启动时自动恢复；未同步时展示示例数据。
 
 ## 平台
 
@@ -81,10 +81,10 @@ tools/                辅助脚本
 .\tools\flutter.cmd build apk --debug
 ```
 
-M1 已验证：
+M1 / M2 已验证：
 
 - `flutter analyze`：No issues found
-- `flutter test`：10 个测试通过
+- `flutter test`：20 个测试通过
 - Windows release：`build\windows\x64\runner\Release\neu_better_pro.exe`
 - Android debug APK：`build\app\outputs\flutter-apk\app-debug.apk`
 

@@ -29,6 +29,34 @@ class CourseSession {
 
   bool isActive(int week) => weeks.contains(week);
   int get span => endPeriod - startPeriod + 1;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'teacher': teacher,
+    'room': room,
+    'className': className,
+    'day': day,
+    'startPeriod': startPeriod,
+    'endPeriod': endPeriod,
+    'weeks': weeks.toList()..sort(),
+  };
+
+  factory CourseSession.fromJson(Map<String, dynamic> json) {
+    return CourseSession(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '未命名课程',
+      teacher: json['teacher'] as String? ?? '',
+      room: json['room'] as String? ?? '',
+      className: json['className'] as String? ?? '',
+      day: (json['day'] as num?)?.toInt() ?? 1,
+      startPeriod: (json['startPeriod'] as num?)?.toInt() ?? 1,
+      endPeriod: (json['endPeriod'] as num?)?.toInt() ?? 1,
+      weeks: ((json['weeks'] as List?) ?? const [])
+          .map((value) => (value as num).toInt())
+          .toSet(),
+    );
+  }
 }
 
 class TimetableData {
@@ -37,12 +65,14 @@ class TimetableData {
     required this.totalWeeks,
     required this.sessions,
     this.isSample = false,
+    this.currentWeek = 8,
   });
 
   final String termName;
   final int totalWeeks;
   final List<CourseSession> sessions;
   final bool isSample;
+  final int currentWeek;
 
   Set<String> get courseIds => sessions.map((session) => session.id).toSet();
 
@@ -64,6 +94,27 @@ class TimetableData {
           .where((session) => session.day == day && session.isActive(week))
           .toList()
         ..sort((a, b) => a.startPeriod.compareTo(b.startPeriod)),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'termName': termName,
+    'totalWeeks': totalWeeks,
+    'currentWeek': currentWeek,
+    'isSample': isSample,
+    'sessions': sessions.map((session) => session.toJson()).toList(),
+  };
+
+  factory TimetableData.fromJson(Map<String, dynamic> json) {
+    return TimetableData(
+      termName: json['termName'] as String? ?? '研究生课程表',
+      totalWeeks: (json['totalWeeks'] as num?)?.toInt() ?? 18,
+      currentWeek: (json['currentWeek'] as num?)?.toInt() ?? 8,
+      isSample: json['isSample'] as bool? ?? false,
+      sessions: ((json['sessions'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((value) => CourseSession.fromJson(Map<String, dynamic>.from(value)))
+          .toList(),
     );
   }
 }

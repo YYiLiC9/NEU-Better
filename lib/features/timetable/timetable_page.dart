@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme/app_theme.dart';
 import 'timetable_models.dart';
+import 'timetable_store.dart';
 import 'yjs_timetable_page.dart';
-import 'yjsxk_timetable_page.dart';
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const _periodStarts = [
@@ -35,9 +35,24 @@ class TimetablePage extends StatefulWidget {
 
 class _TimetablePageState extends State<TimetablePage> {
   TimetableData _data = SampleTimetable.data;
-  int _week = 8;
+  int _week = SampleTimetable.data.currentWeek;
   int _selectedDay = DateTime.now().weekday.clamp(1, 5);
   bool _weekView = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCachedTimetable();
+  }
+
+  Future<void> _loadCachedTimetable() async {
+    final cached = await const TimetableStore().read();
+    if (!mounted || cached == null || !_data.isSample) return;
+    setState(() {
+      _data = cached;
+      _week = cached.currentWeek.clamp(1, _data.totalWeeks);
+    });
+  }
 
   List<CourseSession> get _weekSessions => _data.forWeek(_week);
 
@@ -49,64 +64,15 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   Future<void> _syncTimetable() async {
-    final source = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.white,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '同步课表',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.ink,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                '选择学校提供的课程表来源',
-                style: TextStyle(fontSize: 11, color: AppColors.muted),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.school_rounded),
-                title: const Text('研究生系统（新）'),
-                subtitle: const Text('培养 — 学生课程表'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.pop(context, 'yjs'),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.history_rounded),
-                title: const Text('研究生选课系统（旧）'),
-                subtitle: const Text('学生课表查询'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.pop(context, 'yjsxk'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (source == null || !mounted) return;
     final imported = await Navigator.of(context).push<TimetableData>(
-      MaterialPageRoute(
-        builder: (_) => source == 'yjs'
-            ? const YjsTimetablePage()
-            : const YjsxkTimetablePage(),
-      ),
+      MaterialPageRoute(builder: (_) => const YjsTimetablePage()),
     );
     if (imported == null || !mounted) return;
+    await const TimetableStore().save(imported);
+    if (!mounted) return;
     setState(() {
       _data = imported;
-      _week = _week.clamp(1, _data.totalWeeks);
+      _week = imported.currentWeek.clamp(1, _data.totalWeeks);
       _selectedDay = _selectedDay.clamp(1, 7);
     });
   }

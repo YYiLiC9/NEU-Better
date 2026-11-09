@@ -40,7 +40,7 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
     });
     try {
       if (!Platform.isWindows) {
-        throw const FormatException('当前平台暂不支持新研究生系统同步，请使用旧版选课系统。');
+        throw const FormatException('当前平台暂不支持研究生系统同步，请在 Windows 上使用。');
       }
       final credentials = await const SecureCredentialStore().read();
       if (credentials == null ||
@@ -71,6 +71,7 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
       final data = YjsTimetableParser.parse(
         body,
         fallbackTermName: '研究生课程表',
+        currentWeek: (envelope['currentWeek'] as num?)?.toInt(),
       );
       if (!mounted) return;
       Navigator.of(context).pop<TimetableData>(data);

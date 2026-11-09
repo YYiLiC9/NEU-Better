@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
@@ -14,6 +15,11 @@ import 'portal_identity_client.dart';
 /// fields: a plain HTTP CAS login does not run the portal SPA's JavaScript.
 class WindowsPortalIdentityClient
     implements PortalIdentityClient, PortalLoginIdentityClient {
+  /// WebView2 has one shared environment per process and refuses to
+  /// initialize it while another controller is alive. The identity refresh
+  /// and the timetable sync can overlap, so all headless probes are serialized.
+  static Future<void> _webViewQueue = Future<void>.value();
+
   @override
   Future<StudentIdentity?> fetch(Map<String, String> cookies) async {
     return _withController((controller) async {
@@ -67,7 +73,11 @@ class WindowsPortalIdentityClient
         service:
             'https://yjs.neu.edu.cn/gsapp/sys/yjsemaphome/portal/index.do',
       );
-      if (!logged) return null;
+      if (!logged) {
+        return jsonEncode({
+          'error': '无法打开学校登录页，请稍后重试',
+        });
+      }
       await controller.loadUrl(
         'https://yjs.neu.edu.cn/gsapp/sys/yjsemaphome/portal/index.do',
       );
@@ -161,9 +171,33 @@ class WindowsPortalIdentityClient
           }
         })()
       ''');
-      if (raw is String) return raw;
+      if (raw is String) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            decoded['currentWeek'] = _currentWeekFromUserInfo(userInfo);
+            return jsonEncode(decoded);
+          }
+        } catch (_) {}
+        return raw;
+      }
       return jsonEncode(raw);
     });
+  }
+
+  int? _currentWeekFromUserInfo(Object? rawUserInfo) {
+    if (rawUserInfo is! String || rawUserInfo.trim().isEmpty) return null;
+    try {
+      final payload = jsonDecode(rawUserInfo);
+      if (payload is! Map) return null;
+      final data = payload['data'];
+      if (data is! Map) return null;
+      final words = data['welcomeWords'];
+      final match = RegExp(r'第\s*(\d+)\s*周').firstMatch('${words ?? ''}');
+      return int.tryParse(match?.group(1) ?? '');
+    } catch (_) {
+      return null;
+    }
   }
 
   String? _firstRoleId(Object? rawUserInfo) {
@@ -243,6 +277,11 @@ class WindowsPortalIdentityClient
   Future<T?> _withController<T>(
     Future<T?> Function(WebviewController) body,
   ) async {
+    final done = Completer<void>();
+    final previous = _webViewQueue;
+    _webViewQueue = previous.then((_) => done.future);
+    await previous;
+
     final controller = WebviewController();
     Directory? dataDir;
     try {
@@ -270,6 +309,7 @@ class WindowsPortalIdentityClient
           // WebView2 may keep a lock briefly; the OS temp directory is fine.
         }
       }
+      if (!done.isCompleted) done.complete();
     }
   }
 

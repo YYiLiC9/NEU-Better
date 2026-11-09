@@ -11,7 +11,11 @@ import 'timetable_models.dart';
 /// Converts the payload of the new graduate platform's
 /// `wdkbapp/xskcb/xspkjgcx.do` endpoint into the shared timetable model.
 abstract final class YjsTimetableParser {
-  static TimetableData parse(String payload, {String? fallbackTermName}) {
+  static TimetableData parse(
+    String payload, {
+    String? fallbackTermName,
+    int? currentWeek,
+  }) {
     final decoded = jsonDecode(payload);
     if (decoded is! Map) {
       throw const FormatException('课表返回格式不正确');
@@ -91,6 +95,7 @@ abstract final class YjsTimetableParser {
     return TimetableData(
       termName: termName,
       totalWeeks: maxWeek < 16 ? 16 : maxWeek,
+      currentWeek: currentWeek ?? 8,
       sessions: unique,
       isSample: false,
     );
