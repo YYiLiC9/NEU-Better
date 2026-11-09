@@ -191,9 +191,14 @@ void main() {
   });
 
   test('SavedCredentials round-trips without a password', () {
-    const value = SavedCredentials(username: '20260001');
-    expect(SavedCredentials.decode(value.encode()).username, '20260001');
-    expect(SavedCredentials.decode(value.encode()).password, isNull);
+    const value = SavedCredentials(
+      username: '20260001',
+      displayName: '张三',
+    );
+    final restored = SavedCredentials.decode(value.encode());
+    expect(restored.username, '20260001');
+    expect(restored.password, isNull);
+    expect(restored.displayName, '张三');
   });
 
   test('StudentIdentity extracts id and real name', () {

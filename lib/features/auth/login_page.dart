@@ -23,6 +23,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _obscurePassword = true;
   bool _rememberMe = true;
   bool _rememberCredentials = true;
+  String? _savedDisplayName;
 
   @override
   void initState() {
@@ -33,6 +34,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Future<void> _restoreCredentials() async {
     final saved = await ref.read(credentialStoreProvider).read();
     if (!mounted || saved == null) return;
+    _savedDisplayName = saved.displayName;
     if (_usernameController.text.isEmpty) {
       _usernameController.text = saved.username;
     }
@@ -59,6 +61,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           username: _usernameController.text,
           password: _passwordController.text,
           saveCredentials: _rememberCredentials,
+          initialDisplayName: _savedDisplayName,
         );
   }
 

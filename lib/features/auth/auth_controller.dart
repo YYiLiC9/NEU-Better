@@ -100,6 +100,7 @@ class AuthController extends Notifier<AuthState> {
           username: saved.username,
           password: saved.password!,
           saveCredentials: true,
+          initialDisplayName: saved.displayName,
         );
         return;
       }
@@ -119,6 +120,18 @@ class AuthController extends Notifier<AuthState> {
     } catch (error) {
       debugPrint('[auth] credential read for refresh failed: $error');
     }
+    final cachedName = saved?.displayName?.trim();
+    if (cachedName != null && cachedName.isNotEmpty) {
+      final updated = session.copyWith(displayName: cachedName);
+      if (ref.mounted) {
+        final current = state;
+        if (current is AuthAuthenticated &&
+            current.session.createdAt == session.createdAt) {
+          state = AuthAuthenticated(updated);
+        }
+      }
+      session = updated;
+    }
     if (saved == null || saved.password == null || saved.password!.isEmpty) {
       return;
     }
@@ -133,6 +146,7 @@ class AuthController extends Notifier<AuthState> {
     required String username,
     required String password,
     bool saveCredentials = false,
+    String? initialDisplayName,
   }) async {
     if (state is AuthBusy) return;
     state = const AuthBusy();
@@ -151,6 +165,7 @@ class AuthController extends Notifier<AuthState> {
       final trimmed = username.trim();
       final session = AuthSession(
         studentId: trimmed,
+        displayName: initialDisplayName,
         cookies: result.cookies,
         createdAt: DateTime.now(),
         source: 'cas',
@@ -167,6 +182,7 @@ class AuthController extends Notifier<AuthState> {
           enabled: saveCredentials,
           username: trimmed,
           password: password,
+          displayName: initialDisplayName,
         ),
       );
       // The CAS redirect usually establishes a portal session too. Resolve
@@ -210,7 +226,7 @@ class AuthController extends Notifier<AuthState> {
         ? result.studentId
         : null;
     final id = _firstNonEmpty([resultId, fallbackStudentId, typedUsername]);
-    final name = _firstNonEmpty([result.displayName, id, '已连接学校账号']);
+    final name = _firstNonEmpty([result.displayName, id]);
     final session = AuthSession(
       studentId: id ?? '',
       displayName: name,
@@ -227,7 +243,8 @@ class AuthController extends Notifier<AuthState> {
     final needsIdentityRefresh =
         resultId == null ||
         result.displayName == null ||
-        result.displayName == resultId;
+        result.displayName == resultId ||
+        result.displayName == '已连接学校账号';
     if (needsIdentityRefresh) {
       unawaited(
         _resolveAndPersistIdentity(
@@ -244,6 +261,7 @@ class AuthController extends Notifier<AuthState> {
         enabled: saveCredentials,
         username: id ?? typedUsername ?? '',
         password: typedPassword,
+        displayName: result.displayName,
       ),
     );
   }
@@ -285,6 +303,7 @@ class AuthController extends Notifier<AuthState> {
               enabled: saveCredentials,
               username: identity.studentId!,
               password: typedPassword,
+              displayName: identity.displayName,
             ),
           );
         }
@@ -327,6 +346,7 @@ class AuthController extends Notifier<AuthState> {
     required bool enabled,
     required String username,
     String? password,
+    String? displayName,
   }) async {
     try {
       final store = ref.read(credentialStoreProvider);
@@ -340,6 +360,7 @@ class AuthController extends Notifier<AuthState> {
         SavedCredentials(
           username: trimmed,
           password: password == null || password.isEmpty ? null : password,
+          displayName: displayName,
         ),
       );
     } catch (error) {
