@@ -103,6 +103,11 @@ class AuthController extends Notifier<AuthState> {
           saveCredentials: true,
           initialDisplayName: saved.displayName,
         );
+        // An expired saved password must not leave a scary "登录失败" banner
+        // on the login page before the user has typed anything.
+        if (ref.mounted && state is AuthUnauthenticated) {
+          state = const AuthUnauthenticated();
+        }
         return;
       }
     }
