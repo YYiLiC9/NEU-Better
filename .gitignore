@@ -39,3 +39,7 @@ dist/
 *.msi
 *.apk
 *.aab
+*.lnk
+
+# Local WebView2 runtime data
+/data/

@@ -16,8 +16,10 @@ $env:ANDROID_HOME = Join-Path $tools 'android-sdk'
 $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 $env:ANDROID_USER_HOME = Join-Path $tools 'android-home'
 $env:GRADLE_USER_HOME = Join-Path $tools 'gradle'
+$env:NUGET_HTTP_CACHE_PATH = Join-Path $tools 'nuget-http-cache'
+$env:NUGET_PACKAGES = Join-Path $tools 'nuget-packages'
 
-foreach ($dir in @($env:APPDATA, $env:LOCALAPPDATA, $env:PUB_CACHE, $env:TEMP, $env:ANDROID_USER_HOME)) {
+foreach ($dir in @($env:APPDATA, $env:LOCALAPPDATA, $env:PUB_CACHE, $env:TEMP, $env:ANDROID_USER_HOME, $env:NUGET_HTTP_CACHE_PATH, $env:NUGET_PACKAGES)) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 

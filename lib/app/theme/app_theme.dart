@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
@@ -20,42 +21,51 @@ abstract final class AppTheme {
       surface: Colors.white,
     );
 
+    // Keep the OS font on each platform. On Windows the explicit family
+    // prevents Chinese glyphs from falling back to a different typeface than
+    // the Latin text, which makes headings look uneven at small sizes.
+    final fontFamily = defaultTargetPlatform == TargetPlatform.windows
+        ? 'Microsoft YaHei UI'
+        : null;
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.canvas,
       splashFactory: InkSparkle.splashFactory,
+      fontFamily: fontFamily,
       textTheme: const TextTheme(
         displaySmall: TextStyle(
           color: AppColors.ink,
           fontSize: 42,
           height: 1.18,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -1.2,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.8,
         ),
         headlineSmall: TextStyle(
           color: AppColors.ink,
           fontSize: 22,
           height: 1.3,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w600,
         ),
         titleMedium: TextStyle(
           color: AppColors.ink,
           fontSize: 15,
           height: 1.4,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w500,
         ),
         bodyMedium: TextStyle(
           color: AppColors.muted,
           fontSize: 14,
           height: 1.7,
+          fontWeight: FontWeight.w400,
         ),
         labelMedium: TextStyle(
           color: AppColors.muted,
           fontSize: 12,
           height: 1.4,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.4,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.3,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(

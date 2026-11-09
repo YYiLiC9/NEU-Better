@@ -32,7 +32,8 @@
 - Flutter 3.47.9 / Dart 3.13.7
 - Riverpod、go_router、Dio + CookieJar
 - Drift（SQLite）、flutter_secure_storage
-- webview_all（Windows WebView2 / Android WebView）
+- webview_flutter（Android WebView） / webview_flutter_windows（Windows WebView2）
+- Windows 系统字体：Microsoft YaHei UI
 
 ## 仓库结构
 

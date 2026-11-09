@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -51,7 +53,10 @@ class AuthController extends Notifier<AuthState> {
 
   Future<void> _restore() async {
     try {
-      final session = await ref.read(sessionStoreProvider).read();
+      final session = await ref
+          .read(sessionStoreProvider)
+          .read()
+          .timeout(const Duration(seconds: 4), onTimeout: () => null);
       if (!ref.mounted) return;
       if (session != null && session.hasCookies) {
         state = AuthAuthenticated(session);
@@ -73,10 +78,17 @@ class AuthController extends Notifier<AuthState> {
     state = const AuthBusy();
 
     try {
-      final result = await ref.read(casClientProvider).login(
-            username: username,
-            password: password,
+      debugPrint('[auth] native login start');
+      final result = await ref
+          .read(casClientProvider)
+          .login(username: username, password: password)
+          .timeout(
+            const Duration(seconds: 35),
+            onTimeout: () => throw TimeoutException(
+              'CAS login timed out after 35 seconds',
+            ),
           );
+      debugPrint('[auth] native login response: ${result.finalUri.host}');
       final trimmed = username.trim();
       final session = AuthSession(
         studentId: trimmed,
@@ -85,7 +97,21 @@ class AuthController extends Notifier<AuthState> {
         createdAt: DateTime.now(),
         source: 'cas',
       );
-      await ref.read(sessionStoreProvider).save(session);
+
+      // A broken Windows secure-storage plugin must not leave the login button
+      // spinning forever. The in-memory session still works for this run.
+      try {
+        await ref
+            .read(sessionStoreProvider)
+            .save(session)
+            .timeout(const Duration(seconds: 4));
+        debugPrint('[auth] session saved');
+      } on TimeoutException {
+        debugPrint('[auth] session save timed out; using memory session');
+      } catch (error) {
+        debugPrint('[auth] session save failed: $error');
+      }
+
       if (!ref.mounted) return;
       state = AuthAuthenticated(session);
     } on SecondaryVerificationRequired catch (error) {
@@ -94,6 +120,11 @@ class AuthController extends Notifier<AuthState> {
     } on AuthException catch (error) {
       if (!ref.mounted) return;
       state = AuthUnauthenticated(message: error.message);
+    } on TimeoutException {
+      if (!ref.mounted) return;
+      state = const AuthUnauthenticated(
+        message: '连接学校服务器超时，请检查网络后重试。',
+      );
     } catch (error) {
       if (!ref.mounted) return;
       state = AuthUnauthenticated(message: _friendlyError(error));
@@ -121,7 +152,16 @@ class AuthController extends Notifier<AuthState> {
       createdAt: DateTime.now(),
       source: 'webview',
     );
-    await ref.read(sessionStoreProvider).save(session);
+    try {
+      await ref
+          .read(sessionStoreProvider)
+          .save(session)
+          .timeout(const Duration(seconds: 4));
+    } on TimeoutException {
+      debugPrint('[auth] webview session save timed out; using memory session');
+    } catch (error) {
+      debugPrint('[auth] webview session save failed: $error');
+    }
     if (!ref.mounted) return;
     state = AuthAuthenticated(session);
   }
