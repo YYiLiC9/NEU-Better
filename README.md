@@ -81,7 +81,7 @@ tools/                辅助脚本
 M1 已验证：
 
 - `flutter analyze`：No issues found
-- `flutter test`：2 个测试通过
+- `flutter test`：4 个测试通过
 - Windows release：`build\windows\x64\runner\Release\neu_better_pro.exe`
 - Android debug APK：`build\app\outputs\flutter-apk\app-debug.apk`
 
