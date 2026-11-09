@@ -299,6 +299,34 @@ void main() {
     expect(credentials.credentials?.username, '20260001');
   });
 
+  test('saved credentials auto-login on cold start', () async {
+    final credentials = _TestCredentialStore(
+      const SavedCredentials(
+        username: '20260001',
+        password: 'saved-password',
+      ),
+    );
+    final identity = _TestPortalIdentityClient(
+      const StudentIdentity(studentId: '20260001', displayName: '张三'),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        sessionStoreProvider.overrideWithValue(_TestSessionStore()),
+        credentialStoreProvider.overrideWithValue(credentials),
+        casClientProvider.overrideWithValue(_TestCasClient()),
+        portalIdentityClientProvider.overrideWithValue(identity),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(authControllerProvider);
+
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    final state = container.read(authControllerProvider);
+    expect(state, isA<AuthAuthenticated>());
+    expect((state as AuthAuthenticated).session.studentId, '20260001');
+    expect(state.session.displayName, '张三');
+  });
+
   test('native login refreshes the real name from the portal', () async {
     final credentials = _TestCredentialStore();
     final identity = _TestPortalIdentityClient(
