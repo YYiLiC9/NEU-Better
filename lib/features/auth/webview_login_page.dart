@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Directory, FileSystemException, Platform;
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart' as mobile;
-import 'package:webview_flutter_windows/webview_flutter_windows.dart' as desktop;
+import 'package:webview_flutter_windows/webview_flutter_windows.dart'
+    as desktop;
 
 import '../../app/theme/app_theme.dart';
+import '../../core/auth/student_identity.dart';
+import '../../core/auth/webview_login_result.dart';
 import '../../core/network/neu_cas_client.dart';
 
 /// Browser fallback for QR/device verification or if the CAS page changes.
@@ -21,6 +26,133 @@ class WebViewLoginPage extends StatelessWidget {
         ? const _WindowsWebViewLoginPage()
         : const _AndroidWebViewLoginPage();
   }
+}
+
+const String _captureUsernameScript = r'''
+(() => {
+  function attach() {
+    const input = document.getElementById('un');
+    if (!input || input.dataset.neuBetterCapture === '1') return;
+    input.dataset.neuBetterCapture = '1';
+    function remember() {
+      const value = (input.value || '').trim();
+      if (!value) return;
+      document.cookie = 'neu_better_un=' + encodeURIComponent(value) +
+        '; path=/; max-age=3600; SameSite=Lax';
+    }
+    input.addEventListener('input', remember);
+    input.addEventListener('change', remember);
+    remember();
+  }
+  attach();
+  const observer = new MutationObserver(attach);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+})();
+''';
+
+const String _identityProbeScript = r'''
+(() => {
+  try {
+    const text = [
+      document.body ? document.body.innerText : '',
+      ...Object.values(window.localStorage || {}),
+      ...Object.values(window.sessionStorage || {})
+    ].join('\n');
+    const idMatch = text.match(/(?:学号|账号|用户名|工号)\s*[:：]?\s*(20\d{6,10})/);
+    const idFallback = text.match(/(20\d{6,10})/);
+    const nameMatch = text.match(/(?:姓名|用户姓名|真实姓名)\s*[:：]?\s*([\u4e00-\u9fa5]{2,4})/);
+    return JSON.stringify({
+      studentId: (idMatch && idMatch[1]) || (idFallback && idFallback[1]) || '',
+      displayName: (nameMatch && nameMatch[1]) || '',
+    });
+  } catch (error) {
+    return JSON.stringify({ studentId: '', displayName: '' });
+  }
+})();
+''';
+
+Future<StudentIdentity> _probeAndroidIdentity(
+  mobile.WebViewController controller,
+) async {
+  try {
+    final raw = await controller
+        .runJavaScriptReturningResult(_identityProbeScript)
+        .timeout(const Duration(milliseconds: 1500));
+    return _decodeIdentity(raw);
+  } catch (_) {
+    return const StudentIdentity();
+  }
+}
+
+Future<StudentIdentity> _probeWindowsIdentity(
+  desktop.WebviewController controller,
+) async {
+  try {
+    final raw = await controller
+        .executeScript(_identityProbeScript)
+        .timeout(const Duration(milliseconds: 1500));
+    return _decodeIdentity(raw);
+  } catch (_) {
+    return const StudentIdentity();
+  }
+}
+
+Future<void> _captureAndroidUsername(
+  mobile.WebViewController controller,
+) async {
+  try {
+    await controller.runJavaScript(_captureUsernameScript);
+  } catch (_) {
+    // The page can be in transition while onPageFinished fires.
+  }
+}
+
+StudentIdentity _decodeIdentity(Object? raw) {
+  if (raw is Map) {
+    return _identityFromMap(raw);
+  }
+  if (raw is String) {
+    var value = raw;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) return _identityFromMap(decoded);
+        if (decoded is String) {
+          value = decoded;
+          continue;
+        }
+        break;
+      } catch (_) {
+        break;
+      }
+    }
+  }
+  return const StudentIdentity();
+}
+
+StudentIdentity _identityFromMap(Map<dynamic, dynamic> map) {
+  final id = '${map['studentId'] ?? ''}'.trim();
+  final name = '${map['displayName'] ?? ''}'.trim();
+  return StudentIdentity(
+    studentId: id.isEmpty ? null : id,
+    displayName: name.isEmpty ? null : name,
+  );
+}
+
+String? _cookieStudentId(Iterable<dynamic> cookies) {
+  for (final cookie in cookies) {
+    final name = '${cookie.name}';
+    if (name == 'neu_cas_un' || name == 'neu_better_un') {
+      final value = '${cookie.value}'.trim();
+      if (value.isEmpty) continue;
+      try {
+        return Uri.decodeComponent(value);
+      } catch (_) {
+        return value;
+      }
+    }
+  }
+  return null;
 }
 
 class _AndroidWebViewLoginPage extends StatefulWidget {
@@ -48,6 +180,7 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _loading = false);
+            unawaited(_captureAndroidUsername(_controller));
           },
           onWebResourceError: (_) {
             if (mounted) setState(() => _loading = false);
@@ -62,11 +195,13 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
     setState(() => _reading = true);
     try {
       final result = <String, String>{};
+      final allCookies = <dynamic>[];
       for (final host in const ['pass.neu.edu.cn', 'personal.neu.edu.cn']) {
         final cookies = await mobile.WebViewCookieManager().getCookies(
           domain: Uri.parse('https://$host'),
         );
         if (cookies.isEmpty) continue;
+        allCookies.addAll(cookies);
         final pairs = <String, String>{};
         for (final cookie in cookies) {
           pairs[cookie.name] = cookie.value;
@@ -81,16 +216,27 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
         _showEmptyCookieMessage();
         return;
       }
-      Navigator.of(context).pop(result);
+
+      final pageIdentity = await _probeAndroidIdentity(_controller);
+      final identity = pageIdentity.merge(
+        fallbackStudentId: _cookieStudentId(allCookies),
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(
+        WebViewLoginResult(
+          cookies: result,
+          studentId: identity.studentId,
+          displayName: identity.displayName,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _reading = false);
     }
   }
 
   void _showEmptyCookieMessage() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('还没有取得登录会话，请先在网页中完成登录。')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('还没有取得登录会话，请先在网页中完成登录。')));
   }
 
   @override
@@ -137,7 +283,9 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
       debugPrint('[webview] initializing Windows WebView2');
       Directory dataDir;
       try {
-        dataDir = Directory('${Directory.systemTemp.path}\\NEU Better\\WebView2');
+        dataDir = Directory(
+          '${Directory.systemTemp.path}\\NEU Better\\WebView2',
+        );
         await dataDir.create(recursive: true);
       } on FileSystemException {
         // Some locked-down Windows accounts deny writes under AppData/Temp.
@@ -149,6 +297,9 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
         userDataPath: dataDir.path,
       );
       await controller.initialize();
+      await controller.addScriptToExecuteOnDocumentCreated(
+        _captureUsernameScript,
+      );
       debugPrint('[webview] controller initialized');
       await controller.loadUrl(NeuCasClient.loginUri.toString());
       debugPrint('[webview] loaded CAS page');
@@ -186,12 +337,24 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
       };
       if (!mounted) return;
       if (result.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('还没有取得登录会话，请先在网页中完成登录。')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('还没有取得登录会话，请先在网页中完成登录。')));
         return;
       }
-      Navigator.of(context).pop(result);
+
+      final pageIdentity = await _probeWindowsIdentity(controller);
+      final identity = pageIdentity.merge(
+        fallbackStudentId: _cookieStudentId(cookies),
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(
+        WebViewLoginResult(
+          cookies: result,
+          studentId: identity.studentId,
+          displayName: identity.displayName,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _reading = false);
     }

@@ -2,7 +2,7 @@
 
 东北大学校园客户端（非官方，开源）。目标是用一套 Flutter 代码库覆盖 Windows 与 Android，先解决登录与课表，再逐步扩展其他校园功能。
 
-> 当前阶段：**M1 登录与持久会话**。M0 工程底座与 A 静蓝设计方向已完成；M2 课表待开始。
+> 当前阶段：**M1 登录与持久会话已完成**。M0 工程底座与 A 静蓝设计方向已完成；M2 课表待开始。
 
 ## 为什么做
 
@@ -17,7 +17,9 @@
 
 - 统一身份认证（pass.neu.edu.cn）原生 HTTP 登录，支持 `lt/execution` 表单与 RSA 加密；
 - 登录会话本地加密保存（`flutter_secure_storage`），重启后自动恢复；
+- 可勾选在本机安全保存账号密码，下次打开登录页自动预填；
 - 遇到验证码 / 设备二次验证时，提供 WebView 网页登录兜底，并回传 Cookie；
+- 网页登录不要求预先填写学号，登录后从会话/CAS 页面识别学号或姓名；
 - Windows 双栏登录页 / Android 移动端 Hero + 浮层表单，统一 A 静蓝视觉；
 - 登录成功后的 M1 状态主页，为 M2 课表预留入口。
 
@@ -81,7 +83,7 @@ tools/                辅助脚本
 M1 已验证：
 
 - `flutter analyze`：No issues found
-- `flutter test`：5 个测试通过
+- `flutter test`：10 个测试通过
 - Windows release：`build\windows\x64\runner\Release\neu_better_pro.exe`
 - Android debug APK：`build\app\outputs\flutter-apk\app-debug.apk`
 

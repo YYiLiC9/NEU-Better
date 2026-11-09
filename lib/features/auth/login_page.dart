@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/auth/credential_store.dart';
+import '../../core/auth/webview_login_result.dart';
 import 'auth_controller.dart';
 import 'webview_login_page.dart';
 
@@ -18,6 +22,25 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _rememberMe = true;
+  bool _rememberCredentials = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restoreCredentials());
+  }
+
+  Future<void> _restoreCredentials() async {
+    final saved = await ref.read(credentialStoreProvider).read();
+    if (!mounted || saved == null) return;
+    if (_usernameController.text.isEmpty) {
+      _usernameController.text = saved.username;
+    }
+    if (_passwordController.text.isEmpty && saved.password != null) {
+      _passwordController.text = saved.password!;
+    }
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
@@ -30,27 +53,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (ref.read(authControllerProvider) is AuthBusy) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    await ref.read(authControllerProvider.notifier).login(
+    await ref
+        .read(authControllerProvider.notifier)
+        .login(
           username: _usernameController.text,
           password: _passwordController.text,
+          saveCredentials: _rememberCredentials,
         );
   }
 
   Future<void> _openWebLogin() async {
-    final username = _usernameController.text.trim();
-    if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先填写学号，再使用网页登录。')),
-      );
-      return;
-    }
-    final cookies = await Navigator.of(context).push<Map<String, String>>(
+    final typedUsername = _usernameController.text.trim();
+    final typedPassword = _passwordController.text;
+    final result = await Navigator.of(context).push<WebViewLoginResult>(
       MaterialPageRoute(builder: (_) => const WebViewLoginPage()),
     );
-    if (cookies == null || cookies.isEmpty) return;
-    await ref.read(authControllerProvider.notifier).loginWithCookies(
-          cookies: cookies,
-          username: username,
+    if (result == null || !result.hasCookies) return;
+    await ref
+        .read(authControllerProvider.notifier)
+        .loginWithCookies(
+          result: result,
+          fallbackStudentId: typedUsername.isEmpty ? null : typedUsername,
+          typedUsername: typedUsername.isEmpty ? null : typedUsername,
+          typedPassword: typedPassword.isEmpty ? null : typedPassword,
+          saveCredentials: _rememberCredentials,
         );
   }
 
@@ -58,8 +84,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final busy = authState is AuthBusy;
-    final message =
-        authState is AuthUnauthenticated ? authState.message : null;
+    final message = authState is AuthUnauthenticated ? authState.message : null;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -177,25 +202,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Text(
                   '东北大学 · 一号通',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: AppColors.campusBlue,
-                        letterSpacing: 0.8,
-                      ),
+                    color: AppColors.campusBlue,
+                    letterSpacing: 0.8,
+                  ),
                 ),
               ],
             ),
             SizedBox(height: compact ? 20 : 26),
             Text(
               '登录你的校园',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontSize: compact ? 25 : 28,
-                  ),
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontSize: compact ? 25 : 28),
             ),
             const SizedBox(height: 8),
             Text(
               '使用学校统一身份认证账号登录。登录状态只保存在本机。',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontSize: compact ? 12 : 13,
-                  ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontSize: compact ? 12 : 13),
             ),
             SizedBox(height: compact ? 20 : 24),
             const _LoginTabs(),
@@ -280,6 +303,38 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ),
               ],
             ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: Checkbox(
+                    value: _rememberCredentials,
+                    onChanged: busy
+                        ? null
+                        : (value) {
+                            setState(
+                              () => _rememberCredentials = value ?? true,
+                            );
+                          },
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  '保存账号密码',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+                const Spacer(),
+                const Text(
+                  '使用系统安全存储',
+                  style: TextStyle(color: AppColors.faint, fontSize: 10),
+                ),
+              ],
+            ),
             if (message != null && message.isNotEmpty) ...[
               const SizedBox(height: 14),
               _ErrorBanner(message: message),
@@ -314,7 +369,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               child: TextButton.icon(
                 onPressed: busy ? null : _openWebLogin,
                 icon: const Icon(Icons.open_in_browser_rounded, size: 16),
-                label: const Text('遇到验证码 / 二次验证？使用网页登录'),
+                label: const Text('使用学校网页登录（验证码 / 二次验证）'),
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.campusBlue,
                   textStyle: const TextStyle(fontSize: 11),
@@ -711,9 +766,7 @@ class _Ring extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white.withValues(alpha: opacity),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: opacity)),
       ),
     );
   }
@@ -758,10 +811,7 @@ class _BrandPoint extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               description,
-              style: const TextStyle(
-                color: Color(0x99FFFFFF),
-                fontSize: 9,
-              ),
+              style: const TextStyle(color: Color(0x99FFFFFF), fontSize: 9),
             ),
           ],
         ),

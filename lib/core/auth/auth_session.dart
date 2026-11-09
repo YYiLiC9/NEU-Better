@@ -97,9 +97,11 @@ class AuthSession {
   /// A readable account label for the shell, falling back to the student id.
   String get accountLabel {
     final name = displayName?.trim();
-    if (name != null && name.isNotEmpty && name != studentId) {
+    final id = studentId.trim();
+    if (name != null && name.isNotEmpty && name != id) {
       return name;
     }
-    return studentId;
+    if (id.isNotEmpty) return id;
+    return '已登录';
   }
 }

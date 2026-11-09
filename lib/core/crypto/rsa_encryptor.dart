@@ -33,17 +33,14 @@ abstract final class NeuRsaEncryptor {
   }
 
   static RSAPublicKey _parsePublicKey(String base64Value) {
-    final parser = ASN1Parser(
-      Uint8List.fromList(base64Decode(base64Value)),
-    );
+    final parser = ASN1Parser(Uint8List.fromList(base64Decode(base64Value)));
     final spki = parser.nextObject() as ASN1Sequence;
     final bitString = spki.elements[1] as ASN1BitString;
 
     final keyParser = ASN1Parser(Uint8List.fromList(bitString.stringValue));
     final rsaSequence = keyParser.nextObject() as ASN1Sequence;
     final modulus = (rsaSequence.elements[0] as ASN1Integer).valueAsBigInteger;
-    final exponent =
-        (rsaSequence.elements[1] as ASN1Integer).valueAsBigInteger;
+    final exponent = (rsaSequence.elements[1] as ASN1Integer).valueAsBigInteger;
 
     return RSAPublicKey(modulus, exponent);
   }

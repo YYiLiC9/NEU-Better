@@ -257,10 +257,7 @@ class _StatusCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          Text(
-            '工程底座已就绪',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
+          Text('工程底座已就绪', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
             'Flutter 空壳已能在 Windows 与 Android 上运行。'

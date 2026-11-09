@@ -30,11 +30,9 @@ class NeuCasClient implements CasClient {
       'https://personal.neu.edu.cn/portal/manage/common/cas_login/1'
       '?redirect=https%3A%2F%2Fpersonal.neu.edu.cn%2Fportal';
 
-  static final Uri loginUri = Uri.https(
-    'pass.neu.edu.cn',
-    '/tpass/login',
-    {'service': service},
-  );
+  static final Uri loginUri = Uri.https('pass.neu.edu.cn', '/tpass/login', {
+    'service': service,
+  });
 
   final Dio _dio;
   final Map<String, Map<String, String>> _cookies = {};
@@ -128,8 +126,9 @@ class NeuCasClient implements CasClient {
         options: Options(
           method: currentMethod,
           followRedirects: false,
-          contentType:
-              currentForm == null ? null : Headers.formUrlEncodedContentType,
+          contentType: currentForm == null
+              ? null
+              : Headers.formUrlEncodedContentType,
           headers: _cookieHeader(current),
         ),
       );
@@ -161,7 +160,8 @@ class NeuCasClient implements CasClient {
     final values = <String>[];
     for (final entry in _cookies.entries) {
       final domain = entry.key;
-      final matches = uri.host == domain ||
+      final matches =
+          uri.host == domain ||
           uri.host.endsWith('.$domain') ||
           domain.endsWith('.${uri.host}');
       if (!matches) continue;

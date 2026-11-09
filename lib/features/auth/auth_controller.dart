@@ -5,7 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_exception.dart';
 import '../../core/auth/auth_session.dart';
+import '../../core/auth/credential_store.dart';
+import '../../core/auth/saved_credentials.dart';
 import '../../core/auth/session_store.dart';
+import '../../core/auth/webview_login_result.dart';
 import '../../core/network/neu_cas_client.dart';
 
 sealed class AuthState {
@@ -57,7 +60,7 @@ class AuthController extends Notifier<AuthState> {
           .read(sessionStoreProvider)
           .read()
           .timeout(const Duration(seconds: 4), onTimeout: () => null);
-      if (!ref.mounted) return;
+      if (!ref.mounted || state is! AuthInitial) return;
       if (session != null && session.hasCookies) {
         state = AuthAuthenticated(session);
       } else {
@@ -65,7 +68,7 @@ class AuthController extends Notifier<AuthState> {
       }
     } catch (error) {
       debugPrint('NEU Better session restore failed: $error');
-      if (!ref.mounted) return;
+      if (!ref.mounted || state is! AuthInitial) return;
       state = const AuthUnauthenticated();
     }
   }
@@ -73,6 +76,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> login({
     required String username,
     required String password,
+    bool saveCredentials = false,
   }) async {
     if (state is AuthBusy) return;
     state = const AuthBusy();
@@ -84,9 +88,8 @@ class AuthController extends Notifier<AuthState> {
           .login(username: username, password: password)
           .timeout(
             const Duration(seconds: 35),
-            onTimeout: () => throw TimeoutException(
-              'CAS login timed out after 35 seconds',
-            ),
+            onTimeout: () =>
+                throw TimeoutException('CAS login timed out after 35 seconds'),
           );
       debugPrint('[auth] native login response: ${result.finalUri.host}');
       final trimmed = username.trim();
@@ -98,22 +101,19 @@ class AuthController extends Notifier<AuthState> {
         source: 'cas',
       );
 
-      // A broken Windows secure-storage plugin must not leave the login button
-      // spinning forever. The in-memory session still works for this run.
-      try {
-        await ref
-            .read(sessionStoreProvider)
-            .save(session)
-            .timeout(const Duration(seconds: 4));
-        debugPrint('[auth] session saved');
-      } on TimeoutException {
-        debugPrint('[auth] session save timed out; using memory session');
-      } catch (error) {
-        debugPrint('[auth] session save failed: $error');
-      }
-
       if (!ref.mounted) return;
+      // Show the home page first. Secure-storage persistence is deliberately
+      // fire-and-forget so a broken Windows plugin cannot hold the login
+      // button in a spinner.
       state = AuthAuthenticated(session);
+      unawaited(_persistSession(session));
+      unawaited(
+        _persistCredentials(
+          enabled: saveCredentials,
+          username: trimmed,
+          password: password,
+        ),
+      );
     } on SecondaryVerificationRequired catch (error) {
       if (!ref.mounted) return;
       state = AuthUnauthenticated(message: error.message);
@@ -122,9 +122,7 @@ class AuthController extends Notifier<AuthState> {
       state = AuthUnauthenticated(message: error.message);
     } on TimeoutException {
       if (!ref.mounted) return;
-      state = const AuthUnauthenticated(
-        message: '连接学校服务器超时，请检查网络后重试。',
-      );
+      state = const AuthUnauthenticated(message: '连接学校服务器超时，请检查网络后重试。');
     } catch (error) {
       if (!ref.mounted) return;
       state = AuthUnauthenticated(message: _friendlyError(error));
@@ -132,42 +130,86 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> loginWithCookies({
-    required Map<String, String> cookies,
-    String? username,
+    required WebViewLoginResult result,
+    String? fallbackStudentId,
+    String? typedUsername,
+    String? typedPassword,
+    bool saveCredentials = false,
   }) async {
-    if (cookies.values.every((value) => value.trim().isEmpty)) {
-      state = const AuthUnauthenticated(
-        message: '网页登录没有返回有效会话，请重试。',
-      );
+    if (!result.hasCookies) {
+      state = const AuthUnauthenticated(message: '网页登录没有返回有效会话，请重试。');
       return;
     }
 
-    final id = username?.trim() ?? '';
-    if (id.isEmpty) {
-      state = const AuthUnauthenticated(
-        message: '网页登录需要先填写学号，才能识别当前账号。',
-      );
-      return;
-    }
+    final id = _firstNonEmpty([
+      result.studentId,
+      fallbackStudentId,
+      typedUsername,
+    ]);
+    final name = _firstNonEmpty([result.displayName, id, '已登录']);
     final session = AuthSession(
-      studentId: id,
-      displayName: id,
-      cookies: cookies,
+      studentId: id ?? '',
+      displayName: name,
+      cookies: result.cookies,
       createdAt: DateTime.now(),
       source: 'webview',
     );
+
+    if (!ref.mounted) return;
+    // Do not wait for secure storage here. The webview "完成" action must
+    // return to the shell immediately; persistence is best-effort background
+    // work.
+    state = AuthAuthenticated(session);
+    unawaited(_persistSession(session));
+    unawaited(
+      _persistCredentials(
+        enabled: saveCredentials,
+        username: id ?? typedUsername ?? '',
+        password: typedPassword,
+      ),
+    );
+  }
+
+  Future<void> _persistSession(AuthSession session) async {
     try {
       await ref
           .read(sessionStoreProvider)
           .save(session)
           .timeout(const Duration(seconds: 4));
+      debugPrint('[auth] session saved');
     } on TimeoutException {
-      debugPrint('[auth] webview session save timed out; using memory session');
+      debugPrint('[auth] session save timed out; using memory session');
     } catch (error) {
-      debugPrint('[auth] webview session save failed: $error');
+      debugPrint('[auth] session save failed: $error');
     }
-    if (!ref.mounted) return;
-    state = AuthAuthenticated(session);
+  }
+
+  Future<void> _persistCredentials({
+    required bool enabled,
+    required String username,
+    String? password,
+  }) async {
+    final store = ref.read(credentialStoreProvider);
+    if (!enabled) {
+      await store.clear();
+      return;
+    }
+    final trimmed = username.trim();
+    if (trimmed.isEmpty) return;
+    await store.save(
+      SavedCredentials(
+        username: trimmed,
+        password: password == null || password.isEmpty ? null : password,
+      ),
+    );
+  }
+
+  static String? _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    }
+    return null;
   }
 
   Future<void> logout() async {
@@ -192,8 +234,7 @@ class AuthController extends Notifier<AuthState> {
     if (text.contains('SocketException') || text.contains('Connection')) {
       return '网络连接失败，请检查网络后重试。';
     }
-    if (text.contains('HandshakeException') ||
-        text.contains('certificate')) {
+    if (text.contains('HandshakeException') || text.contains('certificate')) {
       return '无法建立安全连接，请稍后重试或使用网页登录。';
     }
     if (text.contains('TimeoutException')) {

@@ -71,7 +71,10 @@ abstract final class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 15,
+          vertical: 16,
+        ),
         hintStyle: const TextStyle(
           color: AppColors.faint,
           fontSize: 13,
@@ -109,7 +112,9 @@ abstract final class AppTheme {
           backgroundColor: AppColors.campusBlue,
           foregroundColor: Colors.white,
           minimumSize: const Size(0, 48),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(11),
+          ),
           textStyle: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,

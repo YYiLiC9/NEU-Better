@@ -9,6 +9,5 @@ class AuthException implements Exception {
 
 /// The account/password step succeeded, but CAS requires a device or QR check.
 class SecondaryVerificationRequired extends AuthException {
-  const SecondaryVerificationRequired()
-      : super('学校要求进行一次设备验证，请使用网页登录。');
+  const SecondaryVerificationRequired() : super('学校要求进行一次设备验证，请使用网页登录。');
 }

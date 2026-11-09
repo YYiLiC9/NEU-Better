@@ -16,7 +16,9 @@ class HomePage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
-        child: compact ? _buildCompact(context, ref) : _buildDesktop(context, ref),
+        child: compact
+            ? _buildCompact(context, ref)
+            : _buildDesktop(context, ref),
       ),
     );
   }
@@ -37,14 +39,24 @@ class HomePage extends ConsumerWidget {
                 padding: EdgeInsets.fromLTRB(22, 24, 18, 28),
                 child: _Brand(),
               ),
-              const _NavItem(icon: Icons.calendar_month_outlined, label: '课表', active: true),
-              const _NavItem(icon: Icons.notifications_none_rounded, label: '通知'),
+              const _NavItem(
+                icon: Icons.calendar_month_outlined,
+                label: '课表',
+                active: true,
+              ),
+              const _NavItem(
+                icon: Icons.notifications_none_rounded,
+                label: '通知',
+              ),
               const _NavItem(icon: Icons.mail_outline_rounded, label: '邮件'),
               const _NavItem(icon: Icons.electric_bolt_outlined, label: '寝室用电'),
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: _AccountTile(session: session, onLogout: () => _logout(ref)),
+                child: _AccountTile(
+                  session: session,
+                  onLogout: () => _logout(ref),
+                ),
               ),
             ],
           ),
@@ -169,7 +181,11 @@ class _Brand extends StatelessWidget {
 }
 
 class _NavItem extends StatelessWidget {
-  const _NavItem({required this.icon, required this.label, this.active = false});
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    this.active = false,
+  });
 
   final IconData icon;
   final String label;
@@ -296,9 +312,8 @@ class _TopBar extends StatelessWidget {
           children: [
             Text(
               '下午好，${session.accountLabel}',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontSize: 28,
-                  ),
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontSize: 28),
             ),
             const SizedBox(height: 5),
             const Text(
@@ -394,7 +409,9 @@ class _WelcomeCard extends StatelessWidget {
               ),
               const SizedBox(height: 9),
               Text(
-                '账号 ${session.studentId} · 下次打开会自动恢复登录状态。',
+                session.studentId.trim().isEmpty
+                    ? '已连接学校账号 · 下次打开会自动恢复登录状态。'
+                    : '账号 ${session.studentId} · 下次打开会自动恢复登录状态。',
                 style: const TextStyle(
                   color: Color(0xB3FFFFFF),
                   fontSize: 11,
@@ -436,10 +453,7 @@ class _Pill extends StatelessWidget {
         children: [
           Icon(icon, color: Colors.white, size: 13),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontSize: 9),
-          ),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 9)),
         ],
       ),
     );
@@ -548,7 +562,9 @@ class _StepLine extends StatelessWidget {
       child: Container(
         height: 1,
         margin: const EdgeInsets.symmetric(horizontal: 6),
-        color: done ? AppColors.campusBlue.withValues(alpha: 0.4) : AppColors.line,
+        color: done
+            ? AppColors.campusBlue.withValues(alpha: 0.4)
+            : AppColors.line,
       ),
     );
   }
