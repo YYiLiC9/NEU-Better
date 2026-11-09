@@ -142,9 +142,13 @@ class AuthController extends Notifier<AuthState> {
       return;
     }
 
-    final id = (username == null || username.trim().isEmpty)
-        ? '东北大学用户'
-        : username.trim();
+    final id = username?.trim() ?? '';
+    if (id.isEmpty) {
+      state = const AuthUnauthenticated(
+        message: '网页登录需要先填写学号，才能识别当前账号。',
+      );
+      return;
+    }
     final session = AuthSession(
       studentId: id,
       displayName: id,
@@ -167,9 +171,20 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> logout() async {
-    await ref.read(sessionStoreProvider).clear();
-    if (!ref.mounted) return;
+    // Show the login screen immediately; secure-storage deletion can block on
+    // some Windows ACL setups and must not make the logout button feel dead.
     state = const AuthUnauthenticated();
+    try {
+      await ref
+          .read(sessionStoreProvider)
+          .clear()
+          .timeout(const Duration(seconds: 3));
+      debugPrint('[auth] session cleared');
+    } on TimeoutException {
+      debugPrint('[auth] session clear timed out');
+    } catch (error) {
+      debugPrint('[auth] session clear failed: $error');
+    }
   }
 
   String _friendlyError(Object error) {

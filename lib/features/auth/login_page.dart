@@ -37,13 +37,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _openWebLogin() async {
+    final username = _usernameController.text.trim();
+    if (username.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先填写学号，再使用网页登录。')),
+      );
+      return;
+    }
     final cookies = await Navigator.of(context).push<Map<String, String>>(
       MaterialPageRoute(builder: (_) => const WebViewLoginPage()),
     );
     if (cookies == null || cookies.isEmpty) return;
     await ref.read(authControllerProvider.notifier).loginWithCookies(
           cookies: cookies,
-          username: _usernameController.text,
+          username: username,
         );
   }
 
