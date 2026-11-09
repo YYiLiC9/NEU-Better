@@ -135,8 +135,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('登录成功，会话已保存。'), findsOneWidget);
-    expect(find.text('MILESTONE 1 · 登录'), findsOneWidget);
+    expect(find.text('我的课表'), findsOneWidget);
+    expect(find.text('2026–2027 秋季学期 · 第 8 周'), findsOneWidget);
     expect(find.text('测试同学'), findsWidgets);
   });
 
