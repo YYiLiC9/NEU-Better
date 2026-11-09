@@ -40,6 +40,12 @@ class NeuCasClient implements CasClient {
     'service': service,
   });
 
+  static Uri loginUriForService(String targetService) {
+    return Uri.https('pass.neu.edu.cn', '/tpass/login', {
+      'service': targetService,
+    });
+  }
+
   final Dio _dio;
   final Map<String, Map<String, String>> _cookies = {};
   String? _serviceTicket;
@@ -67,18 +73,25 @@ class NeuCasClient implements CasClient {
   Future<CasLoginResult> login({
     required String username,
     required String password,
+    String? service,
   }) async {
     final trimmedUsername = username.trim();
     if (trimmedUsername.isEmpty || password.isEmpty) {
       throw const AuthException('学号和密码不能为空。');
     }
 
+    final targetLoginUri = service == null
+        ? loginUri
+        : loginUriForService(service);
+
     // Visit the portal first so the portal's own session cookies exist before
     // the CAS ticket is issued. Without this bootstrap, the CAS redirect lands
     // on the portal shell but the portal session is not authenticated.
-    await _request(Uri.parse('https://personal.neu.edu.cn/portal'));
+    if (service == null) {
+      await _request(Uri.parse('https://personal.neu.edu.cn/portal'));
+    }
 
-    final loginPage = await _request(loginUri);
+    final loginPage = await _request(targetLoginUri);
     if (loginPage.statusCode != 200) {
       throw AuthException('无法打开学校登录页（HTTP ${loginPage.statusCode}）。');
     }
@@ -91,7 +104,7 @@ class NeuCasClient implements CasClient {
 
     final encrypted = NeuRsaEncryptor.encrypt('$trimmedUsername$password');
     final response = await _request(
-      loginUri,
+      targetLoginUri,
       method: 'POST',
       form: {
         'un': trimmedUsername,

@@ -443,4 +443,32 @@ void main() {
     expect(YjsxkTimetableParser.parseWeeks('第1-4周'), {1, 2, 3, 4});
     expect(YjsxkTimetableParser.parseWeeks('2,6,8-9周'), {2, 6, 8, 9});
   });
+
+  test('parses new graduate platform timetable rows', () {
+    final data = YjsTimetableParser.parse(
+      jsonEncode({
+        'datas': {
+          'xspkjgcx': {
+            'rows': [
+              {
+                'KCMC': '高级机器学习',
+                'SKJS': '王老师',
+                'SKDD': '浑南 1-101',
+                'XQJ': '1',
+                'KSJC': '1',
+                'JSJC': '2',
+                'ZCMC': '1-16周',
+                'XNXQMC': '2026-2027 秋季学期',
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(data.isSample, isFalse);
+    expect(data.sessions.single.name, '高级机器学习');
+    expect(data.sessions.single.day, 1);
+    expect(data.sessions.single.startPeriod, 1);
+    expect(data.sessions.single.endPeriod, 2);
+  });
 }
