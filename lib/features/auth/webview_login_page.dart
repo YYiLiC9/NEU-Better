@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show Directory, FileSystemException, Platform;
 
 import 'package:flutter/material.dart';
@@ -53,92 +52,6 @@ const String _captureUsernameScript = r'''
 })();
 ''';
 
-const String _identityProbeScript = r'''
-(() => {
-  try {
-    let info = null;
-    const host = window.location.hostname;
-    // The portal is a same-origin Vue SPA. Its own API is authoritative and
-    // avoids guessing an account number from arbitrary page text.
-    if (host === 'personal.neu.edu.cn' || host.endsWith('.personal.neu.edu.cn')) {
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', '/site/user_info?t=' + Date.now(), false);
-        xhr.withCredentials = true;
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('Source-Version', '0');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.send(null);
-        if (xhr.status === 200) {
-          const payload = JSON.parse(xhr.responseText);
-          if (Number(payload.e) === 0 && payload.d) info = payload.d;
-        }
-      } catch (_) {}
-    }
-
-    let cached = null;
-    try {
-      const raw = window.localStorage.getItem('userInfo') ||
-        window.localStorage.getItem('hitstudent_userInfo');
-      if (raw) cached = JSON.parse(raw);
-    } catch (_) {}
-
-    let cookieId = '';
-    try {
-      const match = document.cookie.match(/(?:^|;\s*)neu_better_un=([^;]+)/);
-      if (match) cookieId = decodeURIComponent(match[1]);
-    } catch (_) {}
-
-    const infoId = info && info.user_number ? String(info.user_number) : '';
-    const cachedId = cached && cached.user_number ? String(cached.user_number) : '';
-    // Never trust a cached id unless it matches the id the user just typed in
-    // the CAS form; this prevents an old WebView cache from showing another
-    // account's number.
-    const id = infoId || (cachedId && cookieId && cachedId === cookieId ? cachedId : '');
-    const name = info && info.user_name
-      ? String(info.user_name)
-      : (cached && cached.user_name ? String(cached.user_name) : '');
-
-    const text = document.body ? document.body.innerText : '';
-    const labeledId = text.match(/(?:学号|账号|用户名|工号)\s*[:：]?\s*(\d{8,12})/);
-    const labeledName = text.match(/(?:姓名|用户姓名|真实姓名)\s*[:：]?\s*([\u4e00-\u9fa5]{2,8})/);
-
-    return JSON.stringify({
-      studentId: id || (labeledId ? labeledId[1] : ''),
-      displayName: name || (labeledName ? labeledName[1] : ''),
-    });
-  } catch (error) {
-    return JSON.stringify({ studentId: '', displayName: '' });
-  }
-})();
-''';
-
-Future<StudentIdentity> _probeAndroidIdentity(
-  mobile.WebViewController controller,
-) async {
-  try {
-    final raw = await controller
-        .runJavaScriptReturningResult(_identityProbeScript)
-        .timeout(const Duration(milliseconds: 1500));
-    return _decodeIdentity(raw);
-  } catch (_) {
-    return const StudentIdentity();
-  }
-}
-
-Future<StudentIdentity> _probeWindowsIdentity(
-  desktop.WebviewController controller,
-) async {
-  try {
-    final raw = await controller
-        .executeScript(_identityProbeScript)
-        .timeout(const Duration(milliseconds: 1500));
-    return _decodeIdentity(raw);
-  } catch (_) {
-    return const StudentIdentity();
-  }
-}
-
 Future<void> _captureAndroidUsername(
   mobile.WebViewController controller,
 ) async {
@@ -147,38 +60,6 @@ Future<void> _captureAndroidUsername(
   } catch (_) {
     // The page can be in transition while onPageFinished fires.
   }
-}
-
-StudentIdentity _decodeIdentity(Object? raw) {
-  if (raw is Map) {
-    return _identityFromMap(raw);
-  }
-  if (raw is String) {
-    var value = raw;
-    for (var attempt = 0; attempt < 3; attempt++) {
-      try {
-        final decoded = jsonDecode(value);
-        if (decoded is Map) return _identityFromMap(decoded);
-        if (decoded is String) {
-          value = decoded;
-          continue;
-        }
-        break;
-      } catch (_) {
-        break;
-      }
-    }
-  }
-  return const StudentIdentity();
-}
-
-StudentIdentity _identityFromMap(Map<dynamic, dynamic> map) {
-  final id = '${map['studentId'] ?? ''}'.trim();
-  final name = '${map['displayName'] ?? ''}'.trim();
-  return StudentIdentity(
-    studentId: id.isEmpty ? null : id,
-    displayName: name.isEmpty ? null : name,
-  );
 }
 
 String? _cookieStudentId(Iterable<dynamic> cookies) {
@@ -261,16 +142,15 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
         return;
       }
 
-      final pageIdentity = await _probeAndroidIdentity(_controller);
-      final identity = pageIdentity.merge(
-        fallbackStudentId: _cookieStudentId(allCookies),
-      );
+      // Pop immediately. The shell resolves the authoritative portal profile
+      // in the background; waiting for another JS probe here makes "完成"
+      // feel like the login page is hanging.
+      final studentId = _cookieStudentId(allCookies);
       if (!mounted) return;
       Navigator.of(context).pop(
         WebViewLoginResult(
           cookies: result,
-          studentId: identity.studentId,
-          displayName: identity.displayName,
+          studentId: studentId,
         ),
       );
     } finally {
@@ -387,16 +267,14 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
         return;
       }
 
-      final pageIdentity = await _probeWindowsIdentity(controller);
-      final identity = pageIdentity.merge(
-        fallbackStudentId: _cookieStudentId(cookies),
-      );
+      // Pop immediately; the shell refreshes identity from /site/user_info
+      // without holding the WebView page open.
+      final studentId = _cookieStudentId(cookies);
       if (!mounted) return;
       Navigator.of(context).pop(
         WebViewLoginResult(
           cookies: result,
-          studentId: identity.studentId,
-          displayName: identity.displayName,
+          studentId: studentId,
         ),
       );
     } finally {
