@@ -189,19 +189,23 @@ class AuthController extends Notifier<AuthState> {
     required String username,
     String? password,
   }) async {
-    final store = ref.read(credentialStoreProvider);
-    if (!enabled) {
-      await store.clear();
-      return;
+    try {
+      final store = ref.read(credentialStoreProvider);
+      if (!enabled) {
+        await store.clear();
+        return;
+      }
+      final trimmed = username.trim();
+      if (trimmed.isEmpty) return;
+      await store.save(
+        SavedCredentials(
+          username: trimmed,
+          password: password == null || password.isEmpty ? null : password,
+        ),
+      );
+    } catch (error) {
+      debugPrint('[auth] credential update failed: $error');
     }
-    final trimmed = username.trim();
-    if (trimmed.isEmpty) return;
-    await store.save(
-      SavedCredentials(
-        username: trimmed,
-        password: password == null || password.isEmpty ? null : password,
-      ),
-    );
   }
 
   static String? _firstNonEmpty(Iterable<String?> values) {

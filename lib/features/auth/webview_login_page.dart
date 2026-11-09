@@ -45,8 +45,11 @@ const String _captureUsernameScript = r'''
     remember();
   }
   attach();
-  const observer = new MutationObserver(attach);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  const root = document.documentElement;
+  if (root) {
+    const observer = new MutationObserver(attach);
+    observer.observe(root, { childList: true, subtree: true });
+  }
 })();
 ''';
 
