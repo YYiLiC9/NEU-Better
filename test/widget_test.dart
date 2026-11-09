@@ -67,6 +67,32 @@ void main() {
     expect(find.text('测试同学'), findsWidgets);
   });
 
+  testWidgets('logout returns from the home page to the login page', (
+    tester,
+  ) async {
+    final session = AuthSession(
+      studentId: '20260001',
+      displayName: '20260001',
+      cookies: const {'pass.neu.edu.cn': 'JSESSIONID=abc'},
+      createdAt: DateTime.utc(2026, 11, 8, 8),
+      source: 'cas',
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(_TestSessionStore(session)),
+        ],
+        child: const NeuBetterApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('退出登录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('登录你的校园'), findsOneWidget);
+  });
+
   test('AuthSession survives a JSON round trip', () {
     final session = AuthSession(
       studentId: '20260001',
