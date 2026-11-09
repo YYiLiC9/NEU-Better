@@ -1,14 +1,20 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../auth/auth_exception.dart';
 import '../crypto/rsa_encryptor.dart';
 
 class CasLoginResult {
-  const CasLoginResult({required this.cookies, required this.finalUri});
+  const CasLoginResult({
+    required this.cookies,
+    required this.finalUri,
+    this.serviceTicket,
+  });
 
   /// Cookie header values keyed by host.
   final Map<String, String> cookies;
   final Uri finalUri;
+  final String? serviceTicket;
 }
 
 abstract interface class CasClient {
@@ -36,6 +42,7 @@ class NeuCasClient implements CasClient {
 
   final Dio _dio;
   final Map<String, Map<String, String>> _cookies = {};
+  String? _serviceTicket;
 
   static Dio _buildDio() {
     return Dio(
@@ -66,6 +73,11 @@ class NeuCasClient implements CasClient {
       throw const AuthException('学号和密码不能为空。');
     }
 
+    // Visit the portal first so the portal's own session cookies exist before
+    // the CAS ticket is issued. Without this bootstrap, the CAS redirect lands
+    // on the portal shell but the portal session is not authenticated.
+    await _request(Uri.parse('https://personal.neu.edu.cn/portal'));
+
     final loginPage = await _request(loginUri);
     if (loginPage.statusCode != 200) {
       throw AuthException('无法打开学校登录页（HTTP ${loginPage.statusCode}）。');
@@ -93,6 +105,12 @@ class NeuCasClient implements CasClient {
       },
     );
 
+    debugPrint(
+      '[cas] final=${response.uri} status=${response.statusCode} '
+      'bodyLen=${response.body.length} '
+      'hasLogin=${response.body.contains('登录')} '
+      'hasError=${response.body.contains('错误')}',
+    );
     final finalHost = response.uri.host;
     if (finalHost == 'pass.neu.edu.cn') {
       final error = _errorMessage(response.body);
@@ -107,7 +125,11 @@ class NeuCasClient implements CasClient {
     if (cookies.isEmpty) {
       throw const AuthException('登录成功但未取得会话，请重试。');
     }
-    return CasLoginResult(cookies: cookies, finalUri: response.uri);
+    return CasLoginResult(
+      cookies: cookies,
+      finalUri: response.uri,
+      serviceTicket: _serviceTicket,
+    );
   }
 
   Future<_HttpPage> _request(
@@ -136,8 +158,11 @@ class NeuCasClient implements CasClient {
       _captureCookies(current, response.headers);
       final status = response.statusCode ?? 0;
       final location = response.headers.value('location');
+      debugPrint('[cas] $status ${current.path} -> ${location ?? ""}');
       if (status >= 300 && status < 400 && location != null) {
         final next = current.resolve(location);
+        final ticket = next.queryParameters['ticket'];
+        if (ticket != null && ticket.isNotEmpty) _serviceTicket = ticket;
         if (status == 303 || (status == 302 && currentMethod != 'GET')) {
           currentMethod = 'GET';
           currentForm = null;

@@ -43,3 +43,6 @@ dist/
 
 # Local WebView2 runtime data
 /data/
+
+# Local test account (never commit)
+账号.txt

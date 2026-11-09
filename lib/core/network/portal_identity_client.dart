@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/student_identity.dart';
+import 'windows_portal_identity_client.dart';
 
 /// Fetches the authenticated student's identity from the personal portal.
 ///
@@ -12,6 +14,15 @@ import '../auth/student_identity.dart';
 /// `GET https://personal.neu.edu.cn/site/user_info`.
 abstract interface class PortalIdentityClient {
   Future<StudentIdentity?> fetch(Map<String, String> cookies);
+}
+
+/// A portal client that can perform a full browser login when a native CAS
+/// session cannot create the portal's own SPA cookie (`cookie_vjuid_login`).
+abstract interface class PortalLoginIdentityClient {
+  Future<StudentIdentity?> fetchWithCredentials({
+    required String username,
+    required String password,
+  });
 }
 
 class HttpPortalIdentityClient implements PortalIdentityClient {
@@ -104,5 +115,6 @@ class HttpPortalIdentityClient implements PortalIdentityClient {
 }
 
 final portalIdentityClientProvider = Provider<PortalIdentityClient>((ref) {
+  if (Platform.isWindows) return WindowsPortalIdentityClient();
   return HttpPortalIdentityClient();
 });

@@ -50,6 +50,10 @@ final authControllerProvider = NotifierProvider<AuthController, AuthState>(
 );
 
 class AuthController extends Notifier<AuthState> {
+  /// Only the first cold start of this controller may auto-login. A manual
+  /// logout must not immediately sign the user back in.
+  bool _autoLoginAllowed = true;
+
   @override
   AuthState build() {
     _restore();
@@ -57,22 +61,72 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> _restore() async {
+    // Secure storage can throw on locked-down Windows accounts. A failed
+    // session read must never skip the saved-credential auto-login path.
+    AuthSession? session;
     try {
-      final session = await ref
+      session = await ref
           .read(sessionStoreProvider)
           .read()
           .timeout(const Duration(seconds: 4), onTimeout: () => null);
-      if (!ref.mounted || state is! AuthInitial) return;
-      if (session != null && session.hasCookies) {
-        state = AuthAuthenticated(session);
-      } else {
-        state = const AuthUnauthenticated();
-      }
     } catch (error) {
-      debugPrint('NEU Better session restore failed: $error');
-      if (!ref.mounted || state is! AuthInitial) return;
-      state = const AuthUnauthenticated();
+      debugPrint('[auth] session read failed: $error');
     }
+
+    if (!ref.mounted || state is! AuthInitial) return;
+    if (session != null && session.hasCookies) {
+      state = AuthAuthenticated(session);
+      unawaited(_refreshRestoredIdentity(session));
+      return;
+    }
+
+    if (_autoLoginAllowed) {
+      SavedCredentials? saved;
+      try {
+        saved = await ref
+            .read(credentialStoreProvider)
+            .read()
+            .timeout(const Duration(seconds: 4), onTimeout: () => null);
+      } catch (error) {
+        debugPrint('[auth] credential read failed: $error');
+      }
+      if (!ref.mounted || state is! AuthInitial) return;
+      if (saved != null &&
+          saved.username.trim().isNotEmpty &&
+          saved.password != null &&
+          saved.password!.isNotEmpty) {
+        _autoLoginAllowed = false;
+        await login(
+          username: saved.username,
+          password: saved.password!,
+          saveCredentials: true,
+        );
+        return;
+      }
+    }
+
+    if (!ref.mounted || state is! AuthInitial) return;
+    state = const AuthUnauthenticated();
+  }
+
+  Future<void> _refreshRestoredIdentity(AuthSession session) async {
+    SavedCredentials? saved;
+    try {
+      saved = await ref
+          .read(credentialStoreProvider)
+          .read()
+          .timeout(const Duration(seconds: 4));
+    } catch (error) {
+      debugPrint('[auth] credential read for refresh failed: $error');
+    }
+    if (saved == null || saved.password == null || saved.password!.isEmpty) {
+      return;
+    }
+    await _resolveAndPersistIdentity(
+      session,
+      saveCredentials: false,
+      typedPassword: saved.password,
+    );
   }
 
   Future<void> login({
@@ -201,9 +255,24 @@ class AuthController extends Notifier<AuthState> {
   }) async {
     var session = initial;
     try {
-      final identity = await ref
-          .read(portalIdentityClientProvider)
-          .fetch(initial.cookies);
+      final client = ref.read(portalIdentityClientProvider);
+      final PortalLoginIdentityClient? loginClient =
+          client is PortalLoginIdentityClient
+              ? client as PortalLoginIdentityClient
+              : null;
+      StudentIdentity? identity;
+      if (typedPassword != null &&
+          typedPassword.isNotEmpty &&
+          loginClient != null) {
+        identity = await loginClient
+            .fetchWithCredentials(
+              username: initial.studentId,
+              password: typedPassword,
+            )
+            .timeout(const Duration(seconds: 25));
+      } else {
+        identity = await client.fetch(initial.cookies);
+      }
       if (identity != null && (identity.hasStudentId || identity.hasDisplayName)) {
         session = initial.copyWith(
           studentId: identity.hasStudentId ? identity.studentId : null,
@@ -289,6 +358,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> logout() async {
     // Show the login screen immediately; secure-storage deletion can block on
     // some Windows ACL setups and must not make the logout button feel dead.
+    _autoLoginAllowed = false;
     state = const AuthUnauthenticated();
     try {
       await ref

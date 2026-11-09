@@ -34,8 +34,7 @@ class SecureCredentialStore implements CredentialStore {
     // read, while the plugin's AppData path can block for the full timeout
     // on locked-down accounts.
     if (Platform.isWindows) {
-      final fallback = await _WindowsDpapiCredentialFile.read();
-      if (fallback != null) return fallback;
+      return _WindowsDpapiCredentialFile.read();
     }
 
     try {
@@ -56,27 +55,21 @@ class SecureCredentialStore implements CredentialStore {
     // Windows plugin cannot create its AppData JSON file.
     if (Platform.isWindows) {
       await _WindowsDpapiCredentialFile.save(credentials);
+      return;
     }
 
-    try {
-      await _storage
-          .write(key: _key, value: credentials.encode())
-          .timeout(_timeout);
-    } catch (error) {
-      debugPrint('[credentials] secure save failed: $error');
-    }
+    await _storage.write(key: _key, value: credentials.encode()).timeout(
+          _timeout,
+        );
   }
 
   @override
   Future<void> clear() async {
-    try {
-      await _storage.delete(key: _key).timeout(_timeout);
-    } catch (error) {
-      debugPrint('[credentials] secure clear failed: $error');
-    }
     if (Platform.isWindows) {
       await _WindowsDpapiCredentialFile.clear();
+      return;
     }
+    await _storage.delete(key: _key).timeout(_timeout);
   }
 }
 
@@ -85,43 +78,80 @@ class SecureCredentialStore implements CredentialStore {
 class _WindowsDpapiCredentialFile {
   static const _fileName = 'credentials.dat';
 
-  static File get _file {
-    final dir = Directory(
-      '${Directory.systemTemp.path}${Platform.pathSeparator}NEU Better',
-    );
-    return File('${dir.path}${Platform.pathSeparator}$_fileName');
+  /// Candidate locations, most reliable first. The app may be launched from a
+  /// shortcut with an arbitrary working directory, so never rely on a single
+  /// location.
+  static List<File> get _candidates {
+    final files = <File>[
+      // The portable release folder is writable for the current user and is
+      // where the shortcut starts the app. Prefer it over %TEMP%, which can
+      // be blocked by AppData ACLs on managed Windows machines.
+      File(
+        '${File(Platform.resolvedExecutable).parent.path}'
+        '${Platform.pathSeparator}data${Platform.pathSeparator}$_fileName',
+      ),
+      File(
+        '${Directory.current.path}${Platform.pathSeparator}data'
+        '${Platform.pathSeparator}$_fileName',
+      ),
+      File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}NEU Better'
+        '${Platform.pathSeparator}$_fileName',
+      ),
+    ];
+    final local = Platform.environment['LOCALAPPDATA'];
+    if (local != null && local.isNotEmpty) {
+      files.add(
+        File(
+          '$local${Platform.pathSeparator}NEU Better'
+          '${Platform.pathSeparator}$_fileName',
+        ),
+      );
+    }
+    return files;
   }
 
   static Future<SavedCredentials?> read() async {
-    try {
-      final file = _file;
-      if (!await file.exists()) return null;
-      final encrypted = await file.readAsBytes();
-      final plain = _unprotect(encrypted);
-      return SavedCredentials.decode(utf8.decode(plain));
-    } catch (error) {
-      debugPrint('[credentials] file read failed: $error');
-      return null;
+    for (final file in _candidates) {
+      try {
+        if (!await file.exists()) continue;
+        final encrypted = await file.readAsBytes();
+        final plain = _unprotect(encrypted);
+        final credentials = SavedCredentials.decode(utf8.decode(plain));
+        if (credentials.username.isNotEmpty) return credentials;
+      } catch (error) {
+        debugPrint('[credentials] file read failed at ${file.path}: $error');
+      }
     }
+    return null;
   }
 
   static Future<void> save(SavedCredentials credentials) async {
-    try {
-      final file = _file;
-      await file.parent.create(recursive: true);
-      final encrypted = _protect(utf8.encode(credentials.encode()));
-      await file.writeAsBytes(encrypted, flush: true);
-    } catch (error) {
-      debugPrint('[credentials] file save failed: $error');
+    final encrypted = _protect(utf8.encode(credentials.encode()));
+    Object? lastError;
+    for (final file in _candidates) {
+      try {
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(encrypted, flush: true);
+        debugPrint('[credentials] saved to ${file.path}');
+        return;
+      } catch (error) {
+        lastError = error;
+        debugPrint('[credentials] file save failed at ${file.path}: $error');
+      }
+    }
+    if (lastError != null) {
+      debugPrint('[credentials] no writable credential path: $lastError');
     }
   }
 
   static Future<void> clear() async {
-    try {
-      final file = _file;
-      if (await file.exists()) await file.delete();
-    } catch (error) {
-      debugPrint('[credentials] file clear failed: $error');
+    for (final file in _candidates) {
+      try {
+        if (await file.exists()) await file.delete();
+      } catch (error) {
+        debugPrint('[credentials] file clear failed at ${file.path}: $error');
+      }
     }
   }
 
