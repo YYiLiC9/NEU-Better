@@ -4,13 +4,31 @@ import 'package:flutter/material.dart';
 abstract final class AppColors {
   static const campusBlue = Color(0xFF0B4F9C);
   static const campusBlueDeep = Color(0xFF083B75);
-  static const ink = Color(0xFF102A43);
-  static const muted = Color(0xFF627D98);
-  static const canvas = Color(0xFFF4F8FD);
-  static const line = Color(0xFFDCE5F0);
+  static const ink = Color(0xFF14243B);
+  static const muted = Color(0xFF5D7392);
+  static const canvas = Color(0xFFF6F8FB);
+  static const line = Color(0xFFD9E2EE);
   static const faint = Color(0xFF829AB1);
   static const accent = Color(0xFF2CB1BC);
   static const danger = Color(0xFFB42318);
+  // 朱：只用于考试卡片与"当前时间线"，让红色在界面里始终意味着"此刻/紧要"。
+  static const nowRed = Color(0xFFC2402A);
+
+  /// 传统色课程墨色组：每门课从这一组里按稳定哈希取色，
+  /// 背景为同色纸调淡染，前景为对应墨色。整组在同一色温体系内，
+  /// 避免随机色相造成的花哨感。
+  static const coursePigments = <(Color, Color)>[
+    (Color(0xFFEDF3FA), Color(0xFF2E5E8F)), // 靛蓝
+    (Color(0xFFEAF4EE), Color(0xFF31734F)), // 竹青
+    (Color(0xFFF7EFE7), Color(0xFF9A5A2B)), // 赭石
+    (Color(0xFFF1ECF7), Color(0xFF6E4E8E)), // 绛紫
+    (Color(0xFFF8ECE8), Color(0xFFA8432F)), // 砖红
+    (Color(0xFFEAF0F6), Color(0xFF34506B)), // 黛青
+  ];
+
+  /// 按课程名稳定取一组 (背景, 墨色)。
+  static (Color, Color) pigmentFor(String key) =>
+      coursePigments[key.hashCode.abs() % coursePigments.length];
 }
 
 abstract final class AppTheme {

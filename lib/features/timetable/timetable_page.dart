@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme/app_theme.dart';
@@ -28,11 +30,27 @@ class _TimetablePageState extends State<TimetablePage> {
   int _selectedDay = DateTime.now().weekday.clamp(1, 7);
   int _direction = 1;
   bool _weekView = true;
+  int _lastNowMinute = DateTime.now().hour * 60 + DateTime.now().minute;
+  Timer? _minuteTimer;
 
   @override
   void initState() {
     super.initState();
     _loadCachedTimetable();
+    // "当前时间线"是信息不是装饰：每半分钟检查一次，只在跨过整分时重建。
+    _minuteTimer = Timer.periodic(const Duration(milliseconds: 15000), (_) {
+      final now = DateTime.now();
+      final minute = now.hour * 60 + now.minute;
+      if (minute != _lastNowMinute && mounted) {
+        setState(() => _lastNowMinute = minute);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _minuteTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadCachedTimetable() async {
@@ -46,6 +64,37 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   int get _nowWeek => _data.weekFor(DateTime.now());
+
+  /// 「下一节」：当前周里今天还没开始、或本周后续、或下周第一节课。
+  /// 第二个值是前缀（下周的课加「下」字）。
+  (CourseSession, String)? get _nextSession {
+    final sessions = _weekSessions;
+    if (sessions.isEmpty) return null;
+    if (_week != _nowWeek) {
+      final sorted = [...sessions]..sort(_sessionOrder);
+      return (sorted.first, '');
+    }
+    final minutesNow = DateTime.now().hour * 60 + DateTime.now().minute;
+    final sorted = [...sessions]..sort(_sessionOrder);
+    for (final session in sorted.where((s) => s.day == DateTime.now().weekday)) {
+      if (PeriodTimes.startMinutes(session.startPeriod) > minutesNow) {
+        return (session, '');
+      }
+    }
+    for (final session in sorted) {
+      if (session.day > DateTime.now().weekday) return (session, '');
+    }
+    final nextWeek = _data.forWeek(_week + 1);
+    if (nextWeek.isEmpty) return null;
+    final sortedNext = [...nextWeek]..sort(_sessionOrder);
+    return (sortedNext.first, '下');
+  }
+
+  static int _sessionOrder(CourseSession a, CourseSession b) {
+    final byDay = a.day.compareTo(b.day);
+    if (byDay != 0) return byDay;
+    return a.startPeriod.compareTo(b.startPeriod);
+  }
 
   List<CourseSession> get _weekSessions => _data.forWeek(_week);
 
@@ -61,10 +110,21 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   /// Monday of the displayed week, or null when the term start is unknown.
+  ///
+  /// 旧版缓存没有 termStartDate：用 currentWeek + 本周一兜底推导
+  /// （与同步时 welcomeWords 的推导一致，重新同步即可校正）。
   DateTime? get _weekStart {
-    final start = _data.termStartDate;
+    final start =
+        _data.termStartDate ?? _inferTermStartFromCurrentWeek();
     if (start == null) return null;
     return TimetableData.mondayOf(start).add(Duration(days: (_week - 1) * 7));
+  }
+
+  DateTime? _inferTermStartFromCurrentWeek() {
+    final week = _data.currentWeek;
+    if (week <= 0 || week > 40) return null;
+    return TimetableData.mondayOf(DateTime.now())
+        .subtract(Duration(days: (week - 1) * 7));
   }
 
   void _changeWeek(int value) {
@@ -199,15 +259,21 @@ class _TimetablePageState extends State<TimetablePage> {
         Text(
           '我的课表',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontSize: widget.compact ? 24 : 28,
+            fontSize: widget.compact ? 21 : 24,
+            height: 1.2,
+            letterSpacing: -0.3,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Text(
           '${_data.termName} · 第 $_week 周${range.isEmpty ? '' : ' · $range'}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: AppColors.muted, fontSize: 11),
+          style: const TextStyle(
+            color: AppColors.muted,
+            fontSize: 11,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
         ),
       ],
     );
@@ -227,9 +293,10 @@ class _TimetablePageState extends State<TimetablePage> {
           icon: const Icon(Icons.today_outlined, size: 15),
           label: const Text('今天'),
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.campusBlue,
+            foregroundColor: AppColors.ink,
             side: const BorderSide(color: AppColors.line),
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+            minimumSize: const Size(0, 36),
             textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
           ),
         ),
@@ -245,6 +312,7 @@ class _TimetablePageState extends State<TimetablePage> {
             label: const Text('同步课表'),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              minimumSize: const Size(0, 36),
               textStyle: const TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
@@ -286,41 +354,72 @@ class _TimetablePageState extends State<TimetablePage> {
   Widget _buildSummary() {
     final sessions = _weekSessions;
     final periods = sessions.fold<int>(0, (sum, item) => sum + item.span);
-    final next = sessions.isEmpty ? null : sessions.first;
-    final cards = [
-      _Metric(
-        label: '本周课程',
-        value: '${sessions.map((s) => s.id).toSet().length} 门',
-        icon: Icons.menu_book_outlined,
-      ),
-      _Metric(label: '本周课时', value: '$periods 节', icon: Icons.schedule_outlined),
-      _Metric(
-        label: '下一节',
-        value: next == null
+    final next = _nextSession;
+    final courseCount = sessions.map((s) => s.id).toSet().length;
+    final items = [
+      ('$courseCount', '门课程'),
+      ('$periods', '节课时'),
+      (
+        next == null
             ? '没有课'
-            : '${_weekdays[next.day - 1]} ${PeriodTimes.startLabel(next.startPeriod)}',
-        icon: Icons.arrow_forward_outlined,
+            : '${next.$2}${_weekdays[next.$1.day - 1]} '
+                '${PeriodTimes.startLabel(next.$1.startPeriod)}',
+        '下一节',
       ),
     ];
 
-    if (widget.compact) {
-      return Column(
+    // 单条摘要带替代三张同质卡片：数字是内容，卡片不是。
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppColors.line),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
         children: [
-          for (var i = 0; i < cards.length; i++) ...[
-            cards[i],
-            if (i != cards.length - 1) const SizedBox(height: 8),
+          for (var i = 0; i < items.length; i++) ...[
+            if (i != 0)
+              Container(
+                width: 1,
+                height: 26,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                color: AppColors.line,
+              ),
+            Expanded(
+              child: RichText(
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: items[i].$1,
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const TextSpan(
+                      text: ' ',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    TextSpan(
+                      text: items[i].$2,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ],
-      );
-    }
-
-    return Row(
-      children: [
-        for (var i = 0; i < cards.length; i++) ...[
-          Expanded(child: cards[i]),
-          if (i != cards.length - 1) const SizedBox(width: 12),
-        ],
-      ],
+      ),
     );
   }
 }
@@ -437,9 +536,7 @@ class _ToggleItem extends StatelessWidget {
         decoration: BoxDecoration(
           color: active ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
-          boxShadow: active
-              ? const [BoxShadow(color: Color(0x120B4F9C), blurRadius: 4)]
-              : null,
+          border: Border.all(color: active ? AppColors.line : Colors.transparent),
         ),
         child: Text(
           label,
@@ -449,64 +546,6 @@ class _ToggleItem extends StatelessWidget {
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value, required this.icon});
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: AppColors.campusBlue.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 16, color: AppColors.campusBlue),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 9),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -539,8 +578,7 @@ class _WeekGrid extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Color(0x0A0B2E5C), blurRadius: 12)],
+        borderRadius: BorderRadius.circular(10),
       ),
       child: GestureDetector(
         behavior: HitTestBehavior.deferToChild,
@@ -595,6 +633,10 @@ class _WeekGrid extends StatelessWidget {
                                     style: const TextStyle(
                                       color: AppColors.faint,
                                       fontSize: 8,
+                                      height: 1.2,
+                                      fontFeatures: [
+                                        FontFeature.tabularFigures(),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -622,9 +664,9 @@ class _WeekGrid extends StatelessWidget {
                         isToday: today && day == now.weekday,
                       ),
                     ),
-                ],
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -648,34 +690,49 @@ class _DayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isToday ? AppColors.campusBlue : AppColors.ink;
     return Container(
       alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: isToday
-            ? AppColors.campusBlue.withValues(alpha: 0.05)
-            : null,
-        border: const Border(left: BorderSide(color: AppColors.line)),
+      decoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: AppColors.line)),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+          if (isToday)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.campusBlue,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.ink,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           if (date != null)
             Text(
               isToday ? '今天 ${_dateLabel(date!)}' : _dateLabel(date!),
               style: TextStyle(
-                color: isToday ? AppColors.accent : AppColors.faint,
+                color: isToday ? AppColors.campusBlue : AppColors.faint,
                 fontSize: 8,
+                height: 1.2,
                 fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
         ],
@@ -700,12 +757,28 @@ class _DayColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gridHeight = PeriodTimes.periodsPerDay * _slotHeight;
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    final showNowLine =
+        isToday &&
+        nowMinutes >= PeriodTimes.firstStartMinutes &&
+        nowMinutes <=
+            PeriodTimes.firstStartMinutes +
+                PeriodTimes.periodMinutes * PeriodTimes.periodsPerDay;
     return Container(
       decoration: BoxDecoration(
-        color: isToday ? AppColors.campusBlue.withValues(alpha: 0.025) : null,
-        border: const Border(left: BorderSide(color: AppColors.line)),
+        color: isToday ? AppColors.campusBlue.withValues(alpha: 0.03) : null,
+        border: Border(
+          left: BorderSide(
+            width: isToday ? 2 : 1,
+            color: isToday
+                ? AppColors.campusBlue.withValues(alpha: 0.45)
+                : AppColors.line,
+          ),
+        ),
       ),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
           for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
             Positioned(
@@ -713,6 +786,27 @@ class _DayColumn extends StatelessWidget {
               left: 0,
               right: 0,
               child: Container(height: 1, color: AppColors.line.withValues(alpha: 0.7)),
+            ),
+          if (showNowLine)
+            Positioned(
+              top: PeriodTimes.slotOffset(nowMinutes) * _slotHeight - 1,
+              left: 0,
+              right: 0,
+              height: 2,
+              child: Container(color: AppColors.nowRed),
+            ),
+          if (showNowLine)
+            Positioned(
+              left: -3,
+              top: PeriodTimes.slotOffset(nowMinutes) * _slotHeight - 3,
+              width: 8,
+              height: 8,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.nowRed,
+                  shape: BoxShape.circle,
+                ),
+              ),
             ),
           for (final session in sessions)
             Positioned(
@@ -752,23 +846,15 @@ class _CourseCard extends StatelessWidget {
 
   final CourseSession session;
 
-  static const _palette = [
-    (Color(0xFFE8F1FB), Color(0xFF0B4F9C)),
-    (Color(0xFFE6F7F4), Color(0xFF0F766E)),
-    (Color(0xFFF3EDFF), Color(0xFF6D4AAE)),
-    (Color(0xFFFFF2E4), Color(0xFFB45309)),
-    (Color(0xFFFDEBEF), Color(0xFFB42353)),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    final pair = _palette[session.name.hashCode.abs() % _palette.length];
+    final (tint, inkColor) = AppColors.pigmentFor(session.name);
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 7, 6, 5),
+      padding: const EdgeInsets.fromLTRB(8, 6, 6, 5),
       decoration: BoxDecoration(
-        color: pair.$1,
-        borderRadius: BorderRadius.circular(7),
-        border: Border(left: BorderSide(color: pair.$2, width: 3)),
+        color: tint,
+        borderRadius: BorderRadius.circular(8),
+        border: Border(left: BorderSide(color: inkColor, width: 3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -778,9 +864,9 @@ class _CourseCard extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: pair.$2,
+              color: inkColor,
               fontSize: 11,
-              height: 1.2,
+              height: 1.25,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -790,9 +876,10 @@ class _CourseCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: pair.$2.withValues(alpha: 0.78),
+              color: inkColor.withValues(alpha: 0.75),
               fontSize: 8,
               height: 1.3,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
           if (session.span >= 2)
@@ -801,7 +888,7 @@ class _CourseCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: pair.$2.withValues(alpha: 0.65),
+                color: inkColor.withValues(alpha: 0.6),
                 fontSize: 8,
                 height: 1.3,
               ),
@@ -812,11 +899,12 @@ class _CourseCard extends StatelessWidget {
   }
 }
 
-/// Exam cards use a fixed red scheme so they never look like a course.
+/// Exam cards share the 朱 (now-red) family: red in this app always means
+/// "此刻/紧要" — exams and the current-time line, never decoration.
 class _ExamColors {
-  static const background = Color(0xFFFFF3F0);
-  static const accent = Color(0xFFB42318);
-  static const soft = Color(0x2EB42318);
+  static const background = Color(0xFFFFF1EE);
+  static const accent = AppColors.nowRed;
+  static const soft = Color(0x2EC2402A);
 }
 
 class _ExamCard extends StatelessWidget {
@@ -1035,12 +1123,13 @@ class _AgendaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final (_, inkColor) = AppColors.pigmentFor(session.name);
     return Container(
       padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1052,10 +1141,11 @@ class _AgendaCard extends StatelessWidget {
               children: [
                 Text(
                   PeriodTimes.rangeLabel(session.startPeriod, session.endPeriod),
-                  style: const TextStyle(
-                    color: AppColors.campusBlue,
+                  style: TextStyle(
+                    color: inkColor,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1066,7 +1156,7 @@ class _AgendaCard extends StatelessWidget {
               ],
             ),
           ),
-          Container(width: 2, height: 38, color: AppColors.campusBlue.withValues(alpha: 0.28)),
+          Container(width: 2, height: 38, color: inkColor.withValues(alpha: 0.28)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

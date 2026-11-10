@@ -141,9 +141,12 @@ class AuthController extends Notifier<AuthState> {
     if (saved == null || saved.password == null || saved.password!.isEmpty) {
       return;
     }
+    // The user opted into saving credentials at login; the restore-time
+    // identity refresh must keep that choice, otherwise the password file is
+    // wiped on every launch and daily jobs (电费查询) lose the password.
     await _resolveAndPersistIdentity(
       session,
-      saveCredentials: false,
+      saveCredentials: true,
       typedPassword: saved.password,
     );
   }
