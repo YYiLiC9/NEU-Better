@@ -17,8 +17,27 @@ class WindowsPortalIdentityClient
     implements PortalIdentityClient, PortalLoginIdentityClient {
   /// WebView2 has one shared environment per process and refuses to
   /// initialize it while another controller is alive. The identity refresh
-  /// and the timetable sync can overlap, so all headless probes are serialized.
+  /// and the timetable sync can overlap, so all headless probes are serialized
+  /// and reuse one long-lived controller. Reinitializing the environment for
+  /// each probe is unreliable in release builds.
   static Future<void> _webViewQueue = Future<void>.value();
+  static WebviewController? _headlessController;
+  static Directory? _headlessDataDir;
+
+  void _debugLog(String message) {
+    try {
+      final file = File(
+        '${File(Platform.resolvedExecutable).parent.path}'
+        '${Platform.pathSeparator}data'
+        '${Platform.pathSeparator}yjs-debug.log',
+      );
+      file.writeAsStringSync(
+        '${DateTime.now().toIso8601String()} $message\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
+  }
 
   @override
   Future<StudentIdentity?> fetch(Map<String, String> cookies) async {
@@ -65,6 +84,7 @@ class WindowsPortalIdentityClient
     String term = '20261',
     String? roleId,
   }) async {
+    _debugLog('fetchYjsTimetable start user=$username term=$term');
     return _withController((controller) async {
       final logged = await _loginWithCredentials(
         controller,
@@ -73,6 +93,7 @@ class WindowsPortalIdentityClient
         service:
             'https://yjs.neu.edu.cn/gsapp/sys/yjsemaphome/portal/index.do',
       );
+      _debugLog('CAS login result=$logged');
       if (!logged) {
         return jsonEncode({
           'error': '无法打开学校登录页，请稍后重试',
@@ -108,6 +129,7 @@ class WindowsPortalIdentityClient
       final selectedRole = roleId?.trim().isNotEmpty == true
           ? roleId!.trim()
           : _firstRoleId(userInfo);
+      _debugLog('role=$selectedRole userInfoLength=${userInfo?.toString().length}');
       if (selectedRole == null || selectedRole.isEmpty) {
         return jsonEncode({
           'error': '该账号没有研究生系统身份（grouplist 为空）',
@@ -154,6 +176,7 @@ class WindowsPortalIdentityClient
       await Future<void>.delayed(const Duration(seconds: 4));
       final pageUrl = await controller.executeScript('location.href');
       final pageTitle = await controller.executeScript('document.title');
+      _debugLog('page url=$pageUrl title=$pageTitle');
       debugPrint('[yjs] page url=$pageUrl title=$pageTitle');
       final escapedTerm = jsonEncode(term);
       final raw = await controller.executeScript('''
@@ -282,35 +305,60 @@ class WindowsPortalIdentityClient
     _webViewQueue = previous.then((_) => done.future);
     await previous;
 
-    final controller = WebviewController();
-    Directory? dataDir;
     try {
-      // Never reuse a WebView2 profile here: the profile keeps CAS/portal
-      // cookies, and reusing it would return the previously logged-in
-      // student's identity when a second account is tested.
-      dataDir = await Directory.systemTemp.createTemp('neu_better_identity_');
-      await WebviewController.initializeEnvironment(
-        userDataPath: dataDir.path,
-      );
-      await controller.initialize();
-      await controller.setSize(const Size(1280, 720));
+      final controller = await _ensureHeadlessController();
+      // The controller is intentionally long-lived: its WebView2 environment
+      // is process-wide. Clear cookies between probes so a previous account
+      // cannot leak into the next identity or timetable request.
+      try {
+        await controller.clearCookies();
+      } catch (error) {
+        debugPrint('[identity] clear cookies failed: $error');
+      }
       return await body(controller);
-    } catch (error) {
+    } catch (error, stack) {
+      _debugLog('probe failed: $error\n$stack');
       debugPrint('[identity] windows webview probe failed: $error');
+      try {
+        final log = File(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}'
+          'neu_better_webview_error.log',
+        );
+        await log.writeAsString(
+          '${DateTime.now().toIso8601String()}\n$error\n$stack\n',
+          mode: FileMode.append,
+          flush: true,
+        );
+      } catch (_) {}
       return null;
     } finally {
-      try {
-        await controller.dispose();
-      } catch (_) {}
-      if (dataDir != null) {
-        try {
-          await dataDir.delete(recursive: true);
-        } catch (_) {
-          // WebView2 may keep a lock briefly; the OS temp directory is fine.
-        }
-      }
       if (!done.isCompleted) done.complete();
     }
+  }
+
+  Future<WebviewController> _ensureHeadlessController() async {
+    final existing = _headlessController;
+    if (existing != null) return existing;
+
+    try {
+      _headlessDataDir ??=
+          await Directory.systemTemp.createTemp('neu_better_headless_');
+      await WebviewController.initializeEnvironment(
+        userDataPath: _headlessDataDir!.path,
+        additionalArguments: '--disable-gpu',
+      );
+    } catch (error) {
+      // If the Flutter UI already created the process-wide environment, or a
+      // previous controller is still releasing it, controller.initialize()
+      // below can still use it. Do not abort the probe for this reason.
+      debugPrint('[identity] initializeEnvironment skipped: $error');
+    }
+
+    final controller = WebviewController();
+    await controller.initialize();
+    await controller.setSize(const Size(1280, 720));
+    _headlessController = controller;
+    return controller;
   }
 
   Future<bool> _waitForCasForm(

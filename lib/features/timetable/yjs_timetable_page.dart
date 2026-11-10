@@ -1,21 +1,19 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/credential_store.dart';
-import '../../core/network/windows_portal_identity_client.dart';
+import '../../core/network/yjs_timetable_client.dart';
 import 'timetable_import.dart';
 import 'timetable_models.dart';
 
 /// Fetches the real timetable from the new graduate platform's
 /// "培养 — 学生课程表" application (`wdkbapp/xskcb`).
 ///
-/// The platform only accepts browser-session XHRs, so the actual request is
-/// performed inside a headless WebView2 session. A saved account/password is
-/// required because the platform's CAS login is separate from the portal
-/// session used by the app.
+/// The sync runs over plain HTTP with the cookies from a native CAS login
+/// (service bound to `yjs.neu.edu.cn`), so it works on every desktop and
+/// mobile platform without WebView2. A saved account/password is required.
 class YjsTimetablePage extends StatefulWidget {
   const YjsTimetablePage({super.key});
 
@@ -39,9 +37,6 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
       _error = null;
     });
     try {
-      if (!Platform.isWindows) {
-        throw const FormatException('当前平台暂不支持研究生系统同步，请在 Windows 上使用。');
-      }
       final credentials = await const SecureCredentialStore().read();
       if (credentials == null ||
           credentials.username.trim().isEmpty ||
@@ -49,7 +44,7 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
           credentials.password!.isEmpty) {
         throw const FormatException('请先在登录页勾选“保存账号密码”并完成一次登录');
       }
-      final raw = await WindowsPortalIdentityClient().fetchYjsTimetable(
+      final raw = await YjsTimetableClient().fetch(
         username: credentials.username,
         password: credentials.password!,
       );
