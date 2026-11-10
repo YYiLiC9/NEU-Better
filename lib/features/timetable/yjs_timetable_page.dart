@@ -1,27 +1,32 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
+import '../../core/network/neu_service_session.dart';
 import '../../core/network/yjs_timetable_client.dart';
+import '../auth/auth_controller.dart';
 import 'timetable_import.dart';
 import 'timetable_models.dart';
 
 /// Fetches the real timetable from the new graduate platform's
 /// "培养 — 学生课程表" application (`wdkbapp/xskcb`).
 ///
-/// The sync runs over plain HTTP with the cookies from a native CAS login
-/// (service bound to `yjs.neu.edu.cn`), so it works on every desktop and
-/// mobile platform without WebView2. A saved account/password is required.
-class YjsTimetablePage extends StatefulWidget {
+/// The preferred path reuses the current [AuthSession] and performs a
+/// passwordless CAS service login, so users who signed in through the webview
+/// can sync without ever storing a password. A saved account/password is kept
+/// as a fallback for expired sessions.
+class YjsTimetablePage extends ConsumerStatefulWidget {
   const YjsTimetablePage({super.key});
 
   @override
-  State<YjsTimetablePage> createState() => _YjsTimetablePageState();
+  ConsumerState<YjsTimetablePage> createState() => _YjsTimetablePageState();
 }
 
-class _YjsTimetablePageState extends State<YjsTimetablePage> {
+class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
   bool _busy = true;
   String? _error;
 
@@ -37,17 +42,7 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
       _error = null;
     });
     try {
-      final credentials = await const SecureCredentialStore().read();
-      if (credentials == null ||
-          credentials.username.trim().isEmpty ||
-          credentials.password == null ||
-          credentials.password!.isEmpty) {
-        throw const FormatException('请先在登录页勾选“保存账号密码”并完成一次登录');
-      }
-      final raw = await YjsTimetableClient().fetch(
-        username: credentials.username,
-        password: credentials.password!,
-      );
+      final raw = await _fetchRaw();
       if (raw == null) {
         throw const FormatException('研究生系统没有返回响应');
       }
@@ -83,12 +78,53 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
     }
   }
 
+  Future<String?> _fetchRaw() async {
+    final client = YjsTimetableClient();
+    Object? sessionError;
+
+    final auth = ref.read(authControllerProvider);
+    final AuthSession? session = auth is AuthAuthenticated
+        ? auth.session
+        : null;
+    if (session != null && session.hasCookies) {
+      try {
+        return await client.fetchWithSession(session: session);
+      } catch (error) {
+        sessionError = error;
+      }
+    }
+
+    final credentials = await const SecureCredentialStore().read();
+    if (credentials != null &&
+        credentials.username.trim().isNotEmpty &&
+        credentials.password != null &&
+        credentials.password!.isNotEmpty) {
+      return client.fetch(
+        username: credentials.username,
+        password: credentials.password!,
+      );
+    }
+
+    if (sessionError is SessionExpiredException) {
+      throw const FormatException('登录状态已过期，请重新登录后再同步');
+    }
+    if (sessionError != null) {
+      throw sessionError;
+    }
+    throw const FormatException('未找到登录会话，请重新登录后再同步');
+  }
+
   String _shortError(Object error) {
     final text = error.toString();
     if (text.contains('grouplist 为空') || text.contains('研究生系统身份')) {
       return '当前账号没有研究生系统身份，请先确认学校已开通“研究生系统（新）”。';
     }
-    if (text.contains('保存账号密码')) return text;
+    if (text.contains('登录状态已过期') || text.contains('未找到登录会话')) {
+      return '登录状态已过期，请退出后重新登录，再回到课表同步。';
+    }
+    if (text.contains('保存账号密码')) {
+      return '未找到可用的登录会话，请重新登录后再同步。';
+    }
     if (text.length > 180) return '${text.substring(0, 180)}…';
     return text;
   }

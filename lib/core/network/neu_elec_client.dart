@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../features/dorm/electricity_models.dart';
 import 'neu_cas_client.dart';
+import 'neu_service_session.dart';
 
 class ElectricityQueryException implements Exception {
   const ElectricityQueryException(this.message);
@@ -27,9 +28,13 @@ class ElectricityQueryException implements Exception {
 /// 2. POST /queryRommInfo (note the platform's spelling "Romm") with
 ///    `elecroomno=<房间码>&factorycode=E039`.
 class NeuElecClient {
-  NeuElecClient({Dio? dio, NeuCasClient? cas})
-      : _dio = dio ?? _buildDio(),
-        _cas = cas ?? NeuCasClient();
+  NeuElecClient({
+    Dio? dio,
+    NeuCasClient? cas,
+    NeuServiceSession? serviceSession,
+  }) : _dio = dio ?? _buildDio(),
+       _cas = cas ?? NeuCasClient(),
+       _serviceSession = serviceSession ?? NeuServiceSession();
 
   static const payService = 'https://pay.neu.edu.cn/drCasLogin';
   static const payOrigin = 'https://pay.neu.edu.cn';
@@ -37,6 +42,7 @@ class NeuElecClient {
 
   final Dio _dio;
   final NeuCasClient _cas;
+  final NeuServiceSession _serviceSession;
   final Map<String, String> _jar = {};
 
   static Dio _buildDio() {
@@ -71,8 +77,7 @@ class NeuElecClient {
       password: password,
       service: payService,
     );
-    final payCookies = login.cookies[payOrigin
-        .replaceFirst('https://', '')];
+    final payCookies = login.cookies[payOrigin.replaceFirst('https://', '')];
     if (payCookies != null && payCookies.isNotEmpty) {
       _absorb(payCookies);
     } else {
@@ -86,13 +91,34 @@ class NeuElecClient {
     return _queryRoom(roomCode);
   }
 
+  /// Queries with the CAS session saved at login time (CASTGC / TGT), so no
+  /// plain-text password is needed. This is the path used by both the dorm page
+  /// and the daily background check.
+  Future<ElectricityReading> queryWithSession({
+    required Map<String, String> sessionCookies,
+    required String roomCode,
+  }) async {
+    _jar.clear();
+    final result = await _serviceSession.establish(
+      sessionCookies: sessionCookies,
+      service: payService,
+      targetHost: 'pay.neu.edu.cn',
+    );
+    final payCookies = NeuServiceSession.cookieMapFor(
+      NeuServiceSession.parseCookieJar(result.cookies),
+      'pay.neu.edu.cn',
+    );
+    _jar.addAll(payCookies);
+    await _establishPortal(result.finalUri);
+    return _queryRoom(roomCode);
+  }
+
   /// Follows the CAS redirect chain one hop at a time (capturing every
   /// Set-Cookie) until we land on the open portal page.
   Future<void> _establishPortal(Uri start) async {
     var uri = start;
     for (var hop = 0; hop < 10; hop++) {
-      if (uri.path.contains('openPortal') &&
-          (uri.host == 'pay.neu.edu.cn')) {
+      if (uri.path.contains('openPortal') && (uri.host == 'pay.neu.edu.cn')) {
         debugPrint('[elec] portal session established at ${uri.path}');
         return;
       }
@@ -137,14 +163,9 @@ class NeuElecClient {
     final returnCode = (json['returncode'] as String? ?? '').toUpperCase();
     if (returnCode != 'SUCCESS') {
       final message = (json['returnmsg'] as String? ?? '').trim();
-      throw ElectricityQueryException(
-        message.isEmpty ? '电费查询失败' : message,
-      );
+      throw ElectricityQueryException(message.isEmpty ? '电费查询失败' : message);
     }
-    return ElectricityReading.fromPayResponse(
-      roomCode: roomCode,
-      json: json,
-    );
+    return ElectricityReading.fromPayResponse(roomCode: roomCode, json: json);
   }
 
   String _cookieHeader() =>

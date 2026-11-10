@@ -61,6 +61,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           username: _usernameController.text,
           password: _passwordController.text,
           saveCredentials: _rememberCredentials,
+          keepSignedIn: _rememberMe,
           initialDisplayName: _savedDisplayName,
         );
   }
@@ -80,6 +81,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           typedUsername: typedUsername.isEmpty ? null : typedUsername,
           typedPassword: typedPassword.isEmpty ? null : typedPassword,
           saveCredentials: _rememberCredentials,
+          keepSignedIn: _rememberMe,
         );
   }
 

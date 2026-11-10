@@ -42,14 +42,13 @@ abstract final class YjsTimetableParser {
       final name = _value(row, const ['KCMC', 'KCM', 'COURSE_NAME']);
       if (name.isEmpty) continue;
       final day = _intValue(row, const ['XQJ', 'XQ', 'WEEKDAY']);
-      final start = _intValue(
-        row,
-        const ['KSJC', 'KSJCDM', 'KJC', 'START_PERIOD'],
-      );
-      final end = _intValue(
-        row,
-        const ['JSJC', 'JSJCDM', 'EJC', 'END_PERIOD'],
-      );
+      final start = _intValue(row, const [
+        'KSJC',
+        'KSJCDM',
+        'KJC',
+        'START_PERIOD',
+      ]);
+      final end = _intValue(row, const ['JSJC', 'JSJCDM', 'EJC', 'END_PERIOD']);
       if (day < 1 || day > 7 || start < 1) continue;
       final weeks = YjsxkTimetableParser.parseWeeks(
         _value(row, const ['ZCMC', 'SKZC', 'ZCM', 'WEEKS']),
@@ -58,7 +57,8 @@ abstract final class YjsTimetableParser {
       maxWeek = [maxWeek, ...weeks].reduce((a, b) => a > b ? a : b);
       sessions.add(
         CourseSession(
-          id: YjsxkTimetableParser._firstNonEmpty([
+          id:
+              YjsxkTimetableParser._firstNonEmpty([
                 _value(row, const ['WID', 'ID', 'KCDM']),
                 '${_value(row, const ['BJDM', 'CLASS_ID'])}-$index',
               ]) ??
@@ -75,13 +75,13 @@ abstract final class YjsTimetableParser {
       );
     }
 
-    final unique = <String, CourseSession>{
-      for (final session in sessions) session.id: session,
-    }.values.toList()
-      ..sort((a, b) {
-        if (a.day != b.day) return a.day.compareTo(b.day);
-        return a.startPeriod.compareTo(b.startPeriod);
-      });
+    final unique =
+        <String, CourseSession>{
+          for (final session in sessions) session.id: session,
+        }.values.toList()..sort((a, b) {
+          if (a.day != b.day) return a.day.compareTo(b.day);
+          return a.startPeriod.compareTo(b.startPeriod);
+        });
     if (unique.isEmpty) {
       throw const FormatException('教务系统没有返回可显示的课程');
     }
@@ -107,13 +107,22 @@ abstract final class YjsTimetableParser {
     );
   }
 
-  /// Extracts exam entries from an exam-list endpoint response. The exact
-  /// response shape varies between deployments, so the parser walks the JSON
-  /// tree and uses the first list of maps whose keys look like exam fields.
+  /// Extracts exam entries from an exam-list endpoint response.
+  ///
+  /// Real shape (2026-11-10, `wdkwapp/api/wdks/queryMyExamArrangeMent.do`):
+  /// `datas.queryMyExamArrangeMent.arranged` is a list of scheduled exams with
+  /// fields `KCM` (name), `KSRQ` (yyyy-MM-dd), `KSSJ`/`JSSJ` (HH:mm),
+  /// `KSSJMS` (display text), `JASMC` (room), `ZWH` (seat), `SKJS` (teacher),
+  /// `KSLXDM_DISPLAY` (type). `notArranged` uses the same course keys without a
+  /// time/room/seat. The tree walk below also tolerates older deployments.
   static List<ExamEntry> parseExams(String body) {
     final List<Map<String, dynamic>> rows;
     try {
-      rows = _findExamRows(jsonDecode(body));
+      final decoded = jsonDecode(body);
+      // `queryMyExamArrangeMent` contains both `arranged` (scheduled, shown as
+      // cards) and `notArranged` (to be arranged, must not become cards), so
+      // prefer the exact branch and only fall back to the generic tree walk.
+      rows = _arrangedExamRows(decoded) ?? _findExamRows(decoded);
     } catch (_) {
       return const [];
     }
@@ -121,6 +130,7 @@ abstract final class YjsTimetableParser {
     for (var index = 0; index < rows.length; index++) {
       final row = rows[index];
       final name = _value(row, const [
+        'KCM',
         'KSMC',
         'KCMC',
         'SKCMC',
@@ -128,35 +138,81 @@ abstract final class YjsTimetableParser {
         'EXAM_NAME',
       ]);
       if (name.isEmpty) continue;
-      final rawDate = _value(row, const [
-        'KSRQ',
-        'KSSJ',
-        'KAYY',
-        'KSRQJC',
-        'EXAM_DATE',
-      ]);
+      final summary = _value(row, const ['KSSJMS', 'EXAM_TIME_DISPLAY']);
+      var rawDate = _value(row, const ['KSRQ', 'KSRQJC', 'KAYY', 'EXAM_DATE']);
+      if (rawDate.isEmpty) rawDate = summary;
       final date = ExamEntry.parseDate(rawDate.replaceAll('.', '-'));
       if (date == null) continue;
-      final (startTime, endTime) = _examTime(
-        _value(row, const ['KSSJ', 'KSSJD', 'KSSKSSJ', 'KASJ', 'EXAM_TIME']),
-      );
+      final (startTime, endTime) = _examTimes(row, summary);
+      final id = _value(row, const ['WID', 'ID', 'KSDM', 'EXAM_ID']);
       exams.add(
         ExamEntry(
-          id: _value(row, const ['WID', 'ID', 'KSDM', 'EXAM_ID']).isEmpty
-              ? 'exam-$index'
-              : _value(row, const ['WID', 'ID', 'KSDM', 'EXAM_ID']),
+          id: id.isEmpty ? 'exam-$index' : id,
           name: name,
           date: date,
           startTime: startTime,
           endTime: endTime,
-          room: _value(row, const ['JXDD', 'KSCD', 'SKDD', 'JSDD', 'ROOM']),
+          room: _value(row, const [
+            'JASMC',
+            'JXDD',
+            'KSCD',
+            'KSDD',
+            'SKDD',
+            'JSDD',
+            'ROOM',
+          ]),
           seat: _value(row, const ['ZWH', 'ZKZH', 'SEAT']),
-          type: _value(row, const ['KSLXMC', 'KSLX', 'LXMC', 'TYPE']),
+          type: _value(row, const [
+            'KSLXDM_DISPLAY',
+            'KSLXMC',
+            'KSLX',
+            'LXMC',
+            'TYPE',
+          ]),
         ),
       );
     }
     exams.sort((a, b) => a.date.compareTo(b.date));
     return exams;
+  }
+
+  /// Resolves start/end times from explicit `KSSJ`/`JSSJ` fields first, then
+  /// falls back to the Chinese display text (`2026年10月25日 13:50-15:50`).
+  static (String?, String?) _examTimes(
+    Map<String, dynamic> row,
+    String summary,
+  ) {
+    final startRaw = _value(row, const [
+      'KSSJ',
+      'KSSJD',
+      'KSSKSSJ',
+      'KASJ',
+      'EXAM_TIME',
+    ]);
+    final endRaw = _value(row, const ['JSSJ', 'KSSJJSSJ', 'JASJ', 'END_TIME']);
+    final summaryTimes = _examTime(summary);
+    final startTimes = _examTime(startRaw);
+    final endTimes = _examTime(endRaw);
+    final start = startTimes.$1 ?? summaryTimes.$1;
+    final end = endTimes.$1 ?? startTimes.$2 ?? summaryTimes.$2;
+    return (start, end);
+  }
+
+  /// Exact `datas.queryMyExamArrangeMent.arranged` branch of the real API.
+  /// Returns an empty list (not null) when the branch exists but is empty, so
+  /// `notArranged` never leaks into the scheduled-exam cards.
+  static List<Map<String, dynamic>>? _arrangedExamRows(Object? root) {
+    if (root is! Map) return null;
+    final datas = root['datas'];
+    if (datas is! Map) return null;
+    final entry = datas['queryMyExamArrangeMent'];
+    if (entry is! Map) return null;
+    final arranged = entry['arranged'];
+    if (arranged is! List) return const [];
+    return arranged
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
   /// Depth-first search for the first list whose entries look like exam rows.
@@ -166,7 +222,9 @@ abstract final class YjsTimetableParser {
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList();
-      if (maps.isNotEmpty && maps.length == node.length && _looksLikeExam(maps.first)) {
+      if (maps.isNotEmpty &&
+          maps.length == node.length &&
+          _looksLikeExam(maps.first)) {
         return maps;
       }
       for (final item in node) {
@@ -185,18 +243,41 @@ abstract final class YjsTimetableParser {
   static bool _looksLikeExam(Map<String, dynamic> row) {
     return row.keys.any((key) {
       final upper = key.toString().toUpperCase();
-      return const {'KSMC', 'KSRQ', 'KSSJ', 'JXDD', 'KSCD'}.contains(upper);
+      return const {
+        'KCM',
+        'KSMC',
+        'KSRQ',
+        'KSSJ',
+        'KSSJMS',
+        'JXDD',
+        'JASMC',
+        'KSCD',
+      }.contains(upper);
     });
   }
 
   /// Splits an exam time field into start/end. Tolerates `14:00-16:00`,
-  /// `14:00—15:30`, `1400-1520` and a lone `14:00`.
+  /// `14:00—15:30`, `1400-1520` and a lone `14:00`. Date text such as
+  /// `2026年10月25日 13:50-15:50` is ignored by matching colon times first.
   static (String?, String?) _examTime(String raw) {
     if (raw.trim().isEmpty) return (null, null);
-    final tokens = RegExp(r'\d{1,2}:\d{2}|\d{3,4}')
+    final colonTokens = RegExp(r'\d{1,2}:\d{2}')
         .allMatches(raw)
-        .map((match) => match.group(0)!)
+        .map((m) => m.group(0)!)
         .toList();
+    final tokens = <String>[];
+    if (colonTokens.isNotEmpty) {
+      tokens.addAll(colonTokens);
+    } else {
+      for (final match in RegExp(r'\d{3,4}').allMatches(raw)) {
+        final before = match.start > 0 ? raw[match.start - 1] : '';
+        final after = match.end < raw.length ? raw[match.end] : '';
+        if (before == '年' || after == '年' || after == '月' || after == '日') {
+          continue;
+        }
+        tokens.add(match.group(0)!);
+      }
+    }
     if (tokens.isEmpty) return (null, null);
     String normalize(String token) {
       if (token.contains(':')) return token;
@@ -280,13 +361,13 @@ abstract final class YjsxkTimetableParser {
 
     // Keep the newest row for a duplicate arrangement id. This mirrors the
     // source page, which renders one card per WID.
-    final unique = <String, CourseSession>{
-      for (final session in sessions) session.id: session,
-    }.values.toList()
-      ..sort((a, b) {
-        if (a.day != b.day) return a.day.compareTo(b.day);
-        return a.startPeriod.compareTo(b.startPeriod);
-      });
+    final unique =
+        <String, CourseSession>{
+          for (final session in sessions) session.id: session,
+        }.values.toList()..sort((a, b) {
+          if (a.day != b.day) return a.day.compareTo(b.day);
+          return a.startPeriod.compareTo(b.startPeriod);
+        });
 
     return TimetableData(
       termName: termName,

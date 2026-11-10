@@ -1,14 +1,35 @@
 import 'dart:collection';
 
-/// Teaching period clock: period 1 starts at 08:30 and every period lasts
-/// 45 minutes, matching the real graduate timetable grid.
+/// Teaching period clock matching the real graduate timetable grid.
+///
+/// Periods last 45 minutes. The morning has a 20-minute break after period 2
+/// and the afternoon after period 6. Lunch sits between periods 4–5 and dinner
+/// between 8–9; all other gaps are 10 minutes.
 abstract final class PeriodTimes {
   static const firstStartMinutes = 8 * 60 + 30;
   static const periodMinutes = 45;
   static const periodsPerDay = 12;
 
+  /// Wall-clock start of every period, in minutes since midnight:
+  /// 08:30, 09:25, 10:30, 11:25, 14:00, 14:55, 16:00, 16:55, 18:00,
+  /// 18:55, 19:50, 20:45.
+  static const List<int> _starts = [
+    8 * 60 + 30,
+    9 * 60 + 25,
+    10 * 60 + 30,
+    11 * 60 + 25,
+    14 * 60,
+    14 * 60 + 55,
+    16 * 60,
+    16 * 60 + 55,
+    18 * 60,
+    18 * 60 + 55,
+    19 * 60 + 50,
+    20 * 60 + 45,
+  ];
+
   static int startMinutes(int period) =>
-      firstStartMinutes + (period - 1) * periodMinutes;
+      _starts[(period - 1).clamp(0, periodsPerDay - 1)];
 
   static int endMinutes(int period) => startMinutes(period) + periodMinutes;
 
@@ -29,8 +50,8 @@ abstract final class PeriodTimes {
   /// Parses `HH:MM` (or `HHMM`) into minutes since midnight.
   static int? parseTime(String? raw) {
     if (raw == null) return null;
-    final match =
-        RegExp(r'^\s*(\d{1,2})\s*[:：]?\s*(\d{2})?\s*$').firstMatch(raw);
+    final match = RegExp(r'^\s*(\d{1,2})\s*[:：]?\s*(\d{2})?\s*$')
+        .firstMatch(raw);
     if (match == null) return null;
     final h = int.tryParse(match.group(1)!);
     final m = int.tryParse(match.group(2) ?? '0') ?? 0;
@@ -38,10 +59,24 @@ abstract final class PeriodTimes {
     return h * 60 + m;
   }
 
-  /// Vertical offset (in slot units) for a wall-clock minute. Slots are one
-  /// period tall, so e.g. 09:15 lands exactly on the second slot boundary.
-  static double slotOffset(int minutes) =>
-      (minutes - firstStartMinutes) / periodMinutes;
+  /// Vertical offset (in slot units) for a wall-clock minute. Each period is
+  /// one slot tall; breaks collapse to the boundary between two slots, so
+  /// 10:10 (end of period 2) and 10:30 (start of period 3) both land on 2.0.
+  /// This keeps exam cards aligned with the real period grid even though the
+  /// breaks are not proportional.
+  static double slotOffset(int minutes) {
+    if (minutes <= _starts.first) {
+      return (minutes - _starts.first) / periodMinutes;
+    }
+    for (var index = periodsPerDay - 1; index >= 0; index--) {
+      final start = _starts[index];
+      if (minutes < start) continue;
+      final elapsed = minutes - start;
+      if (elapsed >= periodMinutes) return (index + 1).toDouble();
+      return index + elapsed / periodMinutes;
+    }
+    return 0;
+  }
 }
 
 /// One scheduled exam. Exams differ from course sessions: they happen on a
@@ -103,15 +138,25 @@ class ExamEntry {
   /// [DateTime.tryParse] understands. Public because the import parser uses it.
   static DateTime? parseDate(String? raw) {
     if (raw == null || raw.isEmpty) return null;
-    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(raw);
-    if (match == null) {
-      return DateTime.tryParse(raw);
+    final value = raw.trim();
+    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(value);
+    if (match != null) {
+      return DateTime(
+        int.parse(match.group(1)!),
+        int.parse(match.group(2)!),
+        int.parse(match.group(3)!),
+      );
     }
-    return DateTime(
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      int.parse(match.group(3)!),
-    );
+    // The exam list uses display text such as `2026年10月25日 13:50-15:50`.
+    final chinese = RegExp(r'^(\d{4})年(\d{1,2})月(\d{1,2})日').firstMatch(value);
+    if (chinese != null) {
+      return DateTime(
+        int.parse(chinese.group(1)!),
+        int.parse(chinese.group(2)!),
+        int.parse(chinese.group(3)!),
+      );
+    }
+    return DateTime.tryParse(value);
   }
 }
 
@@ -211,8 +256,7 @@ class TimetableData {
   int weekFor(DateTime date) {
     final start = termStartDate;
     if (start == null) return currentWeek.clamp(1, totalWeeks);
-    final diff =
-        mondayOf(date).difference(mondayOf(start)).inDays;
+    final diff = mondayOf(date).difference(mondayOf(start)).inDays;
     final week = diff ~/ 7 + 1;
     return week.clamp(1, totalWeeks);
   }
@@ -224,7 +268,9 @@ class TimetableData {
     final last = first.add(const Duration(days: 6));
     return UnmodifiableListView(
       exams
-          .where((exam) => !exam.date.isBefore(first) && exam.date.isAfter(last))
+          .where(
+            (exam) => !exam.date.isBefore(first) && !exam.date.isAfter(last),
+          )
           .toList()
         ..sort((a, b) => a.date.compareTo(b.date)),
     );
@@ -278,7 +324,9 @@ class TimetableData {
       termStartDate: ExamEntry.parseDate(json['termStartDate'] as String?),
       sessions: ((json['sessions'] as List?) ?? const [])
           .whereType<Map>()
-          .map((value) => CourseSession.fromJson(Map<String, dynamic>.from(value)))
+          .map(
+            (value) => CourseSession.fromJson(Map<String, dynamic>.from(value)),
+          )
           .toList(),
       exams: ((json['exams'] as List?) ?? const [])
           .whereType<Map>()

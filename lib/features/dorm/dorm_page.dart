@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/network/neu_elec_client.dart' show ElectricityQueryException;
+import '../auth/auth_controller.dart';
 import 'electricity_models.dart';
 import 'electricity_service.dart';
 
@@ -10,14 +12,14 @@ import 'electricity_service.dart';
 ///
 /// 楼栋编号表来自后勤处缴费编号页（2024-07-02 版，实测 3510409/2600116 命中）；
 /// 也可以直接输入 7/8 位完整房间码（空调楼为 8 位）。
-class DormPowerPage extends StatefulWidget {
+class DormPowerPage extends ConsumerStatefulWidget {
   const DormPowerPage({super.key});
 
   @override
-  State<DormPowerPage> createState() => _DormPowerPageState();
+  ConsumerState<DormPowerPage> createState() => _DormPowerPageState();
 }
 
-class _DormPowerPageState extends State<DormPowerPage> {
+class _DormPowerPageState extends ConsumerState<DormPowerPage> {
   final _service = DormElectricityService();
 
   DormPrefs _prefs = const DormPrefs();
@@ -86,7 +88,9 @@ class _DormPowerPageState extends State<DormPowerPage> {
       _error = null;
     });
     try {
-      final reading = await _service.queryNow(prefs);
+      final auth = ref.read(authControllerProvider);
+      final session = auth is AuthAuthenticated ? auth.session : null;
+      final reading = await _service.queryNow(prefs, session: session);
       final saved = await _service.loadPrefs();
       if (!mounted) return;
       setState(() {
@@ -166,10 +170,7 @@ class _DormPowerPageState extends State<DormPowerPage> {
               const SizedBox(height: 18),
               Text(
                 '数据来自缴费服务大厅（电费项目） · 学生电价 0.51 元/度 · 电量每日由系统刷新',
-                style: TextStyle(
-                  fontSize: 9,
-                  color: AppColors.faint,
-                ),
+                style: TextStyle(fontSize: 9, color: AppColors.faint),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -199,8 +200,8 @@ class _DormPowerPageState extends State<DormPowerPage> {
         Text(
           _prefs.hasRoom
               ? (_prefs.lastReading?.roomInfo.isNotEmpty ?? false)
-                  ? _prefs.lastReading!.roomInfo
-                  : '已保存房间码 ${_prefs.roomCode}'
+                    ? _prefs.lastReading!.roomInfo
+                    : '已保存房间码 ${_prefs.roomCode}'
               : '填写一次房间码，之后打开即可查看剩余电量',
           style: TextStyle(fontSize: 11, color: AppColors.muted),
         ),
@@ -254,9 +255,8 @@ class _DormPowerPageState extends State<DormPowerPage> {
               color: AppColors.ink,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
-            decoration: _fieldDecoration('寝室号（4 位，不足自动补 0）').copyWith(
-              counterText: '',
-            ),
+            decoration: _fieldDecoration('寝室号（4 位，不足自动补 0）')
+                .copyWith(counterText: ''),
             onChanged: (_) => setState(() {}),
           ),
           if (preview != null) ...[
@@ -301,8 +301,9 @@ class _DormPowerPageState extends State<DormPowerPage> {
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 40),
                 ),
-                onPressed:
-                    _loading ? null : () => _saveAndQuery(roomCode: preview ?? ''),
+                onPressed: _loading
+                    ? null
+                    : () => _saveAndQuery(roomCode: preview ?? ''),
                 child: _loading
                     ? const SizedBox(
                         width: 14,
@@ -404,10 +405,12 @@ class _DormPowerPageState extends State<DormPowerPage> {
                     campus,
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight:
-                          _campus == campus ? FontWeight.w600 : FontWeight.w400,
-                      color:
-                          _campus == campus ? AppColors.ink : AppColors.muted,
+                      fontWeight: _campus == campus
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: _campus == campus
+                          ? AppColors.ink
+                          : AppColors.muted,
                     ),
                   ),
                 ),
@@ -466,10 +469,7 @@ class _DormPowerPageState extends State<DormPowerPage> {
                 ),
               ),
               const SizedBox(width: 6),
-              Text(
-                '度',
-                style: TextStyle(fontSize: 14, color: AppColors.muted),
-              ),
+              Text('度', style: TextStyle(fontSize: 14, color: AppColors.muted)),
               const Spacer(),
               TextButton.icon(
                 onPressed: _loading ? null : _refresh,
@@ -487,8 +487,7 @@ class _DormPowerPageState extends State<DormPowerPage> {
           if (low) ...[
             const SizedBox(height: 4),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
                 color: AppColors.nowRed.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
@@ -602,18 +601,17 @@ class _DormPowerPageState extends State<DormPowerPage> {
   // ---------- shared bits ----------
 
   TextStyle _cardTitleStyle() => TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: AppColors.ink,
-      );
+    fontSize: 12,
+    fontWeight: FontWeight.w600,
+    color: AppColors.ink,
+  );
 
   InputDecoration _fieldDecoration(String label) {
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(fontSize: 11, color: AppColors.muted),
       isDense: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: AppColors.line),
@@ -642,11 +640,12 @@ class _DormPowerPageState extends State<DormPowerPage> {
   }
 
   Widget _metaRow(String label, DateTime? time, {String? value}) {
-    final shown = value ??
+    final shown =
+        value ??
         (time == null
             ? '—'
             : '${time.year}/${time.month}/${time.day} '
-                '${time.hour}:${time.minute.toString().padLeft(2, '0')}');
+                  '${time.hour}:${time.minute.toString().padLeft(2, '0')}');
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(

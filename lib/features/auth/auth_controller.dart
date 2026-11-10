@@ -141,6 +141,20 @@ class AuthController extends Notifier<AuthState> {
     if (saved == null || saved.password == null || saved.password!.isEmpty) {
       return;
     }
+    // 恢复的会话可能来自另一个账号（例如旧本科账号的密码还留在文件里，
+    // 而当前是研究生账号的网页会话）。学号不一致时绝不能用旧密码刷新
+    // 新账号；否则会把旧密码写到新学号下，导致下次自动登录失败。
+    final savedUsername = saved.username.trim();
+    final sessionStudentId = session.studentId.trim();
+    if (savedUsername.isNotEmpty &&
+        sessionStudentId.isNotEmpty &&
+        savedUsername != sessionStudentId) {
+      debugPrint(
+        '[auth] skip restoring credentials for mismatched account '
+        '($savedUsername -> $sessionStudentId)',
+      );
+      return;
+    }
     // The user opted into saving credentials at login; the restore-time
     // identity refresh must keep that choice, otherwise the password file is
     // wiped on every launch and daily jobs (电费查询) lose the password.
@@ -155,6 +169,7 @@ class AuthController extends Notifier<AuthState> {
     required String username,
     required String password,
     bool saveCredentials = false,
+    bool keepSignedIn = true,
     String? initialDisplayName,
   }) async {
     if (state is AuthBusy) return;
@@ -194,13 +209,18 @@ class AuthController extends Notifier<AuthState> {
       // fire-and-forget so a broken Windows plugin cannot hold the login
       // button in a spinner.
       state = AuthAuthenticated(session);
-      unawaited(_persistSession(session));
+      if (keepSignedIn) {
+        unawaited(_persistSession(session));
+      } else {
+        unawaited(_clearSession());
+      }
       unawaited(
         _persistCredentials(
           enabled: saveCredentials,
+          clearWhenDisabled: true,
           username: trimmed,
           password: password,
-          displayName: initialDisplayName,
+          displayName: casIdentity?.displayName ?? initialDisplayName,
         ),
       );
       // The CAS redirect usually establishes a portal session too. Resolve
@@ -210,6 +230,7 @@ class AuthController extends Notifier<AuthState> {
         _resolveAndPersistIdentity(
           session,
           saveCredentials: saveCredentials,
+          keepSignedIn: keepSignedIn,
           typedPassword: password,
         ),
       );
@@ -234,6 +255,7 @@ class AuthController extends Notifier<AuthState> {
     String? typedUsername,
     String? typedPassword,
     bool saveCredentials = false,
+    bool keepSignedIn = true,
   }) async {
     if (!result.hasCookies) {
       state = const AuthUnauthenticated(message: '网页登录没有返回有效会话，请重试。');
@@ -258,6 +280,13 @@ class AuthController extends Notifier<AuthState> {
     // return to the shell immediately; persistence is best-effort background
     // work.
     state = AuthAuthenticated(session);
+    // Persist the raw webview session immediately: identity refresh may take
+    // several seconds, and the user may close the app before it finishes.
+    if (keepSignedIn) {
+      unawaited(_persistSession(session));
+    } else {
+      unawaited(_clearSession());
+    }
     final needsIdentityRefresh =
         resultId == null ||
         result.displayName == null ||
@@ -268,15 +297,15 @@ class AuthController extends Notifier<AuthState> {
         _resolveAndPersistIdentity(
           session,
           saveCredentials: saveCredentials,
+          keepSignedIn: keepSignedIn,
           typedPassword: typedPassword,
         ),
       );
-    } else {
-      unawaited(_persistSession(session));
     }
     unawaited(
       _persistCredentials(
         enabled: saveCredentials,
+        clearWhenDisabled: true,
         username: id ?? typedUsername ?? '',
         password: typedPassword,
         displayName: result.displayName,
@@ -287,6 +316,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> _resolveAndPersistIdentity(
     AuthSession initial, {
     required bool saveCredentials,
+    bool keepSignedIn = true,
     String? typedPassword,
   }) async {
     var session = initial;
@@ -303,8 +333,8 @@ class AuthController extends Notifier<AuthState> {
         final client = ref.read(portalIdentityClientProvider);
         final PortalLoginIdentityClient? loginClient =
             client is PortalLoginIdentityClient
-                ? client as PortalLoginIdentityClient
-                : null;
+            ? client as PortalLoginIdentityClient
+            : null;
         if (typedPassword != null &&
             typedPassword.isNotEmpty &&
             loginClient != null) {
@@ -318,10 +348,12 @@ class AuthController extends Notifier<AuthState> {
           identity = await client.fetch(initial.cookies);
         }
       }
-      if (identity != null && (identity.hasStudentId || identity.hasDisplayName)) {
+      if (identity != null &&
+          (identity.hasStudentId || identity.hasDisplayName)) {
         session = initial.copyWith(
           studentId: identity.hasStudentId ? identity.studentId : null,
-          displayName: identity.displayName ??
+          displayName:
+              identity.displayName ??
               (identity.hasStudentId ? identity.studentId : null),
         );
         if (identity.hasStudentId) {
@@ -352,7 +384,9 @@ class AuthController extends Notifier<AuthState> {
         current.session.createdAt != initial.createdAt) {
       return;
     }
-    await _persistSession(session);
+    if (keepSignedIn) {
+      await _persistSession(session);
+    }
   }
 
   Future<void> _persistSession(AuthSession session) async {
@@ -369,25 +403,60 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
+  Future<void> _clearSession() async {
+    try {
+      await ref
+          .read(sessionStoreProvider)
+          .clear()
+          .timeout(const Duration(seconds: 3));
+      debugPrint('[auth] stale session cleared');
+    } on TimeoutException {
+      debugPrint('[auth] stale session clear timed out');
+    } catch (error) {
+      debugPrint('[auth] stale session clear failed: $error');
+    }
+  }
+
   Future<void> _persistCredentials({
     required bool enabled,
+    bool clearWhenDisabled = false,
     required String username,
     String? password,
     String? displayName,
   }) async {
     try {
       final store = ref.read(credentialStoreProvider);
+      // Background identity refreshes run with saveCredentials=false and must
+      // never delete an existing credential file. Only an explicit login with
+      // "保存账号密码" unchecked is allowed to clear it.
       if (!enabled) {
-        await store.clear();
+        if (clearWhenDisabled) await store.clear();
         return;
       }
       final trimmed = username.trim();
       if (trimmed.isEmpty) return;
+      final existing = await store.read().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
+      final newPassword = password == null || password.isEmpty
+          ? null
+          : password;
+      // A webview login usually has no password. Keep the previously saved
+      // password only when the login id is exactly the same account; a shared
+      // display name is not enough (different accounts may belong to the same
+      // person, e.g. an old undergraduate id and the graduate id).
+      final sameAccount = existing != null && existing.username == trimmed;
+      final mergedPassword =
+          newPassword ?? (sameAccount ? existing.password : null);
+      final mergedDisplayName = (displayName == null || displayName.isEmpty)
+          ? (sameAccount ? existing.displayName : null)
+          : displayName;
       await store.save(
         SavedCredentials(
           username: trimmed,
-          password: password == null || password.isEmpty ? null : password,
-          displayName: displayName,
+          password: mergedPassword,
+          displayName: mergedDisplayName,
         ),
       );
     } catch (error) {

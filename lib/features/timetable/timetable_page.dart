@@ -8,12 +8,20 @@ import 'timetable_store.dart';
 import 'yjs_timetable_page.dart';
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-const _slotHeight = 54.0;
-const _headerHeight = 52.0;
-const _timeGutterWidth = 58.0;
+const _headerHeight = 40.0;
+const _timeGutterWidth = 56.0;
+const _minSlotHeight = 36.0;
+const _maxSlotHeight = 54.0;
 
-String _dateLabel(DateTime date) =>
-    '${date.month}/${date.day}';
+String _dateLabel(DateTime date) => '${date.month}/${date.day}';
+
+String _examTimeLabel(ExamEntry exam) {
+  final start = exam.startTime;
+  if (start == null || start.isEmpty) return '';
+  final end = exam.endTime;
+  if (end == null || end.isEmpty) return start;
+  return '$start–$end';
+}
 
 class TimetablePage extends StatefulWidget {
   const TimetablePage({super.key, this.compact = false});
@@ -32,6 +40,7 @@ class _TimetablePageState extends State<TimetablePage> {
   bool _weekView = true;
   int _lastNowMinute = DateTime.now().hour * 60 + DateTime.now().minute;
   Timer? _minuteTimer;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -50,6 +59,7 @@ class _TimetablePageState extends State<TimetablePage> {
   @override
   void dispose() {
     _minuteTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -76,7 +86,9 @@ class _TimetablePageState extends State<TimetablePage> {
     }
     final minutesNow = DateTime.now().hour * 60 + DateTime.now().minute;
     final sorted = [...sessions]..sort(_sessionOrder);
-    for (final session in sorted.where((s) => s.day == DateTime.now().weekday)) {
+    for (final session in sorted.where(
+      (s) => s.day == DateTime.now().weekday,
+    )) {
       if (PeriodTimes.startMinutes(session.startPeriod) > minutesNow) {
         return (session, '');
       }
@@ -96,28 +108,58 @@ class _TimetablePageState extends State<TimetablePage> {
     return a.startPeriod.compareTo(b.startPeriod);
   }
 
+  static int _examOrder(ExamEntry a, ExamEntry b) {
+    final byDate = a.date.compareTo(b.date);
+    if (byDate != 0) return byDate;
+    final aStart = PeriodTimes.parseTime(a.startTime) ?? 0;
+    final bStart = PeriodTimes.parseTime(b.startTime) ?? 0;
+    return aStart.compareTo(bStart);
+  }
+
   List<CourseSession> get _weekSessions => _data.forWeek(_week);
 
-  List<ExamEntry> get _weekExams => _data.examsForWeek(_week);
+  /// All exams of one teaching week. The week is anchored on the same
+  /// [_weekStartFor] as the grid header, so legacy caches without a stored
+  /// term start still line up correctly.
+  List<ExamEntry> _examsForWeek(int week) {
+    final start = _weekStartFor(week);
+    if (start == null) return const [];
+    final end = start.add(const Duration(days: 7));
+    return _data.exams
+        .where((exam) => !exam.date.isBefore(start) && exam.date.isBefore(end))
+        .toList()
+      ..sort(_examOrder);
+  }
 
-  List<CourseSession> get _daySessions =>
-      _data.forDay(_selectedDay, _week);
+  List<ExamEntry> get _allExams => [..._data.exams]..sort(_examOrder);
+
+  List<CourseSession> get _daySessions => _data.forDay(_selectedDay, _week);
 
   List<ExamEntry> get _dayExams {
     final start = _weekStart;
     if (start == null) return const [];
-    return _data.examsOn(start.add(Duration(days: _selectedDay - 1)));
+    return (_data.examsOn(start.add(Duration(days: _selectedDay - 1))).toList()
+      ..sort(_examOrder));
   }
 
   /// Monday of the displayed week, or null when the term start is unknown.
   ///
   /// 旧版缓存没有 termStartDate：用 currentWeek + 本周一兜底推导
   /// （与同步时 welcomeWords 的推导一致，重新同步即可校正）。
-  DateTime? get _weekStart {
-    final start =
-        _data.termStartDate ?? _inferTermStartFromCurrentWeek();
+  DateTime? get _weekStart => _weekStartFor(_week);
+
+  DateTime? _weekStartFor(int week) {
+    final start = _data.termStartDate ?? _inferTermStartFromCurrentWeek();
     if (start == null) return null;
-    return TimetableData.mondayOf(start).add(Duration(days: (_week - 1) * 7));
+    return TimetableData.mondayOf(start).add(Duration(days: (week - 1) * 7));
+  }
+
+  bool _isWeekToday(int week) {
+    final now = DateTime.now();
+    final start = _weekStartFor(week);
+    if (start == null) return false;
+    final end = start.add(const Duration(days: 6));
+    return !now.isBefore(start) && !now.isAfter(end);
   }
 
   DateTime? _inferTermStartFromCurrentWeek() {
@@ -161,92 +203,112 @@ class _TimetablePageState extends State<TimetablePage> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        widget.compact ? 20 : 36,
-        widget.compact ? 8 : 32,
-        widget.compact ? 20 : 36,
-        32,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(context),
-          const SizedBox(height: 22),
-          _buildSummary(),
-          const SizedBox(height: 20),
-          if (widget.compact)
-            _DayAgenda(
-              week: _week,
-              weekStart: _weekStart,
-              selectedDay: _selectedDay,
-              sessions: _daySessions,
-              exams: _dayExams,
-              onDayChanged: (day) => setState(() => _selectedDay = day),
-            )
-          else if (_weekView)
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              layoutBuilder: (currentChild, previousChildren) => Stack(
-                alignment: Alignment.topLeft,
-                children: [
-                  ...previousChildren,
-                  ?currentChild,
-                ],
-              ),
-              transitionBuilder: (child, animation) {
-                final incoming = child.key == ValueKey(_week);
-                return SlideTransition(
-                  position: Tween<Offset>(
-                    begin: Offset(
-                      incoming ? _direction * 0.14 : -_direction * 0.14,
-                      0,
-                    ),
-                    end: Offset.zero,
-                  ).animate(animation),
-                  child: child,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportHeight =
+            constraints.maxHeight.isFinite && constraints.maxHeight > 0
+            ? constraints.maxHeight
+            : 800.0;
+        final slotHeight = _slotHeightFor(viewportHeight);
+        return ScrollConfiguration(
+          // The Material desktop default scrollbar is a thick grey bar that
+          // fights the hairline system. Disable it and paint our own 4px rail.
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: ScrollbarTheme(
+            data: ScrollbarThemeData(
+              thumbColor: WidgetStateProperty.resolveWith<Color?>((states) {
+                final active =
+                    states.contains(WidgetState.hovered) ||
+                    states.contains(WidgetState.dragged);
+                return (active ? AppColors.muted : AppColors.faint).withValues(
+                  alpha: active ? 0.55 : 0.32,
                 );
-              },
-              child: _WeekGrid(
-                key: ValueKey(_week),
-                weekStart: _weekStart,
-                sessions: _weekSessions,
-                exams: _weekExams,
-                today: _isThisWeekToday(),
-                onWeekDrag: _onWeekDrag,
-              ),
-            )
-          else
-            _DayAgenda(
-              week: _week,
-              weekStart: _weekStart,
-              selectedDay: _selectedDay,
-              sessions: _daySessions,
-              exams: _dayExams,
-              onDayChanged: (day) => setState(() => _selectedDay = day),
+              }),
+              trackColor: const WidgetStatePropertyAll(Colors.transparent),
             ),
-          const SizedBox(height: 18),
-          Text(
-            _data.isSample
-                ? '示例课表 · 数据接入教务系统后可自动同步'
-                : '来自研究生教务系统 · 本地缓存',
-            style: const TextStyle(color: AppColors.faint, fontSize: 10),
+            child: Scrollbar(
+              controller: _scrollController,
+              thickness: 4,
+              radius: const Radius.circular(2),
+              interactive: true,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: EdgeInsets.fromLTRB(
+                  widget.compact ? 20 : 36,
+                  widget.compact ? 8 : 20,
+                  widget.compact ? 20 : 36,
+                  widget.compact ? 24 : 12,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHeader(context),
+                    SizedBox(height: widget.compact ? 18 : 12),
+                    _buildSummary(),
+                    SizedBox(height: widget.compact ? 16 : 12),
+                    if (widget.compact)
+                      _buildDayAgenda()
+                    else if (_weekView)
+                      _WeekPager(
+                        week: _week,
+                        direction: _direction,
+                        pageBuilder: (week) => _WeekGrid(
+                          weekStart: _weekStartFor(week),
+                          sessions: _data.forWeek(week),
+                          exams: _examsForWeek(week),
+                          today: _isWeekToday(week),
+                          onWeekDrag: _onWeekDrag,
+                          slotHeight: slotHeight,
+                        ),
+                      )
+                    else
+                      _buildDayAgenda(),
+                    if (!widget.compact && _weekView) ...[
+                      const SizedBox(height: 8),
+                      _ExamScheduleSection(exams: _allExams),
+                    ],
+                    SizedBox(height: widget.compact ? 18 : 12),
+                    Text(
+                      _data.isSample
+                          ? '示例课表 · 数据接入教务系统后可自动同步'
+                          : '来自研究生教务系统 · 本地缓存',
+                      style: const TextStyle(
+                        color: AppColors.faint,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  /// The today highlight only applies to the week that actually contains
-  /// today; browsing another week must not highlight a column.
-  bool _isThisWeekToday() {
-    final now = DateTime.now();
-    final start = _weekStart;
-    if (start == null) return false;
-    final end = start.add(const Duration(days: 6));
-    return !now.isBefore(start) && !now.isAfter(end);
+  Widget _buildDayAgenda() {
+    return _DayAgenda(
+      week: _week,
+      weekStart: _weekStart,
+      selectedDay: _selectedDay,
+      sessions: _daySessions,
+      exams: _dayExams,
+      onDayChanged: (day) => setState(() => _selectedDay = day),
+    );
+  }
+
+  /// Fit all 12 periods into the default 1280x800 window: the grid itself
+  /// gets whatever vertical budget is left after the page chrome, bounded so
+  /// the cards stay legible and never become taller than the old design.
+  double _slotHeightFor(double viewportHeight) {
+    if (widget.compact) return _maxSlotHeight;
+    // 300 是标题/摘要/间距与考试安排标题的实测占用，
+    // 让默认窗口里既能放下 12 节，也能完整看到下方考试列表的开头。
+    const chrome = 300.0;
+    final raw =
+        (viewportHeight - chrome - _headerHeight) / PeriodTimes.periodsPerDay;
+    return raw.clamp(_minSlotHeight, _maxSlotHeight).floorToDouble();
   }
 
   Widget _buildHeader(BuildContext context) {
@@ -297,7 +359,10 @@ class _TimetablePageState extends State<TimetablePage> {
             side: const BorderSide(color: AppColors.line),
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             minimumSize: const Size(0, 36),
-            textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+            textStyle: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         if (!widget.compact)
@@ -355,7 +420,8 @@ class _TimetablePageState extends State<TimetablePage> {
     final sessions = _weekSessions;
     final periods = sessions.fold<int>(0, (sum, item) => sum + item.span);
     final next = _nextSession;
-    final courseCount = sessions.map((s) => s.id).toSet().length;
+    // 同一门课一周可能排多次（如周一、周五各一节），摘要按课程名去重。
+    final courseCount = sessions.map((s) => s.name).toSet().length;
     final items = [
       ('$courseCount', '门课程'),
       ('$periods', '节课时'),
@@ -363,18 +429,18 @@ class _TimetablePageState extends State<TimetablePage> {
         next == null
             ? '没有课'
             : '${next.$2}${_weekdays[next.$1.day - 1]} '
-                '${PeriodTimes.startLabel(next.$1.startPeriod)}',
+                  '${PeriodTimes.startLabel(next.$1.startPeriod)}',
         '下一节',
       ),
     ];
 
     // 单条摘要带替代三张同质卡片：数字是内容，卡片不是。
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
@@ -382,39 +448,41 @@ class _TimetablePageState extends State<TimetablePage> {
             if (i != 0)
               Container(
                 width: 1,
-                height: 26,
-                margin: const EdgeInsets.symmetric(horizontal: 16),
+                height: 24,
+                margin: const EdgeInsets.symmetric(horizontal: 14),
                 color: AppColors.line,
               ),
             Expanded(
-              child: RichText(
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                text: TextSpan(
+              child: Text.rich(
+                // 数值与“门/节”使用同一字号，避免“门”落到更小的字号
+                // 而显得像另一个字形（5 门课程要读得自然）。
+                TextSpan(
                   children: [
                     TextSpan(
                       text: items[i].$1,
                       style: const TextStyle(
                         color: AppColors.ink,
-                        fontSize: 14,
+                        fontSize: 13,
+                        height: 1.3,
                         fontWeight: FontWeight.w600,
                         fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     ),
-                    const TextSpan(
-                      text: ' ',
-                      style: TextStyle(fontSize: 12),
-                    ),
                     TextSpan(
-                      text: items[i].$2,
+                      // 中文数量短语不加空格：5门课程、14节课时。
+                      // 第三项是「周五 08:30 下一节」，保留一个空格断句。
+                      text: i == 2 ? ' ${items[i].$2}' : items[i].$2,
                       style: const TextStyle(
                         color: AppColors.muted,
-                        fontSize: 11,
+                        fontSize: 13,
+                        height: 1.3,
                         fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -443,7 +511,7 @@ class _WeekStepper extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -493,7 +561,7 @@ class _ViewToggle extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: AppColors.canvas,
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.line),
       ),
       child: Row(
@@ -536,7 +604,9 @@ class _ToggleItem extends StatelessWidget {
         decoration: BoxDecoration(
           color: active ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: active ? AppColors.line : Colors.transparent),
+          border: Border.all(
+            color: active ? AppColors.line : Colors.transparent,
+          ),
         ),
         child: Text(
           label,
@@ -551,20 +621,129 @@ class _ToggleItem extends StatelessWidget {
   }
 }
 
+/// One page of the week pager: the outgoing and incoming weeks are laid out
+/// at full width and translated together, with a `ClipRect` + per-page
+/// `RepaintBoundary` making absolutely sure no residue from the previous
+/// week can paint outside the grid.
+class _WeekPager extends StatefulWidget {
+  const _WeekPager({
+    required this.week,
+    required this.direction,
+    required this.pageBuilder,
+  });
+
+  final int week;
+  final int direction;
+  final Widget Function(int week) pageBuilder;
+
+  @override
+  State<_WeekPager> createState() => _WeekPagerState();
+}
+
+class _WeekPagerState extends State<_WeekPager>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+  );
+  late int _previousWeek = widget.week;
+  late int _previousDirection = widget.direction;
+  bool _animating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted && _animating) {
+        setState(() => _animating = false);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _WeekPager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.week != widget.week) {
+      _previousWeek = oldWidget.week;
+      _previousDirection = widget.direction;
+      _animating = true;
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Build both pages exactly once per week change; only the transform is
+    // recomputed on each animation tick, so the grids never rebuild per frame.
+    final incomingPage = RepaintBoundary(
+      key: ValueKey('week-${widget.week}'),
+      child: widget.pageBuilder(widget.week),
+    );
+    final outgoingPage = _animating
+        ? RepaintBoundary(
+            key: ValueKey('week-$_previousWeek'),
+            child: widget.pageBuilder(_previousWeek),
+          )
+        : null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        return ClipRect(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              if (!_animating || outgoingPage == null) return incomingPage;
+              final t = Curves.easeOutCubic.transform(_controller.value);
+              final outgoingShift = -_previousDirection * width * t;
+              final incomingShift = _previousDirection > 0
+                  ? width * (1 - t)
+                  : -width * (1 - t);
+              return Stack(
+                alignment: Alignment.topLeft,
+                clipBehavior: Clip.none,
+                children: [
+                  Transform.translate(
+                    offset: Offset(outgoingShift, 0),
+                    child: SizedBox(
+                      width: width,
+                      child: IgnorePointer(child: outgoingPage),
+                    ),
+                  ),
+                  Transform.translate(
+                    offset: Offset(incomingShift, 0),
+                    child: SizedBox(width: width, child: incomingPage),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _WeekGrid extends StatelessWidget {
   const _WeekGrid({
-    super.key,
     required this.weekStart,
     required this.sessions,
     required this.exams,
     required this.today,
     required this.onWeekDrag,
+    required this.slotHeight,
   });
 
   final DateTime? weekStart;
   final List<CourseSession> sessions;
   final List<ExamEntry> exams;
   final bool today;
+  final double slotHeight;
 
   /// Horizontal swipe on the grid switches weeks; the state owns the
   /// direction bookkeeping for the slide transition.
@@ -578,7 +757,7 @@ class _WeekGrid extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: GestureDetector(
         behavior: HitTestBehavior.deferToChild,
@@ -602,7 +781,7 @@ class _WeekGrid extends StatelessWidget {
               ),
             ),
             SizedBox(
-              height: PeriodTimes.periodsPerDay * _slotHeight,
+              height: PeriodTimes.periodsPerDay * slotHeight,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -610,11 +789,13 @@ class _WeekGrid extends StatelessWidget {
                     width: _timeGutterWidth,
                     child: Column(
                       children: [
-                        for (var period = 1;
-                            period <= PeriodTimes.periodsPerDay;
-                            period++)
+                        for (
+                          var period = 1;
+                          period <= PeriodTimes.periodsPerDay;
+                          period++
+                        )
                           SizedBox(
-                            height: _slotHeight,
+                            height: slotHeight,
                             child: Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -662,11 +843,12 @@ class _WeekGrid extends StatelessWidget {
                             )
                             .toList(),
                         isToday: today && day == now.weekday,
+                        slotHeight: slotHeight,
                       ),
                     ),
-                  ],
-                ),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -695,47 +877,52 @@ class _DayHeader extends StatelessWidget {
       decoration: const BoxDecoration(
         border: Border(left: BorderSide(color: AppColors.line)),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (isToday)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.campusBlue,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isToday)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.campusBlue,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              )
+            else
+              Text(
                 label,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.ink,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-            )
-          else
-            Text(
-              label,
-              style: const TextStyle(
-                color: AppColors.ink,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+            const SizedBox(height: 3),
+            if (date != null)
+              Text(
+                isToday ? '今天 ${_dateLabel(date!)}' : _dateLabel(date!),
+                style: TextStyle(
+                  color: isToday ? AppColors.campusBlue : AppColors.faint,
+                  fontSize: 8,
+                  height: 1.2,
+                  fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
-          const SizedBox(height: 3),
-          if (date != null)
-            Text(
-              isToday ? '今天 ${_dateLabel(date!)}' : _dateLabel(date!),
-              style: TextStyle(
-                color: isToday ? AppColors.campusBlue : AppColors.faint,
-                fontSize: 8,
-                height: 1.2,
-                fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -747,24 +934,24 @@ class _DayColumn extends StatelessWidget {
     required this.sessions,
     required this.exams,
     required this.isToday,
+    required this.slotHeight,
   });
 
   final int day;
   final List<CourseSession> sessions;
   final List<ExamEntry> exams;
   final bool isToday;
+  final double slotHeight;
 
   @override
   Widget build(BuildContext context) {
-    final gridHeight = PeriodTimes.periodsPerDay * _slotHeight;
+    final gridHeight = PeriodTimes.periodsPerDay * slotHeight;
     final now = DateTime.now();
     final nowMinutes = now.hour * 60 + now.minute;
     final showNowLine =
         isToday &&
-        nowMinutes >= PeriodTimes.firstStartMinutes &&
-        nowMinutes <=
-            PeriodTimes.firstStartMinutes +
-                PeriodTimes.periodMinutes * PeriodTimes.periodsPerDay;
+        nowMinutes >= PeriodTimes.startMinutes(1) &&
+        nowMinutes <= PeriodTimes.endMinutes(PeriodTimes.periodsPerDay);
     return Container(
       decoration: BoxDecoration(
         color: isToday ? AppColors.campusBlue.withValues(alpha: 0.03) : null,
@@ -782,14 +969,17 @@ class _DayColumn extends StatelessWidget {
         children: [
           for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
             Positioned(
-              top: (period - 1) * _slotHeight,
+              top: (period - 1) * slotHeight,
               left: 0,
               right: 0,
-              child: Container(height: 1, color: AppColors.line.withValues(alpha: 0.7)),
+              child: Container(
+                height: 1,
+                color: AppColors.line.withValues(alpha: 0.7),
+              ),
             ),
           if (showNowLine)
             Positioned(
-              top: PeriodTimes.slotOffset(nowMinutes) * _slotHeight - 1,
+              top: PeriodTimes.slotOffset(nowMinutes) * slotHeight - 1,
               left: 0,
               right: 0,
               height: 2,
@@ -798,7 +988,7 @@ class _DayColumn extends StatelessWidget {
           if (showNowLine)
             Positioned(
               left: -3,
-              top: PeriodTimes.slotOffset(nowMinutes) * _slotHeight - 3,
+              top: PeriodTimes.slotOffset(nowMinutes) * slotHeight - 3,
               width: 8,
               height: 8,
               child: DecoratedBox(
@@ -810,25 +1000,26 @@ class _DayColumn extends StatelessWidget {
             ),
           for (final session in sessions)
             Positioned(
-              top: (session.startPeriod - 1) * _slotHeight + 3,
+              top: (session.startPeriod - 1) * slotHeight + 3,
               left: 4,
               right: 4,
-              height: session.span * _slotHeight - 6,
+              height: session.span * slotHeight - 6,
               child: _CourseCard(session: session),
             ),
-          for (final exam in exams)
-            _examPositioned(exam, gridHeight),
+          for (final exam in exams) _examPositioned(exam, gridHeight),
         ],
       ),
     );
   }
 
   Widget _examPositioned(ExamEntry exam, double gridHeight) {
-    const cardHeight = 46.0;
+    // Keep a single-slot footprint when the window is short; exam cards must
+    // sit alongside the课程 grid without covering neighbouring periods.
+    final cardHeight = (slotHeight - 6).clamp(30.0, 46.0).toDouble();
     final start = PeriodTimes.parseTime(exam.startTime);
     var top = start == null
         ? 4.0
-        : PeriodTimes.slotOffset(start) * _slotHeight + 3;
+        : PeriodTimes.slotOffset(start) * slotHeight + 3;
     if (top < 0) top = 4;
     if (top + cardHeight > gridHeight) top = gridHeight - cardHeight - 4;
     return Positioned(
@@ -849,52 +1040,72 @@ class _CourseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (tint, inkColor) = AppColors.pigmentFor(session.name);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(8, 6, 6, 5),
-      decoration: BoxDecoration(
-        color: tint,
-        borderRadius: BorderRadius.circular(8),
-        border: Border(left: BorderSide(color: inkColor, width: 3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            session.name,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: inkColor,
-              fontSize: 11,
-              height: 1.25,
-              fontWeight: FontWeight.w600,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 默认 1280x800 时单节课约 36-48px，卡片自动收成「课名 + 教室」，
+        // 只有多节连堂才补教师，信息密度随可用高度变化。
+        final compact =
+            constraints.maxHeight.isFinite && constraints.maxHeight < 54;
+        final showRoom = !compact || constraints.maxHeight >= 33;
+        return Tooltip(
+          message: '${session.name}\n${session.room} · ${session.teacher}',
+          waitDuration: const Duration(milliseconds: 700),
+          child: Container(
+            padding: EdgeInsets.fromLTRB(
+              8,
+              compact ? 3 : 6,
+              6,
+              compact ? 3 : 5,
+            ),
+            decoration: BoxDecoration(
+              color: tint,
+              borderRadius: BorderRadius.circular(8),
+              border: Border(left: BorderSide(color: inkColor, width: 3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  session.name,
+                  maxLines: compact ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: inkColor,
+                    fontSize: compact ? 10.5 : 11,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (showRoom) ...[
+                  SizedBox(height: compact ? 1 : 3),
+                  Text(
+                    session.room,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: inkColor.withValues(alpha: 0.75),
+                      fontSize: 8,
+                      height: 1.3,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+                if (!compact && session.span >= 2)
+                  Text(
+                    session.teacher,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: inkColor.withValues(alpha: 0.6),
+                      fontSize: 8,
+                      height: 1.3,
+                    ),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            session.room,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: inkColor.withValues(alpha: 0.75),
-              fontSize: 8,
-              height: 1.3,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-          if (session.span >= 2)
-            Text(
-              session.teacher,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: inkColor.withValues(alpha: 0.6),
-                fontSize: 8,
-                height: 1.3,
-              ),
-            ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -922,16 +1133,23 @@ class _ExamCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final location = exam.room.trim();
+    final seat = exam.seat.trim();
+    final detail = [
+      if (location.isNotEmpty) location,
+      if (seat.isNotEmpty) '考号 $seat',
+    ].join(' · ');
+    final typeLabel = exam.type.trim().isEmpty ? '考试' : exam.type.trim();
     return Container(
       padding: EdgeInsets.fromLTRB(
-        compact ? 7 : 13,
-        compact ? 6 : 11,
         compact ? 6 : 13,
-        compact ? 5 : 11,
+        compact ? 4 : 11,
+        compact ? 5 : 13,
+        compact ? 3 : 11,
       ),
       decoration: BoxDecoration(
         color: _ExamColors.background,
-        borderRadius: BorderRadius.circular(compact ? 7 : 12),
+        borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(color: _ExamColors.accent, width: 3),
           top: BorderSide(color: _ExamColors.soft),
@@ -939,44 +1157,327 @@ class _ExamCard extends StatelessWidget {
           bottom: BorderSide(color: _ExamColors.soft),
         ),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.quiz_outlined,
-            size: compact ? 11 : 14,
-            color: _ExamColors.accent,
+      child: compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.quiz_outlined,
+                      size: 10,
+                      color: _ExamColors.accent,
+                    ),
+                    const SizedBox(width: 3),
+                    Expanded(
+                      child: Text(
+                        exam.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _ExamColors.accent,
+                          fontSize: 10,
+                          height: 1.15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (detail.isNotEmpty)
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _ExamColors.accent.withValues(alpha: 0.78),
+                      fontSize: 8,
+                      height: 1.25,
+                    ),
+                  ),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.quiz_outlined, size: 15, color: _ExamColors.accent),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              exam.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _ExamColors.accent,
+                                fontSize: 13,
+                                height: 1.25,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _ExamColors.soft,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              typeLabel,
+                              style: const TextStyle(
+                                color: _ExamColors.accent,
+                                fontSize: 8,
+                                height: 1.2,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_timeLabel.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          _timeLabel,
+                          style: const TextStyle(
+                            color: _ExamColors.accent,
+                            fontSize: 10,
+                            height: 1.3,
+                            fontWeight: FontWeight.w500,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                      if (detail.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _ExamColors.accent.withValues(alpha: 0.78),
+                            fontSize: 9,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+/// 周视图下方的“考试安排”列表：日期、时间段、科目、地点、考号都直接给出，
+/// 与课程卡片保持明显不同的朱红色系。
+class _ExamScheduleSection extends StatelessWidget {
+  const _ExamScheduleSection({required this.exams});
+
+  final List<ExamEntry> exams;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.event_note_outlined,
+              size: 14,
+              color: AppColors.muted,
+            ),
+            const SizedBox(width: 6),
+            const Text(
+              '考试安排',
+              style: TextStyle(
+                color: AppColors.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (exams.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Text(
+                '共 ${exams.length} 场',
+                style: const TextStyle(color: AppColors.faint, fontSize: 9),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: AppColors.line),
+            borderRadius: BorderRadius.circular(8),
           ),
-          const SizedBox(width: 4),
-          Expanded(
+          clipBehavior: Clip.antiAlias,
+          child: exams.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 22),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.event_available_outlined,
+                        size: 16,
+                        color: AppColors.faint,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '本学期暂无考试安排',
+                        style: TextStyle(color: AppColors.muted, fontSize: 10),
+                      ),
+                    ],
+                  ),
+                )
+              : Column(
+                  children: [
+                    for (var i = 0; i < exams.length; i++) ...[
+                      if (i != 0)
+                        const Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: AppColors.line,
+                        ),
+                      _ExamScheduleRow(
+                        exam: exams[i],
+                        isPast: exams[i].date.isBefore(today),
+                      ),
+                    ],
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExamScheduleRow extends StatelessWidget {
+  const _ExamScheduleRow({required this.exam, required this.isPast});
+
+  final ExamEntry exam;
+  final bool isPast;
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = [
+      if (_examTimeLabel(exam).isNotEmpty) _examTimeLabel(exam),
+      if (exam.room.trim().isNotEmpty) '地点 ${exam.room.trim()}',
+      if (exam.seat.trim().isNotEmpty) '考号 ${exam.seat.trim()}',
+    ].join(' · ');
+    final nameColor = isPast ? AppColors.muted : _ExamColors.accent;
+    final now = DateTime.now();
+    final isToday =
+        exam.date.year == now.year &&
+        exam.date.month == now.month &&
+        exam.date.day == now.day;
+    final typeLabel = exam.type.trim().isEmpty ? '考试' : exam.type.trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 50,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  exam.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  _dateLabel(exam.date),
                   style: TextStyle(
-                    color: _ExamColors.accent,
-                    fontSize: compact ? 10 : 13,
-                    height: 1.2,
-                    fontWeight: FontWeight.w700,
+                    color: isPast ? AppColors.muted : AppColors.ink,
+                    fontSize: 13,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
-                if (_timeLabel.isNotEmpty || exam.room.isNotEmpty)
+                const SizedBox(height: 1),
+                Text(
+                  isToday ? '今天' : _weekdays[exam.date.weekday - 1],
+                  style: TextStyle(
+                    color: isToday ? _ExamColors.accent : AppColors.faint,
+                    fontSize: 8,
+                    height: 1.2,
+                    fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(width: 1, height: 30, color: AppColors.line),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        exam.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: nameColor,
+                          fontSize: 11,
+                          height: 1.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _ExamColors.soft,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(
+                          color: _ExamColors.accent,
+                          fontSize: 8,
+                          height: 1.2,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (detail.isNotEmpty) ...[
+                  const SizedBox(height: 2),
                   Text(
-                    [
-                      if (_timeLabel.isNotEmpty) _timeLabel,
-                      if (exam.room.isNotEmpty) exam.room,
-                    ].join(' · '),
+                    detail,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _ExamColors.accent.withValues(alpha: 0.75),
-                      fontSize: compact ? 8 : 10,
-                      height: 1.3,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 9,
+                      height: 1.35,
+                      fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -1039,13 +1540,16 @@ class _DayAgenda extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               border: Border.all(color: AppColors.line),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: const Column(
               children: [
                 Icon(Icons.coffee_outlined, color: AppColors.faint, size: 26),
                 SizedBox(height: 8),
-                Text('这一天没有安排', style: TextStyle(color: AppColors.muted, fontSize: 11)),
+                Text(
+                  '这一天没有安排',
+                  style: TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
               ],
             ),
           )
@@ -1087,7 +1591,9 @@ class _DayChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: active ? AppColors.campusBlue : Colors.white,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: active ? AppColors.campusBlue : AppColors.line),
+          border: Border.all(
+            color: active ? AppColors.campusBlue : AppColors.line,
+          ),
         ),
         child: Column(
           children: [
@@ -1129,7 +1635,7 @@ class _AgendaCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1140,7 +1646,10 @@ class _AgendaCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  PeriodTimes.rangeLabel(session.startPeriod, session.endPeriod),
+                  PeriodTimes.rangeLabel(
+                    session.startPeriod,
+                    session.endPeriod,
+                  ),
                   style: TextStyle(
                     color: inkColor,
                     fontSize: 12,
@@ -1156,7 +1665,11 @@ class _AgendaCard extends StatelessWidget {
               ],
             ),
           ),
-          Container(width: 2, height: 38, color: inkColor.withValues(alpha: 0.28)),
+          Container(
+            width: 2,
+            height: 38,
+            color: inkColor.withValues(alpha: 0.28),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

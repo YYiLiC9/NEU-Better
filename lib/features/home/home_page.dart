@@ -24,7 +24,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   final _elecService = DormElectricityService();
 
   /// 0 = 课表, 1 = 寝室用电。
-  /// 0 = 课表, 1 = 寝室用电。
   int _tab = 0;
 
   @override
@@ -38,7 +37,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 每日一次：打开软件时若今天还没查过电量就查一次；
   /// 结果低于提醒线时弹窗 + Windows 通知。
   Future<void> _runDailyElectricityCheck() async {
-    final reading = await _elecService.dailyCheck();
+    final reading = await _elecService.dailyCheck(session: widget.session);
     if (!mounted || reading == null) return;
     final prefs = await _elecService.loadPrefs();
     if (!DormElectricityService.isLow(reading, prefs.alertThreshold)) return;
@@ -48,12 +47,14 @@ class _HomePageState extends ConsumerState<HomePage> {
       try {
         final notification = LocalNotification(
           title: '寝室电量不足',
-          body: '${reading.roomInfo} · 剩余 ${reading.rawRemain}，低于提醒线'
+          body:
+              '${reading.roomInfo} · 剩余 ${reading.rawRemain}，低于提醒线'
               '（${prefs.alertThreshold.truncate()} 度）',
         );
-        await notification
-            .show()
-            .timeout(const Duration(seconds: 3), onTimeout: () {});
+        await notification.show().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {},
+        );
       } catch (error) {
         debugPrint('[elec] notification failed: $error');
       }
@@ -118,9 +119,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
-        child: compact
-            ? _buildCompact(context)
-            : _buildDesktop(context),
+        child: compact ? _buildCompact(context) : _buildDesktop(context),
       ),
     );
   }
@@ -166,10 +165,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: _AccountTile(
-                  session: widget.session,
-                  onLogout: _logout,
-                ),
+                child: _AccountTile(session: widget.session, onLogout: _logout),
               ),
             ],
           ),
@@ -177,10 +173,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         Expanded(
           child: IndexedStack(
             index: _tab,
-            children: const [
-              TimetablePage(),
-              DormPowerPage(),
-            ],
+            children: const [TimetablePage(), DormPowerPage()],
           ),
         ),
       ],
@@ -212,10 +205,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         Expanded(
           child: IndexedStack(
             index: _tab,
-            children: const [
-              TimetablePage(compact: true),
-              DormPowerPage(),
-            ],
+            children: const [TimetablePage(compact: true), DormPowerPage()],
           ),
         ),
       ],

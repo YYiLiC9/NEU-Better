@@ -195,10 +195,7 @@ void main() {
   });
 
   test('SavedCredentials round-trips without a password', () {
-    const value = SavedCredentials(
-      username: '20260001',
-      displayName: '张三',
-    );
+    const value = SavedCredentials(username: '20260001', displayName: '张三');
     final restored = SavedCredentials.decode(value.encode());
     expect(restored.username, '20260001');
     expect(restored.password, isNull);
@@ -284,6 +281,67 @@ void main() {
     expect(credentials.credentials?.password, isNull);
   });
 
+  test('web login keeps a saved password for the same account', () async {
+    final credentials = _TestCredentialStore(
+      const SavedCredentials(username: '20260001', password: 'saved-password'),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        sessionStoreProvider.overrideWithValue(_TestSessionStore()),
+        credentialStoreProvider.overrideWithValue(credentials),
+      ],
+    );
+    addTearDown(container.dispose);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    await container
+        .read(authControllerProvider.notifier)
+        .loginWithCookies(
+          result: const WebViewLoginResult(
+            cookies: {'pass.neu.edu.cn': 'CASTGC=TGT-1'},
+            studentId: '20260001',
+            displayName: '测试同学',
+          ),
+          saveCredentials: true,
+        );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(credentials.credentials?.username, '20260001');
+    expect(credentials.credentials?.password, 'saved-password');
+  });
+
+  test(
+    'web login never copies an old account password to a new account',
+    () async {
+      final credentials = _TestCredentialStore(
+        const SavedCredentials(username: '20200001', password: 'old-password'),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(_TestSessionStore()),
+          credentialStoreProvider.overrideWithValue(credentials),
+        ],
+      );
+      addTearDown(container.dispose);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      await container
+          .read(authControllerProvider.notifier)
+          .loginWithCookies(
+            result: const WebViewLoginResult(
+              cookies: {'pass.neu.edu.cn': 'CASTGC=TGT-2'},
+              studentId: '20260001',
+              displayName: '新同学',
+            ),
+            saveCredentials: true,
+          );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(credentials.credentials?.username, '20260001');
+      expect(credentials.credentials?.password, isNull);
+    },
+  );
+
   test('web login refreshes missing identity from the portal', () async {
     final credentials = _TestCredentialStore();
     final forceRefresh = _TestPortalIdentityClient(
@@ -327,10 +385,7 @@ void main() {
 
   test('saved credentials auto-login on cold start', () async {
     final credentials = _TestCredentialStore(
-      const SavedCredentials(
-        username: '20260001',
-        password: 'saved-password',
-      ),
+      const SavedCredentials(username: '20260001', password: 'saved-password'),
     );
     final identity = _TestPortalIdentityClient(
       const StudentIdentity(studentId: '20260001', displayName: '张三'),
@@ -371,11 +426,7 @@ void main() {
 
     await container
         .read(authControllerProvider.notifier)
-        .login(
-          username: '20260001',
-          password: 'pw',
-          saveCredentials: true,
-        );
+        .login(username: '20260001', password: 'pw', saveCredentials: true);
 
     final immediate = container.read(authControllerProvider);
     expect(immediate, isA<AuthAuthenticated>());
@@ -391,23 +442,19 @@ void main() {
     expect(credentials.credentials?.password, 'pw');
   });
 
-  test(
-    'secure credential store round-trips on Windows',
-    () async {
-      final store = SecureCredentialStore();
-      const credentials = SavedCredentials(
-        username: '20260001',
-        password: 'probe-password',
-      );
-      await store.clear();
-      await store.save(credentials);
-      final loaded = await store.read();
-      expect(loaded?.username, credentials.username);
-      expect(loaded?.password, credentials.password);
-      await store.clear();
-    },
-    skip: !Platform.isWindows,
-  );
+  test('secure credential store round-trips on Windows', () async {
+    final store = SecureCredentialStore();
+    const credentials = SavedCredentials(
+      username: '20260001',
+      password: 'probe-password',
+    );
+    await store.clear();
+    await store.save(credentials);
+    final loaded = await store.read();
+    expect(loaded?.username, credentials.username);
+    expect(loaded?.password, credentials.password);
+    await store.clear();
+  }, skip: !Platform.isWindows);
 
   test('parses yjsxk weeks and course rows', () {
     final data = YjsxkTimetableParser.parse(
