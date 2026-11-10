@@ -140,7 +140,7 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
           child: Padding(
             padding: const EdgeInsets.all(28),
             child: _busy
-                ? const Column(
+                ? Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       CircularProgressIndicator(),
@@ -159,7 +159,7 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.cloud_off_rounded,
                         color: AppColors.danger,
                         size: 36,
@@ -168,10 +168,7 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
                       Text(
                         _error ?? '同步失败',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.ink,
-                          height: 1.5,
-                        ),
+                        style: TextStyle(color: AppColors.ink, height: 1.5),
                       ),
                       const SizedBox(height: 18),
                       FilledButton.icon(

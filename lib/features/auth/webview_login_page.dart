@@ -219,9 +219,9 @@ class _AndroidWebViewLoginPageState extends State<_AndroidWebViewLoginPage> {
         children: [
           mobile.WebViewWidget(controller: _controller),
           if (_loading)
-            const ColoredBox(
-              color: Color(0x66FFFFFF),
-              child: Center(child: CircularProgressIndicator()),
+            ColoredBox(
+              color: AppColors.canvas.withValues(alpha: 0.62),
+              child: const Center(child: CircularProgressIndicator()),
             ),
         ],
       ),
@@ -364,7 +364,7 @@ class _WindowsWebViewLoginPageState extends State<_WindowsWebViewLoginPage> {
                       padding: const EdgeInsets.all(24),
                       child: Text(
                         _error!,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.danger,
                           fontSize: 13,
                           height: 1.6,
@@ -395,7 +395,8 @@ class _WebViewScaffold extends StatelessWidget {
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
         title: const Text('学校网页登录'),
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.ink,
         surfaceTintColor: Colors.transparent,
         actions: [
           TextButton(
@@ -420,11 +421,13 @@ class _WebViewScaffold extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.94),
+                color: AppColors.surface.withValues(
+                  alpha: AppColors.isDark ? 0.96 : 0.94,
+                ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.line),
               ),
-              child: const Text(
+              child: Text(
                 '登录完成后点右上角“完成”。如果页面停在二次验证，请按学校提示完成验证。',
                 style: TextStyle(
                   color: AppColors.muted,

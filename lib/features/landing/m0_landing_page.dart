@@ -9,11 +9,16 @@ class M0LandingPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: DecoratedBox(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFF8FBFF), Color(0xFFEAF1FA)],
+            colors: [
+              AppColors.canvas,
+              AppColors.isDark
+                  ? const Color(0xFF13202F)
+                  : const Color(0xFFEAF1FA),
+            ],
           ),
         ),
         child: SafeArea(
@@ -75,7 +80,7 @@ class _BrandBar extends StatelessWidget {
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [AppColors.campusBlue, AppColors.campusBlueDeep],
@@ -100,7 +105,7 @@ class _BrandBar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -112,7 +117,7 @@ class _BrandBar extends StatelessWidget {
                 letterSpacing: 0.1,
               ),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               'NORTHEASTERN UNIVERSITY',
               style: TextStyle(
@@ -128,11 +133,13 @@ class _BrandBar extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.72),
+            color: AppColors.surface.withValues(
+              alpha: AppColors.isDark ? 0.75 : 0.72,
+            ),
             border: Border.all(color: AppColors.line),
             borderRadius: BorderRadius.circular(999),
           ),
-          child: const Text(
+          child: Text(
             'M0 · 工程底座',
             style: TextStyle(
               color: AppColors.campusBlue,
@@ -196,13 +203,15 @@ class _Tag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.7),
+        color: AppColors.surface.withValues(
+          alpha: AppColors.isDark ? 0.72 : 0.7,
+        ),
         border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           color: AppColors.muted,
           fontSize: 11,
           fontWeight: FontWeight.w500,
@@ -220,16 +229,22 @@ class _StatusCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.86),
+        color: AppColors.surface.withValues(
+          alpha: AppColors.isDark ? 0.92 : 0.86,
+        ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x140B2E5C),
-            blurRadius: 48,
-            offset: Offset(0, 22),
-          ),
-        ],
+        border: Border.all(
+          color: AppColors.isDark ? AppColors.line : Colors.white,
+        ),
+        boxShadow: AppColors.isDark
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color(0x140B2E5C),
+                  blurRadius: 48,
+                  offset: Offset(0, 22),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,13 +254,13 @@ class _StatusCard extends StatelessWidget {
               Container(
                 width: 9,
                 height: 9,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2CB1BC),
+                decoration: BoxDecoration(
+                  color: AppColors.accent,
                   shape: BoxShape.circle,
                 ),
               ),
               const SizedBox(width: 9),
-              const Text(
+              Text(
                 'MILESTONE 0',
                 style: TextStyle(
                   color: AppColors.muted,
@@ -265,7 +280,7 @@ class _StatusCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 24),
-          const Divider(height: 1, color: AppColors.line),
+          Divider(height: 1, color: AppColors.line),
           const SizedBox(height: 18),
           const _StatusRow(label: 'Flutter', value: '3.47.9 · Dart 3.13.7'),
           const SizedBox(height: 12),
@@ -296,7 +311,7 @@ class _StatusRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.ink,
               fontSize: 13,
               height: 1.4,
@@ -314,21 +329,21 @@ class _Footer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       children: [
         Text(
           '非官方 · 开源 · AGPL-3.0',
           style: TextStyle(
-            color: Color(0xFF829AB1),
+            color: AppColors.faint,
             fontSize: 10,
             letterSpacing: 0.6,
           ),
         ),
-        Spacer(),
+        const Spacer(),
         Text(
           'v0.1.0 · M0',
           style: TextStyle(
-            color: Color(0xFF829AB1),
+            color: AppColors.faint,
             fontSize: 10,
             letterSpacing: 0.6,
           ),

@@ -13,17 +13,17 @@ void main() {
       expect(PeriodTimes.startMinutes(6), 14 * 60 + 55);
       expect(PeriodTimes.startMinutes(7), 16 * 60);
       expect(PeriodTimes.startMinutes(8), 16 * 60 + 55);
-      expect(PeriodTimes.startMinutes(9), 18 * 60);
-      expect(PeriodTimes.startMinutes(10), 18 * 60 + 55);
-      expect(PeriodTimes.startMinutes(11), 19 * 60 + 50);
-      expect(PeriodTimes.startMinutes(12), 20 * 60 + 45);
+      expect(PeriodTimes.startMinutes(9), 18 * 60 + 30);
+      expect(PeriodTimes.startMinutes(10), 19 * 60 + 25);
+      expect(PeriodTimes.startMinutes(11), 20 * 60 + 20);
+      expect(PeriodTimes.startMinutes(12), 21 * 60 + 15);
 
       expect(PeriodTimes.startLabel(1), '08:30');
       expect(PeriodTimes.endLabel(1), '09:15');
       expect(PeriodTimes.startLabel(3), '10:30');
       expect(PeriodTimes.startLabel(7), '16:00');
-      expect(PeriodTimes.startLabel(11), '19:50');
-      expect(PeriodTimes.endLabel(12), '21:30');
+      expect(PeriodTimes.startLabel(11), '20:20');
+      expect(PeriodTimes.endLabel(12), '22:00');
     });
 
     test('matches the real break pattern', () {
@@ -34,8 +34,8 @@ void main() {
       expect(PeriodTimes.endMinutes(5), PeriodTimes.startMinutes(6) - 10);
       expect(PeriodTimes.endMinutes(6), PeriodTimes.startMinutes(7) - 20);
       expect(PeriodTimes.endMinutes(7), PeriodTimes.startMinutes(8) - 10);
-      // Dinner break before period 9.
-      expect(PeriodTimes.endMinutes(8), PeriodTimes.startMinutes(9) - 20);
+      // Dinner break before the 18:30 evening start.
+      expect(PeriodTimes.endMinutes(8), 17 * 60 + 40);
     });
 
     test('slotOffset aligns exam starts with the period grid', () {
@@ -43,8 +43,10 @@ void main() {
       expect(PeriodTimes.slotOffset(10 * 60 + 30), 2);
       expect(PeriodTimes.slotOffset(14 * 60), 4);
       expect(PeriodTimes.slotOffset(16 * 60), 6);
-      expect(PeriodTimes.slotOffset(18 * 60), 8);
-      expect(PeriodTimes.slotOffset(19 * 60 + 50), 10);
+      expect(PeriodTimes.slotOffset(18 * 60 + 30), 8);
+      expect(PeriodTimes.slotOffset(19 * 60 + 25), 9);
+      expect(PeriodTimes.slotOffset(20 * 60 + 20), 10);
+      expect(PeriodTimes.slotOffset(21 * 60 + 15), 11);
       // Break time collapses to the boundary of the next slot.
       expect(PeriodTimes.slotOffset(10 * 60 + 10), 2);
       expect(PeriodTimes.slotOffset(10 * 60 + 20), 2);

@@ -11,8 +11,8 @@ abstract final class PeriodTimes {
   static const periodsPerDay = 12;
 
   /// Wall-clock start of every period, in minutes since midnight:
-  /// 08:30, 09:25, 10:30, 11:25, 14:00, 14:55, 16:00, 16:55, 18:00,
-  /// 18:55, 19:50, 20:45.
+  /// 08:30, 09:25, 10:30, 11:25, 14:00, 14:55, 16:00, 16:55, 18:30,
+  /// 19:25, 20:20, 21:15.
   static const List<int> _starts = [
     8 * 60 + 30,
     9 * 60 + 25,
@@ -22,10 +22,10 @@ abstract final class PeriodTimes {
     14 * 60 + 55,
     16 * 60,
     16 * 60 + 55,
-    18 * 60,
-    18 * 60 + 55,
-    19 * 60 + 50,
-    20 * 60 + 45,
+    18 * 60 + 30,
+    19 * 60 + 25,
+    20 * 60 + 20,
+    21 * 60 + 15,
   ];
 
   static int startMinutes(int period) =>

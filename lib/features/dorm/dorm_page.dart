@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/network/neu_elec_client.dart' show ElectricityQueryException;
 import '../auth/auth_controller.dart';
+import 'electricity_alert.dart';
 import 'electricity_models.dart';
 import 'electricity_service.dart';
 
@@ -134,6 +135,15 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _testNotification() async {
+    final reading = _prefs.lastReading;
+    if (reading == null) {
+      _showSnack('请先查询一次电量，测试通知会使用当前读数');
+      return;
+    }
+    await DormAlertPresenter.present(context, reading: reading, prefs: _prefs);
   }
 
   @override
@@ -394,7 +404,7 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: _campus == campus
-                        ? Colors.white
+                        ? AppColors.surface
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(7),
                     border: _campus == campus
@@ -443,6 +453,11 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
                     color: AppColors.ink,
                   ),
                 ),
+              ),
+              TextButton.icon(
+                onPressed: _testNotification,
+                icon: const Icon(Icons.notifications_active_outlined, size: 14),
+                label: const Text('测试通知'),
               ),
               TextButton(
                 onPressed: () => setState(() => _editing = true),
@@ -631,7 +646,7 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.line),
       ),
@@ -690,7 +705,7 @@ class _Stepper36 extends StatelessWidget {
       height: 36,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(9),
         border: Border.all(color: AppColors.line),
       ),

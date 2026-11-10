@@ -1,8 +1,35 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <string>
+#include <variant>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "flutter/method_channel.h"
+#include "flutter/standard_method_codec.h"
+
+namespace {
+
+// Converts a UTF-8 string into a UTF-16 wide string for Win32 APIs.
+std::wstring Utf8ToWide(const std::string& utf8) {
+  if (utf8.empty()) {
+    return std::wstring();
+  }
+
+  const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
+                                       static_cast<int>(utf8.size()), nullptr,
+                                       0);
+  if (size <= 0) {
+    return std::wstring();
+  }
+
+  std::wstring wide(size, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
+                      wide.data(), size);
+  return wide;
+}
+
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -27,6 +54,41 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // Expose a small window-control API to Dart.
+  window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "neu_better/window",
+          &flutter::StandardMethodCodec::GetInstance());
+  window_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() == "setTitle") {
+          const auto* title = std::get_if<std::string>(call.arguments());
+          if (title == nullptr) {
+            result->Error("invalid_arguments", "setTitle expects a string");
+            return;
+          }
+          SetWindowTextW(GetHandle(), Utf8ToWide(*title).c_str());
+          result->Success();
+          return;
+        }
+
+        if (call.method_name() == "setCloseBehavior") {
+          const auto* minimize = std::get_if<bool>(call.arguments());
+          if (minimize == nullptr) {
+            result->Error("invalid_arguments",
+                          "setCloseBehavior expects a bool");
+            return;
+          }
+          minimize_on_close_ = *minimize;
+          result->Success();
+          return;
+        }
+
+        result->NotImplemented();
+      });
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -40,6 +102,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  window_channel_ = nullptr;
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -59,6 +123,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     if (result) {
       return *result;
     }
+  }
+
+  // Closing the window minimizes it to the taskbar instead of quitting while
+  // that behavior is enabled (the default; Dart may change it at runtime).
+  if (message == WM_CLOSE && minimize_on_close_) {
+    ShowWindow(hwnd, SW_MINIMIZE);
+    return 0;
   }
 
   switch (message) {

@@ -1,14 +1,18 @@
-import 'dart:io' show Platform;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:local_notifier/local_notifier.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
+import '../../core/platform/windows_window.dart';
+import '../../core/settings/app_settings.dart';
 import '../auth/auth_controller.dart';
 import '../dorm/dorm_page.dart';
+import '../dorm/electricity_alert.dart';
+import '../dorm/electricity_models.dart';
 import '../dorm/electricity_service.dart';
+import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
 
 class HomePage extends ConsumerStatefulWidget {
@@ -25,13 +29,40 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 0 = 课表, 1 = 寝室用电。
   int _tab = 0;
+  DormPrefs? _statusPrefs;
 
   @override
   void initState() {
     super.initState();
+    _loadStatus();
+    dormPrefsChanged.addListener(_loadStatus);
+    final settings = ref.read(appSettingsProvider);
+    unawaited(
+      WindowsWindow.setCloseBehavior(
+        minimizeToTaskbar: settings.minimizeOnClose,
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runDailyElectricityCheck();
     });
+  }
+
+  @override
+  void dispose() {
+    dormPrefsChanged.removeListener(_loadStatus);
+    super.dispose();
+  }
+
+  Future<void> _loadStatus() async {
+    final prefs = await _elecService.loadPrefs();
+    if (!mounted) return;
+    setState(() => _statusPrefs = prefs);
+    final reading = prefs.lastReading;
+    if (reading != null) {
+      unawaited(
+        WindowsWindow.setTaskbarTitle('NEU Better · 寝室用电 ${reading.rawRemain}'),
+      );
+    }
   }
 
   /// 每日一次：打开软件时若今天还没查过电量就查一次；
@@ -41,85 +72,87 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (!mounted || reading == null) return;
     final prefs = await _elecService.loadPrefs();
     if (!DormElectricityService.isLow(reading, prefs.alertThreshold)) return;
-    // Windows toast 尽力而为：插件初始化失败（如 AUMI 快捷方式未建好）时
-    // 不能卡住后续的弹窗提醒，所以加超时并吞掉一切异常。
-    if (Platform.isWindows) {
-      try {
-        final notification = LocalNotification(
-          title: '寝室电量不足',
-          body:
-              '${reading.roomInfo} · 剩余 ${reading.rawRemain}，低于提醒线'
-              '（${prefs.alertThreshold.truncate()} 度）',
-        );
-        await notification.show().timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {},
-        );
-      } catch (error) {
-        debugPrint('[elec] notification failed: $error');
-      }
-    }
     if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(color: AppColors.line),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.bolt_rounded, size: 22, color: AppColors.nowRed),
-            const SizedBox(width: 8),
-            Text(
-              '寝室电量不足',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppColors.ink,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          '${reading.roomInfo}\n剩余 ${reading.rawRemain}，'
-          '已低于提醒线 ${prefs.alertThreshold.truncate()} 度，建议尽快充值。',
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.6,
-            color: AppColors.muted,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('知道了'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.campusBlue,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              setState(() => _tab = 1);
-            },
-            child: const Text('查看电量'),
-          ),
-        ],
-      ),
+    await DormAlertPresenter.present(
+      context,
+      reading: reading,
+      prefs: prefs,
+      onView: () => setState(() => _tab = 1),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 760;
+    // 主题切换时让 HomePage 及其 IndexedStack 子页面一起重建。
+    ref.watch(appSettingsProvider.select((settings) => settings.isDarkNow));
+    ref.listen<AppSettingsController>(appSettingsProvider, (previous, next) {
+      unawaited(
+        WindowsWindow.setCloseBehavior(minimizeToTaskbar: next.minimizeOnClose),
+      );
+    });
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
-        child: compact ? _buildCompact(context) : _buildDesktop(context),
+        child: Column(
+          children: [
+            Expanded(
+              child: compact ? _buildCompact(context) : _buildDesktop(context),
+            ),
+            _buildStatusBar(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+  }
+
+  Widget _buildStatusBar(BuildContext context) {
+    final reading = _statusPrefs?.lastReading;
+    final room = reading?.roomInfo ?? '';
+    final text = reading == null
+        ? '寝室用电 · 暂无电量数据'
+        : '寝室用电 · ${room.isEmpty ? reading.roomCode : room} · '
+              '剩余 ${reading.rawRemain}';
+    return InkWell(
+      onTap: () => setState(() => _tab = 1),
+      child: Container(
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.line)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.electric_bolt_rounded,
+              size: 13,
+              color: reading == null ? AppColors.faint : AppColors.campusBlue,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 10,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            Text(
+              '点击查看用电',
+              style: TextStyle(color: AppColors.faint, fontSize: 9),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -129,16 +162,38 @@ class _HomePageState extends ConsumerState<HomePage> {
       children: [
         Container(
           width: 224,
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
             border: Border(right: BorderSide(color: AppColors.line)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(22, 24, 18, 28),
-                child: _Brand(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 8, 20),
+                child: SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      const Expanded(child: _Brand()),
+                      Tooltip(
+                        message: '设置',
+                        child: InkWell(
+                          onTap: _openSettings,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Icon(
+                              Icons.settings_outlined,
+                              size: 18,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               _NavItem(
                 icon: Icons.calendar_month_outlined,
@@ -173,7 +228,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         Expanded(
           child: IndexedStack(
             index: _tab,
-            children: const [TimetablePage(), DormPowerPage()],
+            children: [TimetablePage(), DormPowerPage()],
           ),
         ),
       ],
@@ -190,6 +245,15 @@ class _HomePageState extends ConsumerState<HomePage> {
               const _Brand(),
               const Spacer(),
               IconButton(
+                tooltip: '设置',
+                onPressed: _openSettings,
+                icon: Icon(
+                  Icons.settings_outlined,
+                  size: 20,
+                  color: AppColors.muted,
+                ),
+              ),
+              IconButton(
                 tooltip: '退出登录',
                 onPressed: _logout,
                 icon: const Icon(Icons.logout_rounded, size: 20),
@@ -205,7 +269,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         Expanded(
           child: IndexedStack(
             index: _tab,
-            children: const [TimetablePage(compact: true), DormPowerPage()],
+            children: [TimetablePage(compact: true), DormPowerPage()],
           ),
         ),
       ],
@@ -239,7 +303,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           duration: const Duration(milliseconds: 160),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: active ? Colors.white : Colors.transparent,
+            color: active ? AppColors.surface : Colors.transparent,
             borderRadius: BorderRadius.circular(7),
             border: active ? Border.all(color: AppColors.line) : null,
           ),
@@ -288,7 +352,7 @@ class _Brand extends StatelessWidget {
             borderRadius: BorderRadius.circular(9),
           ),
           alignment: Alignment.center,
-          child: const Text(
+          child: Text(
             '静',
             style: TextStyle(
               color: Colors.white,
@@ -299,7 +363,7 @@ class _Brand extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        const Flexible(
+        Flexible(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -379,7 +443,7 @@ class _NavItem extends StatelessWidget {
               ),
               if (comingSoon) ...[
                 const Spacer(),
-                const Text(
+                Text(
                   '后续',
                   style: TextStyle(color: AppColors.faint, fontSize: 9),
                 ),
@@ -411,7 +475,7 @@ class _AccountTile extends StatelessWidget {
               backgroundColor: AppColors.campusBlue.withValues(alpha: 0.1),
               child: Text(
                 initial,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.campusBlue,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -426,14 +490,14 @@ class _AccountTile extends StatelessWidget {
                   Text(
                     label.isEmpty ? '已连接学校账号' : label,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.ink,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
+                  Text(
                     '研究生 · 已登录',
                     style: TextStyle(color: AppColors.muted, fontSize: 9),
                   ),
@@ -451,9 +515,9 @@ class _AccountTile extends StatelessWidget {
             style: TextButton.styleFrom(
               foregroundColor: AppColors.muted,
               padding: EdgeInsets.zero,
-              textStyle: const TextStyle(fontSize: 10),
+              textStyle: TextStyle(fontSize: 10),
             ),
-            child: const Text('退出登录'),
+            child: Text('退出登录'),
           ),
         ),
       ],

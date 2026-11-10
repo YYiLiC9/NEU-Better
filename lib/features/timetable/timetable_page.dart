@@ -13,6 +13,36 @@ const _timeGutterWidth = 56.0;
 const _minSlotHeight = 36.0;
 const _maxSlotHeight = 54.0;
 
+/// 午休（第 4 节后）与晚休（第 8 节后）的视觉留白。格子本身按节次等分，
+/// 这里只把真实作息中的长间隔折成一条窄缝，避免时间轴看起来是连续的。
+const _breakGap = 8.0;
+
+double _gridHeightFor(double slotHeight) =>
+    PeriodTimes.periodsPerDay * slotHeight + 2 * _breakGap;
+
+double _slotTopFor(double slotHeight, int period) {
+  var top = (period - 1) * slotHeight;
+  if (period > 4) top += _breakGap;
+  if (period > 8) top += _breakGap;
+  return top;
+}
+
+double _slotSpanHeightFor(double slotHeight, int startPeriod, int endPeriod) {
+  var height = (endPeriod - startPeriod + 1) * slotHeight;
+  if (startPeriod <= 4 && endPeriod >= 5) height += _breakGap;
+  if (startPeriod <= 8 && endPeriod >= 9) height += _breakGap;
+  return height;
+}
+
+double _slotYForMinutes(double slotHeight, int minutes) {
+  final slot = PeriodTimes.slotOffset(minutes);
+  final whole = slot.floor();
+  var y = whole * slotHeight;
+  if (whole >= 4) y += _breakGap;
+  if (whole >= 8) y += _breakGap;
+  return y + (slot - whole) * slotHeight;
+}
+
 String _dateLabel(DateTime date) => '${date.month}/${date.day}';
 
 String _examTimeLabel(ExamEntry exam) {
@@ -272,10 +302,7 @@ class _TimetablePageState extends State<TimetablePage> {
                       _data.isSample
                           ? '示例课表 · 数据接入教务系统后可自动同步'
                           : '来自研究生教务系统 · 本地缓存',
-                      style: const TextStyle(
-                        color: AppColors.faint,
-                        fontSize: 10,
-                      ),
+                      style: TextStyle(color: AppColors.faint, fontSize: 10),
                     ),
                   ],
                 ),
@@ -303,11 +330,12 @@ class _TimetablePageState extends State<TimetablePage> {
   /// the cards stay legible and never become taller than the old design.
   double _slotHeightFor(double viewportHeight) {
     if (widget.compact) return _maxSlotHeight;
-    // 300 是标题/摘要/间距与考试安排标题的实测占用，
+    // 330 是标题/摘要/间距、底部状态栏与考试安排标题的实测占用，
     // 让默认窗口里既能放下 12 节，也能完整看到下方考试列表的开头。
-    const chrome = 300.0;
+    const chrome = 330.0;
     final raw =
-        (viewportHeight - chrome - _headerHeight) / PeriodTimes.periodsPerDay;
+        (viewportHeight - chrome - _headerHeight - 2 * _breakGap) /
+        PeriodTimes.periodsPerDay;
     return raw.clamp(_minSlotHeight, _maxSlotHeight).floorToDouble();
   }
 
@@ -331,7 +359,7 @@ class _TimetablePageState extends State<TimetablePage> {
           '${_data.termName} · 第 $_week 周${range.isEmpty ? '' : ' · $range'}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.muted,
             fontSize: 11,
             fontFeatures: [FontFeature.tabularFigures()],
@@ -352,17 +380,14 @@ class _TimetablePageState extends State<TimetablePage> {
         ),
         OutlinedButton.icon(
           onPressed: () => _changeWeek(_nowWeek),
-          icon: const Icon(Icons.today_outlined, size: 15),
-          label: const Text('今天'),
+          icon: Icon(Icons.today_outlined, size: 15),
+          label: Text('今天'),
           style: OutlinedButton.styleFrom(
             foregroundColor: AppColors.ink,
-            side: const BorderSide(color: AppColors.line),
+            side: BorderSide(color: AppColors.line),
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             minimumSize: const Size(0, 36),
-            textStyle: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-            ),
+            textStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
           ),
         ),
         if (!widget.compact)
@@ -373,15 +398,12 @@ class _TimetablePageState extends State<TimetablePage> {
         if (!widget.compact)
           FilledButton.icon(
             onPressed: _syncTimetable,
-            icon: const Icon(Icons.sync_rounded, size: 15),
-            label: const Text('同步课表'),
+            icon: Icon(Icons.sync_rounded, size: 15),
+            label: Text('同步课表'),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               minimumSize: const Size(0, 36),
-              textStyle: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
+              textStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
             ),
           ),
       ],
@@ -397,7 +419,7 @@ class _TimetablePageState extends State<TimetablePage> {
               IconButton(
                 tooltip: '同步课表',
                 onPressed: _syncTimetable,
-                icon: const Icon(Icons.sync_rounded, size: 19),
+                icon: Icon(Icons.sync_rounded, size: 19),
               ),
             ],
           ),
@@ -438,7 +460,7 @@ class _TimetablePageState extends State<TimetablePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -460,7 +482,7 @@ class _TimetablePageState extends State<TimetablePage> {
                   children: [
                     TextSpan(
                       text: items[i].$1,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.ink,
                         fontSize: 13,
                         height: 1.3,
@@ -472,7 +494,7 @@ class _TimetablePageState extends State<TimetablePage> {
                       // 中文数量短语不加空格：5门课程、14节课时。
                       // 第三项是「周五 08:30 下一节」，保留一个空格断句。
                       text: i == 2 ? ' ${items[i].$2}' : items[i].$2,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.muted,
                         fontSize: 13,
                         height: 1.3,
@@ -509,7 +531,7 @@ class _WeekStepper extends StatelessWidget {
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -519,7 +541,7 @@ class _WeekStepper extends StatelessWidget {
           IconButton(
             tooltip: '上一周',
             onPressed: week <= 1 ? null : () => onChanged(week - 1),
-            icon: const Icon(Icons.chevron_left_rounded, size: 18),
+            icon: Icon(Icons.chevron_left_rounded, size: 18),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 28),
           ),
@@ -528,7 +550,7 @@ class _WeekStepper extends StatelessWidget {
             child: Text(
               '第 $week 周',
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.ink,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -538,7 +560,7 @@ class _WeekStepper extends StatelessWidget {
           IconButton(
             tooltip: '下一周',
             onPressed: week >= totalWeeks ? null : () => onChanged(week + 1),
-            icon: const Icon(Icons.chevron_right_rounded, size: 18),
+            icon: Icon(Icons.chevron_right_rounded, size: 18),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 28, height: 28),
           ),
@@ -602,7 +624,7 @@ class _ToggleItem extends StatelessWidget {
         duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? Colors.white : Colors.transparent,
+          color: active ? AppColors.surface : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
             color: active ? AppColors.line : Colors.transparent,
@@ -755,7 +777,7 @@ class _WeekGrid extends StatelessWidget {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -781,7 +803,7 @@ class _WeekGrid extends StatelessWidget {
               ),
             ),
             SizedBox(
-              height: PeriodTimes.periodsPerDay * slotHeight,
+              height: _gridHeightFor(slotHeight),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -793,7 +815,7 @@ class _WeekGrid extends StatelessWidget {
                           var period = 1;
                           period <= PeriodTimes.periodsPerDay;
                           period++
-                        )
+                        ) ...[
                           SizedBox(
                             height: slotHeight,
                             child: Center(
@@ -802,7 +824,7 @@ class _WeekGrid extends StatelessWidget {
                                 children: [
                                   Text(
                                     '$period',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: AppColors.ink,
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
@@ -811,7 +833,7 @@ class _WeekGrid extends StatelessWidget {
                                   const SizedBox(height: 2),
                                   Text(
                                     PeriodTimes.startLabel(period),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: AppColors.faint,
                                       fontSize: 8,
                                       height: 1.2,
@@ -824,6 +846,9 @@ class _WeekGrid extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (period == 4 || period == 8)
+                            const SizedBox(height: _breakGap),
+                        ],
                       ],
                     ),
                   ),
@@ -874,7 +899,7 @@ class _DayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(left: BorderSide(color: AppColors.line)),
       ),
       child: FittedBox(
@@ -893,7 +918,7 @@ class _DayHeader extends StatelessWidget {
                 ),
                 child: Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -903,7 +928,7 @@ class _DayHeader extends StatelessWidget {
             else
               Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.ink,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -945,13 +970,7 @@ class _DayColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gridHeight = PeriodTimes.periodsPerDay * slotHeight;
-    final now = DateTime.now();
-    final nowMinutes = now.hour * 60 + now.minute;
-    final showNowLine =
-        isToday &&
-        nowMinutes >= PeriodTimes.startMinutes(1) &&
-        nowMinutes <= PeriodTimes.endMinutes(PeriodTimes.periodsPerDay);
+    final gridHeight = _gridHeightFor(slotHeight);
     return Container(
       decoration: BoxDecoration(
         color: isToday ? AppColors.campusBlue.withValues(alpha: 0.03) : null,
@@ -969,7 +988,7 @@ class _DayColumn extends StatelessWidget {
         children: [
           for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
             Positioned(
-              top: (period - 1) * slotHeight,
+              top: _slotTopFor(slotHeight, period),
               left: 0,
               right: 0,
               child: Container(
@@ -977,33 +996,18 @@ class _DayColumn extends StatelessWidget {
                 color: AppColors.line.withValues(alpha: 0.7),
               ),
             ),
-          if (showNowLine)
-            Positioned(
-              top: PeriodTimes.slotOffset(nowMinutes) * slotHeight - 1,
-              left: 0,
-              right: 0,
-              height: 2,
-              child: Container(color: AppColors.nowRed),
-            ),
-          if (showNowLine)
-            Positioned(
-              left: -3,
-              top: PeriodTimes.slotOffset(nowMinutes) * slotHeight - 3,
-              width: 8,
-              height: 8,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.nowRed,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
           for (final session in sessions)
             Positioned(
-              top: (session.startPeriod - 1) * slotHeight + 3,
+              top: _slotTopFor(slotHeight, session.startPeriod) + 3,
               left: 4,
               right: 4,
-              height: session.span * slotHeight - 6,
+              height:
+                  _slotSpanHeightFor(
+                    slotHeight,
+                    session.startPeriod,
+                    session.endPeriod,
+                  ) -
+                  6,
               child: _CourseCard(session: session),
             ),
           for (final exam in exams) _examPositioned(exam, gridHeight),
@@ -1013,17 +1017,26 @@ class _DayColumn extends StatelessWidget {
   }
 
   Widget _examPositioned(ExamEntry exam, double gridHeight) {
-    // Keep a single-slot footprint when the window is short; exam cards must
-    // sit alongside the课程 grid without covering neighbouring periods.
-    final cardHeight = (slotHeight - 6).clamp(30.0, 46.0).toDouble();
     final start = PeriodTimes.parseTime(exam.startTime);
-    var top = start == null
-        ? 4.0
-        : PeriodTimes.slotOffset(start) * slotHeight + 3;
-    if (top < 0) top = 4;
-    if (top + cardHeight > gridHeight) top = gridHeight - cardHeight - 4;
+    final end = PeriodTimes.parseTime(exam.endTime);
+    final top = start == null ? 4.0 : _slotYForMinutes(slotHeight, start) + 3;
+    var cardHeight = (slotHeight - 6).clamp(30.0, 46.0).toDouble();
+    if (start != null && end != null && end > start) {
+      // 考试卡的高度按真实考试时长占据对应节次：2 小时≈两节，3 小时≈三节，
+      // 跨午休/晚休时补上格子之间的窄缝，保证周视图里比例可信。
+      cardHeight =
+          _slotYForMinutes(slotHeight, end) -
+          _slotYForMinutes(slotHeight, start) -
+          6;
+      if (cardHeight < slotHeight - 6) cardHeight = slotHeight - 6;
+    }
+    var safeTop = top;
+    if (safeTop < 0) safeTop = 4;
+    if (safeTop + cardHeight > gridHeight) {
+      safeTop = gridHeight - cardHeight - 4;
+    }
     return Positioned(
-      top: top,
+      top: safeTop,
       left: 4,
       right: 4,
       height: cardHeight,
@@ -1113,9 +1126,11 @@ class _CourseCard extends StatelessWidget {
 /// Exam cards share the 朱 (now-red) family: red in this app always means
 /// "此刻/紧要" — exams and the current-time line, never decoration.
 class _ExamColors {
-  static const background = Color(0xFFFFF1EE);
-  static const accent = AppColors.nowRed;
-  static const soft = Color(0x2EC2402A);
+  static Color get background =>
+      AppColors.isDark ? const Color(0xFF3A1F1A) : const Color(0xFFFFF1EE);
+  static Color get accent => AppColors.nowRed;
+  static Color get soft =>
+      AppColors.isDark ? const Color(0x33E97A63) : const Color(0x2EC2402A);
 }
 
 class _ExamCard extends StatelessWidget {
@@ -1147,6 +1162,7 @@ class _ExamCard extends StatelessWidget {
         compact ? 5 : 13,
         compact ? 3 : 11,
       ),
+      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: _ExamColors.background,
         borderRadius: BorderRadius.circular(8),
@@ -1158,63 +1174,91 @@ class _ExamCard extends StatelessWidget {
         ),
       ),
       child: compact
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                // 考试时长决定卡片高度，名字随之多行铺开，不再用省略号。
+                final maxLines = switch (constraints.maxHeight) {
+                  >= 84 => 4,
+                  >= 60 => 3,
+                  >= 42 => 2,
+                  _ => 1,
+                };
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.quiz_outlined,
-                      size: 10,
-                      color: _ExamColors.accent,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: Icon(
+                            Icons.event_note_rounded,
+                            size: 10,
+                            color: _ExamColors.accent,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            exam.name,
+                            maxLines: maxLines,
+                            softWrap: true,
+                            overflow: TextOverflow.clip,
+                            style: TextStyle(
+                              color: _ExamColors.accent,
+                              fontSize: 10,
+                              height: 1.15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 3),
-                    Expanded(
-                      child: Text(
-                        exam.name,
+                    if (detail.isNotEmpty && constraints.maxHeight >= 52) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: _ExamColors.accent,
-                          fontSize: 10,
-                          height: 1.15,
-                          fontWeight: FontWeight.w700,
+                        softWrap: false,
+                        overflow: TextOverflow.clip,
+                        style: TextStyle(
+                          color: _ExamColors.accent.withValues(alpha: 0.78),
+                          fontSize: 8,
+                          height: 1.25,
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ),
-                if (detail.isNotEmpty)
-                  Text(
-                    detail,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _ExamColors.accent.withValues(alpha: 0.78),
-                      fontSize: 8,
-                      height: 1.25,
-                    ),
-                  ),
-              ],
+                );
+              },
             )
           : Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.quiz_outlined, size: 15, color: _ExamColors.accent),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.event_note_rounded,
+                    size: 15,
+                    color: _ExamColors.accent,
+                  ),
+                ),
                 const SizedBox(width: 7),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: Text(
                               exam.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              maxLines: 3,
+                              softWrap: true,
+                              overflow: TextOverflow.clip,
+                              style: TextStyle(
                                 color: _ExamColors.accent,
                                 fontSize: 13,
                                 height: 1.25,
@@ -1234,7 +1278,7 @@ class _ExamCard extends StatelessWidget {
                             ),
                             child: Text(
                               typeLabel,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: _ExamColors.accent,
                                 fontSize: 8,
                                 height: 1.2,
@@ -1248,7 +1292,7 @@ class _ExamCard extends StatelessWidget {
                         const SizedBox(height: 3),
                         Text(
                           _timeLabel,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: _ExamColors.accent,
                             fontSize: 10,
                             height: 1.3,
@@ -1262,7 +1306,8 @@ class _ExamCard extends StatelessWidget {
                         Text(
                           detail,
                           maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          softWrap: true,
+                          overflow: TextOverflow.clip,
                           style: TextStyle(
                             color: _ExamColors.accent.withValues(alpha: 0.78),
                             fontSize: 9,
@@ -1295,13 +1340,9 @@ class _ExamScheduleSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(
-              Icons.event_note_outlined,
-              size: 14,
-              color: AppColors.muted,
-            ),
+            Icon(Icons.event_note_outlined, size: 14, color: AppColors.muted),
             const SizedBox(width: 6),
-            const Text(
+            Text(
               '考试安排',
               style: TextStyle(
                 color: AppColors.ink,
@@ -1313,7 +1354,7 @@ class _ExamScheduleSection extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 '共 ${exams.length} 场',
-                style: const TextStyle(color: AppColors.faint, fontSize: 9),
+                style: TextStyle(color: AppColors.faint, fontSize: 9),
               ),
             ],
           ],
@@ -1322,13 +1363,13 @@ class _ExamScheduleSection extends StatelessWidget {
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surface,
             border: Border.all(color: AppColors.line),
             borderRadius: BorderRadius.circular(8),
           ),
           clipBehavior: Clip.antiAlias,
           child: exams.isEmpty
-              ? const Padding(
+              ? Padding(
                   padding: EdgeInsets.symmetric(vertical: 22),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -1350,11 +1391,7 @@ class _ExamScheduleSection extends StatelessWidget {
                   children: [
                     for (var i = 0; i < exams.length; i++) ...[
                       if (i != 0)
-                        const Divider(
-                          height: 1,
-                          thickness: 1,
-                          color: AppColors.line,
-                        ),
+                        Divider(height: 1, thickness: 1, color: AppColors.line),
                       _ExamScheduleRow(
                         exam: exams[i],
                         isPast: exams[i].date.isBefore(today),
@@ -1432,8 +1469,9 @@ class _ExamScheduleRow extends StatelessWidget {
                     Flexible(
                       child: Text(
                         exam.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                        softWrap: true,
+                        overflow: TextOverflow.clip,
                         style: TextStyle(
                           color: nameColor,
                           fontSize: 11,
@@ -1454,7 +1492,7 @@ class _ExamScheduleRow extends StatelessWidget {
                       ),
                       child: Text(
                         typeLabel,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: _ExamColors.accent,
                           fontSize: 8,
                           height: 1.2,
@@ -1470,7 +1508,7 @@ class _ExamScheduleRow extends StatelessWidget {
                     detail,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.muted,
                       fontSize: 9,
                       height: 1.35,
@@ -1538,11 +1576,11 @@ class _DayAgenda extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 40),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppColors.surface,
               border: Border.all(color: AppColors.line),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Column(
+            child: Column(
               children: [
                 Icon(Icons.coffee_outlined, color: AppColors.faint, size: 26),
                 SizedBox(height: 8),
@@ -1561,7 +1599,7 @@ class _DayAgenda extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           '第 $week 周 · ${_weekdays[selectedDay - 1]}',
-          style: const TextStyle(color: AppColors.faint, fontSize: 9),
+          style: TextStyle(color: AppColors.faint, fontSize: 9),
         ),
       ],
     );
@@ -1589,7 +1627,7 @@ class _DayChip extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: active ? AppColors.campusBlue : Colors.white,
+          color: active ? AppColors.campusBlue : AppColors.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active ? AppColors.campusBlue : AppColors.line,
@@ -1633,7 +1671,7 @@ class _AgendaCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -1660,7 +1698,7 @@ class _AgendaCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '${session.startPeriod}-${session.endPeriod} 节',
-                  style: const TextStyle(color: AppColors.faint, fontSize: 8),
+                  style: TextStyle(color: AppColors.faint, fontSize: 8),
                 ),
               ],
             ),
@@ -1677,7 +1715,7 @@ class _AgendaCard extends StatelessWidget {
               children: [
                 Text(
                   session.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.ink,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -1686,7 +1724,7 @@ class _AgendaCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   '${session.room} · ${session.teacher}',
-                  style: const TextStyle(color: AppColors.muted, fontSize: 9),
+                  style: TextStyle(color: AppColors.muted, fontSize: 9),
                 ),
               ],
             ),

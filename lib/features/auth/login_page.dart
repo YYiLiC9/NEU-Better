@@ -94,11 +94,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: DecoratedBox(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFF8FBFF), Color(0xFFE9F1FA)],
+            colors: [
+              AppColors.canvas,
+              AppColors.isDark
+                  ? const Color(0xFF13202F)
+                  : const Color(0xFFE9F1FA),
+            ],
           ),
         ),
         child: SafeArea(
@@ -149,8 +154,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         ),
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 22),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 22),
                       child: Text(
                         '非官方 · 开源 · AGPL-3.0',
                         style: TextStyle(
@@ -184,16 +189,22 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         compact ? 22 : 30,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
+        color: AppColors.surface.withValues(
+          alpha: AppColors.isDark ? 0.98 : 0.96,
+        ),
         borderRadius: BorderRadius.circular(compact ? 22 : 24),
-        border: Border.all(color: Colors.white),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A0B2E5C),
-            blurRadius: 42,
-            offset: Offset(0, 18),
-          ),
-        ],
+        border: Border.all(
+          color: AppColors.isDark ? AppColors.line : Colors.white,
+        ),
+        boxShadow: AppColors.isDark
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color(0x1A0B2E5C),
+                  blurRadius: 42,
+                  offset: Offset(0, 18),
+                ),
+              ],
       ),
       child: Form(
         key: _formKey,
@@ -297,7 +308,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   '保持登录',
                   style: TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
@@ -324,7 +335,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   '保存账号密码',
                   style: TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
@@ -341,12 +352,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               child: FilledButton(
                 onPressed: busy ? null : _submit,
                 child: busy
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.2,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
                     : const Text(
@@ -589,7 +600,7 @@ class _LoginTabs extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
           alignment: Alignment.center,
-          child: const Text(
+          child: Text(
             '研究生',
             style: TextStyle(
               color: AppColors.campusBlue,
@@ -603,12 +614,12 @@ class _LoginTabs extends StatelessWidget {
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 13),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: AppColors.line),
           ),
           alignment: Alignment.center,
-          child: const Text(
+          child: Text(
             '本科生 · 后续支持',
             style: TextStyle(
               color: AppColors.faint,
@@ -631,7 +642,7 @@ class _FieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: const TextStyle(
+      style: TextStyle(
         color: AppColors.muted,
         fontSize: 11,
         fontWeight: FontWeight.w600,
@@ -652,24 +663,20 @@ class _ErrorBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF2F0),
+        color: AppColors.danger.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: const Color(0xFFF3C6C0)),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: Color(0xFFB43A2E),
-            size: 16,
-          ),
+          Icon(Icons.info_outline_rounded, color: AppColors.danger, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: Color(0xFF8E2C22),
+              style: TextStyle(
+                color: AppColors.danger,
                 fontSize: 11,
                 height: 1.5,
               ),
@@ -690,7 +697,7 @@ class _MiniMark extends StatelessWidget {
       width: 28,
       height: 28,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           colors: [AppColors.campusBlue, AppColors.campusBlueDeep],
         ),
         borderRadius: BorderRadius.circular(8),
