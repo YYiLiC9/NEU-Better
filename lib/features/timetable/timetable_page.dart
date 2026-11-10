@@ -6,23 +6,12 @@ import 'timetable_store.dart';
 import 'yjs_timetable_page.dart';
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-const _periodStarts = [
-  '08:00',
-  '08:55',
-  '09:50',
-  '10:45',
-  '11:40',
-  '13:30',
-  '14:25',
-  '15:20',
-  '16:15',
-  '17:10',
-  '18:30',
-  '19:25',
-];
 const _slotHeight = 54.0;
-const _headerHeight = 46.0;
+const _headerHeight = 52.0;
 const _timeGutterWidth = 58.0;
+
+String _dateLabel(DateTime date) =>
+    '${date.month}/${date.day}';
 
 class TimetablePage extends StatefulWidget {
   const TimetablePage({super.key, this.compact = false});
@@ -35,8 +24,9 @@ class TimetablePage extends StatefulWidget {
 
 class _TimetablePageState extends State<TimetablePage> {
   TimetableData _data = SampleTimetable.data;
-  int _week = SampleTimetable.data.currentWeek;
-  int _selectedDay = DateTime.now().weekday.clamp(1, 5);
+  int _week = SampleTimetable.data.weekFor(DateTime.now());
+  int _selectedDay = DateTime.now().weekday.clamp(1, 7);
+  int _direction = 1;
   bool _weekView = true;
 
   @override
@@ -50,17 +40,49 @@ class _TimetablePageState extends State<TimetablePage> {
     if (!mounted || cached == null || !_data.isSample) return;
     setState(() {
       _data = cached;
-      _week = cached.currentWeek.clamp(1, _data.totalWeeks);
+      _week = cached.weekFor(DateTime.now());
+      _selectedDay = _selectedDay.clamp(1, 7);
     });
   }
 
+  int get _nowWeek => _data.weekFor(DateTime.now());
+
   List<CourseSession> get _weekSessions => _data.forWeek(_week);
+
+  List<ExamEntry> get _weekExams => _data.examsForWeek(_week);
 
   List<CourseSession> get _daySessions =>
       _data.forDay(_selectedDay, _week);
 
+  List<ExamEntry> get _dayExams {
+    final start = _weekStart;
+    if (start == null) return const [];
+    return _data.examsOn(start.add(Duration(days: _selectedDay - 1)));
+  }
+
+  /// Monday of the displayed week, or null when the term start is unknown.
+  DateTime? get _weekStart {
+    final start = _data.termStartDate;
+    if (start == null) return null;
+    return TimetableData.mondayOf(start).add(Duration(days: (_week - 1) * 7));
+  }
+
   void _changeWeek(int value) {
-    setState(() => _week = value.clamp(1, _data.totalWeeks));
+    final next = value.clamp(1, _data.totalWeeks);
+    if (next == _week) return;
+    setState(() {
+      _direction = next > _week ? 1 : -1;
+      _week = next;
+    });
+  }
+
+  void _onWeekDrag(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity < -120) {
+      _changeWeek(_week + 1);
+    } else if (velocity > 120) {
+      _changeWeek(_week - 1);
+    }
   }
 
   Future<void> _syncTimetable() async {
@@ -72,7 +94,7 @@ class _TimetablePageState extends State<TimetablePage> {
     if (!mounted) return;
     setState(() {
       _data = imported;
-      _week = imported.currentWeek.clamp(1, _data.totalWeeks);
+      _week = imported.weekFor(DateTime.now());
       _selectedDay = _selectedDay.clamp(1, 7);
     });
   }
@@ -96,22 +118,60 @@ class _TimetablePageState extends State<TimetablePage> {
           if (widget.compact)
             _DayAgenda(
               week: _week,
+              weekStart: _weekStart,
               selectedDay: _selectedDay,
               sessions: _daySessions,
+              exams: _dayExams,
               onDayChanged: (day) => setState(() => _selectedDay = day),
             )
           else if (_weekView)
-            _WeekGrid(sessions: _weekSessions)
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.topLeft,
+                children: [
+                  ...previousChildren,
+                  ?currentChild,
+                ],
+              ),
+              transitionBuilder: (child, animation) {
+                final incoming = child.key == ValueKey(_week);
+                return SlideTransition(
+                  position: Tween<Offset>(
+                    begin: Offset(
+                      incoming ? _direction * 0.14 : -_direction * 0.14,
+                      0,
+                    ),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                );
+              },
+              child: _WeekGrid(
+                key: ValueKey(_week),
+                weekStart: _weekStart,
+                sessions: _weekSessions,
+                exams: _weekExams,
+                today: _isThisWeekToday(),
+                onWeekDrag: _onWeekDrag,
+              ),
+            )
           else
             _DayAgenda(
               week: _week,
+              weekStart: _weekStart,
               selectedDay: _selectedDay,
               sessions: _daySessions,
+              exams: _dayExams,
               onDayChanged: (day) => setState(() => _selectedDay = day),
             ),
           const SizedBox(height: 18),
           Text(
-            _data.isSample ? '示例课表 · 数据接入教务系统后可自动同步' : '来自研究生教务系统 · 本地缓存',
+            _data.isSample
+                ? '示例课表 · 数据接入教务系统后可自动同步'
+                : '来自研究生教务系统 · 本地缓存',
             style: const TextStyle(color: AppColors.faint, fontSize: 10),
           ),
         ],
@@ -119,7 +179,20 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
+  /// The today highlight only applies to the week that actually contains
+  /// today; browsing another week must not highlight a column.
+  bool _isThisWeekToday() {
+    final now = DateTime.now();
+    final start = _weekStart;
+    if (start == null) return false;
+    final end = start.add(const Duration(days: 6));
+    return !now.isBefore(start) && !now.isAfter(end);
+  }
+
   Widget _buildHeader(BuildContext context) {
+    final range = _weekStart == null
+        ? ''
+        : '${_dateLabel(_weekStart!)}–${_dateLabel(_weekStart!.add(const Duration(days: 6)))}';
     final title = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -131,7 +204,7 @@ class _TimetablePageState extends State<TimetablePage> {
         ),
         const SizedBox(height: 4),
         Text(
-          '${_data.termName} · 第 $_week 周',
+          '${_data.termName} · 第 $_week 周${range.isEmpty ? '' : ' · $range'}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: AppColors.muted, fontSize: 11),
@@ -150,7 +223,7 @@ class _TimetablePageState extends State<TimetablePage> {
           onChanged: _changeWeek,
         ),
         OutlinedButton.icon(
-          onPressed: () => _changeWeek(8),
+          onPressed: () => _changeWeek(_nowWeek),
           icon: const Icon(Icons.today_outlined, size: 15),
           label: const Text('今天'),
           style: OutlinedButton.styleFrom(
@@ -215,11 +288,17 @@ class _TimetablePageState extends State<TimetablePage> {
     final periods = sessions.fold<int>(0, (sum, item) => sum + item.span);
     final next = sessions.isEmpty ? null : sessions.first;
     final cards = [
-      _Metric(label: '本周课程', value: '${_data.courseCount} 门', icon: Icons.menu_book_outlined),
+      _Metric(
+        label: '本周课程',
+        value: '${sessions.map((s) => s.id).toSet().length} 门',
+        icon: Icons.menu_book_outlined,
+      ),
       _Metric(label: '本周课时', value: '$periods 节', icon: Icons.schedule_outlined),
       _Metric(
         label: '下一节',
-        value: next == null ? '没有课' : '${_weekdays[next.day - 1]} ${_periodStarts[next.startPeriod - 1]}',
+        value: next == null
+            ? '没有课'
+            : '${_weekdays[next.day - 1]} ${PeriodTimes.startLabel(next.startPeriod)}',
         icon: Icons.arrow_forward_outlined,
       ),
     ];
@@ -434,117 +513,171 @@ class _Metric extends StatelessWidget {
 }
 
 class _WeekGrid extends StatelessWidget {
-  const _WeekGrid({required this.sessions});
+  const _WeekGrid({
+    super.key,
+    required this.weekStart,
+    required this.sessions,
+    required this.exams,
+    required this.today,
+    required this.onWeekDrag,
+  });
 
+  final DateTime? weekStart;
   final List<CourseSession> sessions;
+  final List<ExamEntry> exams;
+  final bool today;
+
+  /// Horizontal swipe on the grid switches weeks; the state owns the
+  /// direction bookkeeping for the slide transition.
+  final ValueChanged<DragEndDetails> onWeekDrag;
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now().weekday;
+    final now = DateTime.now();
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(16),
+        boxShadow: const [BoxShadow(color: Color(0x0A0B2E5C), blurRadius: 12)],
+      ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.deferToChild,
+        onHorizontalDragEnd: onWeekDrag,
+        child: Column(
+          children: [
+            SizedBox(
+              height: _headerHeight,
+              child: Row(
+                children: [
+                  const SizedBox(width: _timeGutterWidth),
+                  for (var day = 1; day <= 7; day++)
+                    Expanded(
+                      child: _DayHeader(
+                        label: _weekdays[day - 1],
+                        date: weekStart?.add(Duration(days: day - 1)),
+                        isToday: today && day == now.weekday,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: PeriodTimes.periodsPerDay * _slotHeight,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: _timeGutterWidth,
+                    child: Column(
+                      children: [
+                        for (var period = 1;
+                            period <= PeriodTimes.periodsPerDay;
+                            period++)
+                          SizedBox(
+                            height: _slotHeight,
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    '$period',
+                                    style: const TextStyle(
+                                      color: AppColors.ink,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    PeriodTimes.startLabel(period),
+                                    style: const TextStyle(
+                                      color: AppColors.faint,
+                                      fontSize: 8,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  for (var day = 1; day <= 7; day++)
+                    Expanded(
+                      child: _DayColumn(
+                        day: day,
+                        sessions: sessions.where((s) => s.day == day).toList(),
+                        exams: exams
+                            .where(
+                              (e) =>
+                                  weekStart != null &&
+                                  _sameDay(
+                                    e.date,
+                                    weekStart!.add(Duration(days: day - 1)),
+                                  ),
+                            )
+                            .toList(),
+                        isToday: today && day == now.weekday,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({
+    required this.label,
+    required this.date,
+    required this.isToday,
+  });
+
+  final String label;
+  final DateTime? date;
+  final bool isToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isToday ? AppColors.campusBlue : AppColors.ink;
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isToday
+            ? AppColors.campusBlue.withValues(alpha: 0.05)
+            : null,
+        border: const Border(left: BorderSide(color: AppColors.line)),
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(
-            height: _headerHeight,
-            child: Row(
-              children: [
-                const SizedBox(width: _timeGutterWidth),
-                for (var day = 1; day <= 7; day++)
-                  Expanded(
-                    child: Container(
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: day == today
-                            ? AppColors.campusBlue.withValues(alpha: 0.045)
-                            : null,
-                        border: const Border(
-                          left: BorderSide(color: AppColors.line),
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _weekdays[day - 1],
-                            style: TextStyle(
-                              color: day == today
-                                  ? AppColors.campusBlue
-                                  : AppColors.ink,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            day == today ? '今天' : '',
-                            style: const TextStyle(
-                              color: AppColors.accent,
-                              fontSize: 8,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          SizedBox(
-            height: 12 * _slotHeight,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: _timeGutterWidth,
-                  child: Column(
-                    children: [
-                      for (var period = 1; period <= 12; period++)
-                        SizedBox(
-                          height: _slotHeight,
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  '$period',
-                                  style: const TextStyle(
-                                    color: AppColors.ink,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _periodStarts[period - 1],
-                                  style: const TextStyle(
-                                    color: AppColors.faint,
-                                    fontSize: 8,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                for (var day = 1; day <= 7; day++)
-                  Expanded(
-                    child: _DayColumn(
-                      day: day,
-                      sessions: sessions.where((s) => s.day == day).toList(),
-                      isToday: day == today,
-                    ),
-                  ),
-              ],
+          const SizedBox(height: 2),
+          if (date != null)
+            Text(
+              isToday ? '今天 ${_dateLabel(date!)}' : _dateLabel(date!),
+              style: TextStyle(
+                color: isToday ? AppColors.accent : AppColors.faint,
+                fontSize: 8,
+                fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -555,15 +688,18 @@ class _DayColumn extends StatelessWidget {
   const _DayColumn({
     required this.day,
     required this.sessions,
+    required this.exams,
     required this.isToday,
   });
 
   final int day;
   final List<CourseSession> sessions;
+  final List<ExamEntry> exams;
   final bool isToday;
 
   @override
   Widget build(BuildContext context) {
+    final gridHeight = PeriodTimes.periodsPerDay * _slotHeight;
     return Container(
       decoration: BoxDecoration(
         color: isToday ? AppColors.campusBlue.withValues(alpha: 0.025) : null,
@@ -571,7 +707,7 @@ class _DayColumn extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          for (var period = 1; period <= 12; period++)
+          for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
             Positioned(
               top: (period - 1) * _slotHeight,
               left: 0,
@@ -586,8 +722,27 @@ class _DayColumn extends StatelessWidget {
               height: session.span * _slotHeight - 6,
               child: _CourseCard(session: session),
             ),
+          for (final exam in exams)
+            _examPositioned(exam, gridHeight),
         ],
       ),
+    );
+  }
+
+  Widget _examPositioned(ExamEntry exam, double gridHeight) {
+    const cardHeight = 46.0;
+    final start = PeriodTimes.parseTime(exam.startTime);
+    var top = start == null
+        ? 4.0
+        : PeriodTimes.slotOffset(start) * _slotHeight + 3;
+    if (top < 0) top = 4;
+    if (top + cardHeight > gridHeight) top = gridHeight - cardHeight - 4;
+    return Positioned(
+      top: top,
+      left: 4,
+      right: 4,
+      height: cardHeight,
+      child: _ExamCard(exam: exam, compact: true),
     );
   }
 }
@@ -657,17 +812,107 @@ class _CourseCard extends StatelessWidget {
   }
 }
 
+/// Exam cards use a fixed red scheme so they never look like a course.
+class _ExamColors {
+  static const background = Color(0xFFFFF3F0);
+  static const accent = Color(0xFFB42318);
+  static const soft = Color(0x2EB42318);
+}
+
+class _ExamCard extends StatelessWidget {
+  const _ExamCard({required this.exam, this.compact = false});
+
+  final ExamEntry exam;
+  final bool compact;
+
+  String get _timeLabel {
+    if (exam.startTime == null) return '';
+    return exam.endTime == null
+        ? exam.startTime!
+        : '${exam.startTime}–${exam.endTime}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 7 : 13,
+        compact ? 6 : 11,
+        compact ? 6 : 13,
+        compact ? 5 : 11,
+      ),
+      decoration: BoxDecoration(
+        color: _ExamColors.background,
+        borderRadius: BorderRadius.circular(compact ? 7 : 12),
+        border: Border(
+          left: BorderSide(color: _ExamColors.accent, width: 3),
+          top: BorderSide(color: _ExamColors.soft),
+          right: BorderSide(color: _ExamColors.soft),
+          bottom: BorderSide(color: _ExamColors.soft),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.quiz_outlined,
+            size: compact ? 11 : 14,
+            color: _ExamColors.accent,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  exam.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _ExamColors.accent,
+                    fontSize: compact ? 10 : 13,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (_timeLabel.isNotEmpty || exam.room.isNotEmpty)
+                  Text(
+                    [
+                      if (_timeLabel.isNotEmpty) _timeLabel,
+                      if (exam.room.isNotEmpty) exam.room,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _ExamColors.accent.withValues(alpha: 0.75),
+                      fontSize: compact ? 8 : 10,
+                      height: 1.3,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DayAgenda extends StatelessWidget {
   const _DayAgenda({
     required this.week,
+    required this.weekStart,
     required this.selectedDay,
     required this.sessions,
+    required this.exams,
     required this.onDayChanged,
   });
 
   final int week;
+  final DateTime? weekStart;
   final int selectedDay;
   final List<CourseSession> sessions;
+  final List<ExamEntry> exams;
   final ValueChanged<int> onDayChanged;
 
   @override
@@ -682,6 +927,7 @@ class _DayAgenda extends StatelessWidget {
               for (var day = 1; day <= 7; day++) ...[
                 _DayChip(
                   label: _weekdays[day - 1],
+                  date: weekStart?.add(Duration(days: day - 1)),
                   active: day == selectedDay,
                   onTap: () => onDayChanged(day),
                 ),
@@ -691,7 +937,14 @@ class _DayAgenda extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        if (sessions.isEmpty)
+        if (exams.isNotEmpty) ...[
+          for (final exam in exams) ...[
+            _ExamCard(exam: exam),
+            const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 4),
+        ],
+        if (sessions.isEmpty && exams.isEmpty)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 40),
@@ -704,7 +957,7 @@ class _DayAgenda extends StatelessWidget {
               children: [
                 Icon(Icons.coffee_outlined, color: AppColors.faint, size: 26),
                 SizedBox(height: 8),
-                Text('这一天没有课', style: TextStyle(color: AppColors.muted, fontSize: 11)),
+                Text('这一天没有安排', style: TextStyle(color: AppColors.muted, fontSize: 11)),
               ],
             ),
           )
@@ -724,9 +977,15 @@ class _DayAgenda extends StatelessWidget {
 }
 
 class _DayChip extends StatelessWidget {
-  const _DayChip({required this.label, required this.active, required this.onTap});
+  const _DayChip({
+    required this.label,
+    required this.date,
+    required this.active,
+    required this.onTap,
+  });
 
   final String label;
+  final DateTime? date;
   final bool active;
   final VoidCallback onTap;
 
@@ -736,19 +995,33 @@ class _DayChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           color: active ? AppColors.campusBlue : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: active ? AppColors.campusBlue : AppColors.line),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? Colors.white : AppColors.muted,
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-          ),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? Colors.white : AppColors.muted,
+                fontSize: 10,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+            if (date != null)
+              Text(
+                _dateLabel(date!),
+                style: TextStyle(
+                  color: active
+                      ? Colors.white.withValues(alpha: 0.8)
+                      : AppColors.faint,
+                  fontSize: 8,
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -773,15 +1046,15 @@ class _AgendaCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 74,
+            width: 78,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _periodStarts[session.startPeriod - 1],
+                  PeriodTimes.rangeLabel(session.startPeriod, session.endPeriod),
                   style: const TextStyle(
                     color: AppColors.campusBlue,
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),

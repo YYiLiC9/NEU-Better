@@ -1,5 +1,120 @@
 import 'dart:collection';
 
+/// Teaching period clock: period 1 starts at 08:30 and every period lasts
+/// 45 minutes, matching the real graduate timetable grid.
+abstract final class PeriodTimes {
+  static const firstStartMinutes = 8 * 60 + 30;
+  static const periodMinutes = 45;
+  static const periodsPerDay = 12;
+
+  static int startMinutes(int period) =>
+      firstStartMinutes + (period - 1) * periodMinutes;
+
+  static int endMinutes(int period) => startMinutes(period) + periodMinutes;
+
+  static String format(int minutes) {
+    final normalized = ((minutes % 1440) + 1440) % 1440;
+    final h = normalized ~/ 60;
+    final m = normalized % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  static String startLabel(int period) => format(startMinutes(period));
+
+  static String endLabel(int period) => format(endMinutes(period));
+
+  static String rangeLabel(int startPeriod, int endPeriod) =>
+      '${startLabel(startPeriod)}–${endLabel(endPeriod)}';
+
+  /// Parses `HH:MM` (or `HHMM`) into minutes since midnight.
+  static int? parseTime(String? raw) {
+    if (raw == null) return null;
+    final match =
+        RegExp(r'^\s*(\d{1,2})\s*[:：]?\s*(\d{2})?\s*$').firstMatch(raw);
+    if (match == null) return null;
+    final h = int.tryParse(match.group(1)!);
+    final m = int.tryParse(match.group(2) ?? '0') ?? 0;
+    if (h == null || h > 24 || m > 59) return null;
+    return h * 60 + m;
+  }
+
+  /// Vertical offset (in slot units) for a wall-clock minute. Slots are one
+  /// period tall, so e.g. 09:15 lands exactly on the second slot boundary.
+  static double slotOffset(int minutes) =>
+      (minutes - firstStartMinutes) / periodMinutes;
+}
+
+/// One scheduled exam. Exams differ from course sessions: they happen on a
+/// concrete date with a wall-clock time, so they are stored separately and
+/// rendered with a distinct card style.
+class ExamEntry {
+  const ExamEntry({
+    required this.id,
+    required this.name,
+    required this.date,
+    this.startTime,
+    this.endTime,
+    this.room = '',
+    this.seat = '',
+    this.type = '',
+  });
+
+  final String id;
+  final String name;
+
+  /// The exam date at 00:00 local time.
+  final DateTime date;
+  final String? startTime;
+  final String? endTime;
+  final String room;
+  final String seat;
+  final String type;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'date': _dateKey(date),
+    if (startTime != null) 'startTime': startTime,
+    if (endTime != null) 'endTime': endTime,
+    'room': room,
+    'seat': seat,
+    'type': type,
+  };
+
+  factory ExamEntry.fromJson(Map<String, dynamic> json) {
+    return ExamEntry(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '未命名考试',
+      date: parseDate(json['date'] as String?) ?? DateTime(1970, 1, 1),
+      startTime: json['startTime'] as String?,
+      endTime: json['endTime'] as String?,
+      room: json['room'] as String? ?? '',
+      seat: json['seat'] as String? ?? '',
+      type: json['type'] as String? ?? '',
+    );
+  }
+
+  static String _dateKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  /// Parses `yyyy-MM-dd` (with optional trailing time) and anything
+  /// [DateTime.tryParse] understands. Public because the import parser uses it.
+  static DateTime? parseDate(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(raw);
+    if (match == null) {
+      return DateTime.tryParse(raw);
+    }
+    return DateTime(
+      int.parse(match.group(1)!),
+      int.parse(match.group(2)!),
+      int.parse(match.group(3)!),
+    );
+  }
+}
+
 /// One scheduled meeting of a course. The source system exposes course
 /// arrangements as rows, so a single course may appear in several sessions.
 class CourseSession {
@@ -66,6 +181,8 @@ class TimetableData {
     required this.sessions,
     this.isSample = false,
     this.currentWeek = 8,
+    this.termStartDate,
+    this.exams = const [],
   });
 
   final String termName;
@@ -74,9 +191,54 @@ class TimetableData {
   final bool isSample;
   final int currentWeek;
 
+  /// Monday of teaching week 1. Used to derive the current week from the
+  /// calendar; null keeps the stored [currentWeek] fallback.
+  final DateTime? termStartDate;
+
+  final List<ExamEntry> exams;
+
   Set<String> get courseIds => sessions.map((session) => session.id).toSet();
 
   int get courseCount => courseIds.length;
+
+  /// Monday of the week containing [date].
+  static DateTime mondayOf(DateTime date) {
+    final day = DateTime(date.year, date.month, date.day);
+    return day.subtract(Duration(days: date.weekday - 1));
+  }
+
+  /// The teaching week [date] falls into, clamped to 1..totalWeeks.
+  int weekFor(DateTime date) {
+    final start = termStartDate;
+    if (start == null) return currentWeek.clamp(1, totalWeeks);
+    final diff =
+        mondayOf(date).difference(mondayOf(start)).inDays;
+    final week = diff ~/ 7 + 1;
+    return week.clamp(1, totalWeeks);
+  }
+
+  List<ExamEntry> examsForWeek(int week) {
+    final start = termStartDate;
+    if (start == null) return const [];
+    final first = mondayOf(start).add(Duration(days: (week - 1) * 7));
+    final last = first.add(const Duration(days: 6));
+    return UnmodifiableListView(
+      exams
+          .where((exam) => !exam.date.isBefore(first) && exam.date.isAfter(last))
+          .toList()
+        ..sort((a, b) => a.date.compareTo(b.date)),
+    );
+  }
+
+  List<ExamEntry> examsOn(DateTime date) {
+    final key = DateTime(date.year, date.month, date.day);
+    return UnmodifiableListView(
+      exams.where((exam) {
+        final d = exam.date;
+        return d.year == key.year && d.month == key.month && d.day == key.day;
+      }).toList(),
+    );
+  }
 
   List<CourseSession> forWeek(int week) {
     return UnmodifiableListView(
@@ -102,7 +264,9 @@ class TimetableData {
     'totalWeeks': totalWeeks,
     'currentWeek': currentWeek,
     'isSample': isSample,
+    if (termStartDate != null) 'termStartDate': _dateKey(termStartDate!),
     'sessions': sessions.map((session) => session.toJson()).toList(),
+    'exams': exams.map((exam) => exam.toJson()).toList(),
   };
 
   factory TimetableData.fromJson(Map<String, dynamic> json) {
@@ -111,19 +275,34 @@ class TimetableData {
       totalWeeks: (json['totalWeeks'] as num?)?.toInt() ?? 18,
       currentWeek: (json['currentWeek'] as num?)?.toInt() ?? 8,
       isSample: json['isSample'] as bool? ?? false,
+      termStartDate: ExamEntry.parseDate(json['termStartDate'] as String?),
       sessions: ((json['sessions'] as List?) ?? const [])
           .whereType<Map>()
           .map((value) => CourseSession.fromJson(Map<String, dynamic>.from(value)))
           .toList(),
+      exams: ((json['exams'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((value) => ExamEntry.fromJson(Map<String, dynamic>.from(value)))
+          .toList(),
     );
   }
+
+  static String _dateKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
 }
 
 abstract final class SampleTimetable {
-  static const data = TimetableData(
+  /// Week 1 Monday of the 2026–2027 fall term. The sample mirrors the real
+  /// graduate term so the current-week indicator matches the platform.
+  static final DateTime sampleTermStart = DateTime(2026, 8, 31);
+
+  static final data = TimetableData(
     termName: '2026–2027 秋季学期',
     totalWeeks: 16,
     isSample: true,
+    termStartDate: sampleTermStart,
     sessions: [
       CourseSession(
         id: 'algorithms',

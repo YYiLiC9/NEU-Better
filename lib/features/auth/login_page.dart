@@ -219,7 +219,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              '使用学校统一身份认证账号登录。登录状态只保存在本机。',
+              '使用学校统一身份认证账号登录。',
               style: Theme.of(context).textTheme.bodyMedium
                   ?.copyWith(fontSize: compact ? 12 : 13),
             ),
@@ -299,11 +299,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   '保持登录',
                   style: TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
-                const Spacer(),
-                const Text(
-                  '仅保存在本机',
-                  style: TextStyle(color: AppColors.faint, fontSize: 10),
-                ),
               ],
             ),
             const SizedBox(height: 6),
@@ -330,11 +325,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 const Text(
                   '保存账号密码',
                   style: TextStyle(color: AppColors.muted, fontSize: 12),
-                ),
-                const Spacer(),
-                const Text(
-                  '使用系统安全存储',
-                  style: TextStyle(color: AppColors.faint, fontSize: 10),
                 ),
               ],
             ),
@@ -376,18 +366,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.campusBlue,
                   textStyle: const TextStyle(fontSize: 11),
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Center(
-              child: Text(
-                '账号密码只用于登录学校系统，不会上传到任何第三方服务器。',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.faint,
-                  fontSize: 10,
-                  height: 1.6,
                 ),
               ),
             ),
@@ -499,7 +477,7 @@ class _BrandPanel extends StatelessWidget {
                         _BrandPoint(
                           icon: Icons.lock_outline_rounded,
                           title: '一号通',
-                          description: '原生登录 · 会话只保存在本机',
+                          description: '原生登录 · 快捷同步',
                         ),
                       ],
                     ),

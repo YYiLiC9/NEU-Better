@@ -67,6 +67,10 @@ class _YjsTimetablePageState extends State<YjsTimetablePage> {
         body,
         fallbackTermName: '研究生课程表',
         currentWeek: (envelope['currentWeek'] as num?)?.toInt(),
+        examBody: envelope['examBody'] as String?,
+        termStartDate: DateTime.tryParse(
+          envelope['termStartDate'] as String? ?? '',
+        ),
       );
       if (!mounted) return;
       Navigator.of(context).pop<TimetableData>(data);

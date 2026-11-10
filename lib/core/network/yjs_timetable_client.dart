@@ -111,10 +111,100 @@ class YjsTimetableClient {
     if (timetable.statusCode == null || timetable.statusCode! >= 400) {
       throw FormatException('研究生系统没有返回课表数据（HTTP ${timetable.statusCode}）');
     }
+
+    // Exam info lives in a sibling module of the same app. Its exact path is
+    // not stable across deployments, so try the known candidates in order and
+    // keep the first response that looks like data. A miss just means the
+    // timetable syncs without exams.
+    final examBody = await _fetchExamBody(
+      dio: dio,
+      headers: headers,
+      cookies: cookies,
+      appUrl: appUrl,
+      term: term,
+    );
+
     return jsonEncode({
       'body': timetable.data,
       'currentWeek': _currentWeek(data),
+      'termStartDate': _termStartDate(data, term)?.toIso8601String(),
+      'examBody': examBody,
     });
+  }
+
+  static const _examEndpoints = [
+    '/gsapp/sys/wdkbapp/modules/xskbcx/getKsxxList.do',
+    '/gsapp/sys/wdkbapp/modules/xskksap/xskksapcx.do',
+    '/gsapp/sys/wdkbapp/modules/ksxxcx/xskscx.do',
+    '/gsapp/sys/xskbcxapp/modules/xskbcx/getKsxxList.do',
+  ];
+
+  Future<String?> _fetchExamBody({
+    required Dio dio,
+    required Map<String, String> headers,
+    required Map<String, String> cookies,
+    required String appUrl,
+    required String term,
+  }) async {
+    for (final path in _examEndpoints) {
+      try {
+        final response = await dio.post<String>(
+          path,
+          data: 'XNXQDM=${Uri.encodeQueryComponent(term)}',
+          options: Options(
+            headers: {
+              ...headers,
+              'cookie': _cookieHeader(cookies),
+              'Referer': 'https://yjs.neu.edu.cn$appUrl',
+            },
+          ),
+        );
+        _captureCookies(cookies, response.headers);
+        final body = response.data ?? '';
+        final status = response.statusCode ?? 0;
+        final looksLikeData =
+            status < 400 &&
+            body.length > 20 &&
+            !body.contains('"code":"404"') &&
+            !body.contains('<html');
+        if (looksLikeData) {
+          debugPrint('[yjs] exam endpoint $path ok (${body.length} bytes)');
+          return body;
+        }
+        debugPrint('[yjs] exam endpoint $path unusable (HTTP $status)');
+      } catch (error) {
+        debugPrint('[yjs] exam endpoint $path failed: $error');
+      }
+    }
+    return null;
+  }
+
+  /// Derives Monday of teaching week 1 from the portal welcome message,
+  /// which reads like "今天是11月10日 星期二,2026-2027秋季学期 第11周".
+  DateTime? _termStartDate(Object? data, String term) {
+    if (data is! Map) return null;
+    final words = '${data['welcomeWords'] ?? ''}';
+    final weekMatch = RegExp(r'第\s*(\d+)\s*周').firstMatch(words);
+    final dateMatch = RegExp(r'(\d{1,2})月(\d{1,2})日').firstMatch(words);
+    if (weekMatch == null || dateMatch == null) return null;
+    final week = int.tryParse(weekMatch.group(1)!);
+    if (week == null || week < 1 || week > 40) return null;
+    final year = int.tryParse(
+          term.length >= 4 ? term.substring(0, 4) : '',
+        ) ??
+        DateTime.now().year;
+    final DateTime today;
+    try {
+      today = DateTime(
+        year,
+        int.parse(dateMatch.group(1)!),
+        int.parse(dateMatch.group(2)!),
+      );
+    } catch (_) {
+      return null;
+    }
+    // Monday of the current week, shifted back by (week - 1) weeks.
+    return today.subtract(Duration(days: today.weekday - 1 + (week - 1) * 7));
   }
 
   Map<String, dynamic>? _decode(Object? raw) {

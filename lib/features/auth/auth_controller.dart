@@ -405,6 +405,13 @@ class AuthController extends Notifier<AuthState> {
     // some Windows ACL setups and must not make the logout button feel dead.
     _autoLoginAllowed = false;
     state = const AuthUnauthenticated();
+    // The CAS client keeps the single-sign-on ticket in memory. Without this
+    // reset the next login skips the CAS form (stale TGT) and native login
+    // fails with "学校登录页格式已更新".
+    final casClient = ref.read(casClientProvider);
+    if (casClient is NeuCasClient) {
+      casClient.reset();
+    }
     try {
       await ref
           .read(sessionStoreProvider)

@@ -15,6 +15,8 @@ abstract final class YjsTimetableParser {
     String payload, {
     String? fallbackTermName,
     int? currentWeek,
+    String? examBody,
+    DateTime? termStartDate,
   }) {
     final decoded = jsonDecode(payload);
     if (decoded is! Map) {
@@ -98,6 +100,113 @@ abstract final class YjsTimetableParser {
       currentWeek: currentWeek ?? 8,
       sessions: unique,
       isSample: false,
+      termStartDate: termStartDate,
+      exams: examBody == null || examBody.trim().isEmpty
+          ? const []
+          : parseExams(examBody),
+    );
+  }
+
+  /// Extracts exam entries from an exam-list endpoint response. The exact
+  /// response shape varies between deployments, so the parser walks the JSON
+  /// tree and uses the first list of maps whose keys look like exam fields.
+  static List<ExamEntry> parseExams(String body) {
+    final List<Map<String, dynamic>> rows;
+    try {
+      rows = _findExamRows(jsonDecode(body));
+    } catch (_) {
+      return const [];
+    }
+    final exams = <ExamEntry>[];
+    for (var index = 0; index < rows.length; index++) {
+      final row = rows[index];
+      final name = _value(row, const [
+        'KSMC',
+        'KCMC',
+        'SKCMC',
+        'KCMS',
+        'EXAM_NAME',
+      ]);
+      if (name.isEmpty) continue;
+      final rawDate = _value(row, const [
+        'KSRQ',
+        'KSSJ',
+        'KAYY',
+        'KSRQJC',
+        'EXAM_DATE',
+      ]);
+      final date = ExamEntry.parseDate(rawDate.replaceAll('.', '-'));
+      if (date == null) continue;
+      final (startTime, endTime) = _examTime(
+        _value(row, const ['KSSJ', 'KSSJD', 'KSSKSSJ', 'KASJ', 'EXAM_TIME']),
+      );
+      exams.add(
+        ExamEntry(
+          id: _value(row, const ['WID', 'ID', 'KSDM', 'EXAM_ID']).isEmpty
+              ? 'exam-$index'
+              : _value(row, const ['WID', 'ID', 'KSDM', 'EXAM_ID']),
+          name: name,
+          date: date,
+          startTime: startTime,
+          endTime: endTime,
+          room: _value(row, const ['JXDD', 'KSCD', 'SKDD', 'JSDD', 'ROOM']),
+          seat: _value(row, const ['ZWH', 'ZKZH', 'SEAT']),
+          type: _value(row, const ['KSLXMC', 'KSLX', 'LXMC', 'TYPE']),
+        ),
+      );
+    }
+    exams.sort((a, b) => a.date.compareTo(b.date));
+    return exams;
+  }
+
+  /// Depth-first search for the first list whose entries look like exam rows.
+  static List<Map<String, dynamic>> _findExamRows(Object? node) {
+    if (node is List) {
+      final maps = node
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      if (maps.isNotEmpty && maps.length == node.length && _looksLikeExam(maps.first)) {
+        return maps;
+      }
+      for (final item in node) {
+        final found = _findExamRows(item);
+        if (found.isNotEmpty) return found;
+      }
+    } else if (node is Map) {
+      for (final value in node.values) {
+        final found = _findExamRows(value);
+        if (found.isNotEmpty) return found;
+      }
+    }
+    return const [];
+  }
+
+  static bool _looksLikeExam(Map<String, dynamic> row) {
+    return row.keys.any((key) {
+      final upper = key.toString().toUpperCase();
+      return const {'KSMC', 'KSRQ', 'KSSJ', 'JXDD', 'KSCD'}.contains(upper);
+    });
+  }
+
+  /// Splits an exam time field into start/end. Tolerates `14:00-16:00`,
+  /// `14:00—15:30`, `1400-1520` and a lone `14:00`.
+  static (String?, String?) _examTime(String raw) {
+    if (raw.trim().isEmpty) return (null, null);
+    final tokens = RegExp(r'\d{1,2}:\d{2}|\d{3,4}')
+        .allMatches(raw)
+        .map((match) => match.group(0)!)
+        .toList();
+    if (tokens.isEmpty) return (null, null);
+    String normalize(String token) {
+      if (token.contains(':')) return token;
+      final padded = token.padLeft(4, '0');
+      return '${padded.substring(0, 2)}:${padded.substring(2)}';
+    }
+
+    return (
+      normalize(tokens.first),
+      tokens.length > 1 ? normalize(tokens.last) : null,
     );
   }
 

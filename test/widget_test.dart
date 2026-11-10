@@ -138,7 +138,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('我的课表'), findsOneWidget);
-    expect(find.text('2026–2027 秋季学期 · 第 8 周'), findsOneWidget);
+    // The header shows the real current week (derived from the term start
+    // date) plus the week's date range, so match the stable prefix only.
+    expect(find.textContaining('2026–2027 秋季学期 · 第'), findsOneWidget);
     expect(find.text('测试同学'), findsWidgets);
   });
 

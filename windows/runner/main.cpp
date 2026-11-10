@@ -19,6 +19,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
+  // This machine carries several virtual display adapters (Sunlogin/Oray,
+  // ToDesk, MuMu, GameViewer) that DXGI can enumerate before the real GPU;
+  // when the engine picks one of them, frames render into an adapter that
+  // never reaches the physical screen and the window stays blank. Request the
+  // high-performance (discrete) adapter explicitly.
+  project.set_gpu_preference(flutter::GpuPreference::HighPerformancePreference);
+
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 

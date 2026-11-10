@@ -75,6 +75,42 @@ class NeuCasClient implements CasClient {
     required String password,
     String? service,
   }) async {
+    try {
+      return await _loginOnce(
+        username: username,
+        password: password,
+        service: service,
+      );
+    } on AuthException catch (error) {
+      if (error.message != _staleLoginFormMessage) rethrow;
+      // A leftover single-sign-on session (e.g. after logout, or a ticket
+      // cached from a previous login) makes CAS skip the login form entirely.
+      // Drop the stale cookies and retry once with a clean jar.
+      debugPrint('[cas] login form missing; stale SSO session suspected, '
+          'retrying with clean cookies');
+      reset();
+      return _loginOnce(
+        username: username,
+        password: password,
+        service: service,
+      );
+    }
+  }
+
+  static const _staleLoginFormMessage = '学校登录页格式已更新，请使用网页登录。';
+
+  /// Clears every captured cookie and ticket. Call after logout so the next
+  /// login starts from a clean single-sign-on state.
+  void reset() {
+    _cookies.clear();
+    _serviceTicket = null;
+  }
+
+  Future<CasLoginResult> _loginOnce({
+    required String username,
+    required String password,
+    String? service,
+  }) async {
     final trimmedUsername = username.trim();
     if (trimmedUsername.isEmpty || password.isEmpty) {
       throw const AuthException('学号和密码不能为空。');
@@ -99,7 +135,7 @@ class NeuCasClient implements CasClient {
     final lt = _hiddenValue(loginPage.body, 'lt');
     final execution = _hiddenValue(loginPage.body, 'execution');
     if (lt == null || execution == null) {
-      throw const AuthException('学校登录页格式已更新，请使用网页登录。');
+      throw const AuthException(_staleLoginFormMessage);
     }
 
     final encrypted = NeuRsaEncryptor.encrypt('$trimmedUsername$password');
