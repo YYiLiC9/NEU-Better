@@ -4,6 +4,16 @@
 
 > 当前阶段：**M1 登录与持久会话已完成，M2 课表已完成**。M0 工程底座与 A 静蓝设计方向已完成；研究生课表支持在 App 内登录后同步。
 
+## 运行最新版本
+
+仓库根目录的 [`NEU Better.lnk`](<NEU Better.lnk>) 是指向最新 Release 构建的本机快捷方式（`.lnk` 已被 `.gitignore` 忽略，不随仓库提交）：
+
+```text
+build\windows\x64\runner\Release\neu_better_pro.exe
+```
+
+重新执行 `.\tools\flutter.cmd build windows --release` 后，双击该快捷方式即可运行最新版本。
+
 ## 为什么做
 
 学校现有系统入口分散、Web 端体验割裂。NEU Better 希望在不改变学校系统的前提下，提供：
