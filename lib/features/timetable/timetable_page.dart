@@ -1195,6 +1195,11 @@ class _ExamColors {
   static Color get accent => AppColors.nowRed;
   static Color get soft =>
       AppColors.isDark ? const Color(0x33E97A63) : const Color(0x2EC2402A);
+
+  /// Day-view exam cards use a visible, closed outline. Keep it in the same
+  /// 朱红 family instead of a neutral divider colour.
+  static Color get outline =>
+      AppColors.isDark ? const Color(0x66E97A63) : const Color(0x66C2402A);
 }
 
 class _ExamCard extends StatelessWidget {
@@ -1235,7 +1240,7 @@ class _ExamCard extends StatelessWidget {
               color: _ExamColors.background,
               // 周视图里考试卡只保留顶部强调色，去掉左右/下边的描边；
               // 日视图保留完整描边并闭合。
-              border: compact ? null : Border.all(color: _ExamColors.soft),
+              border: compact ? null : Border.all(color: _ExamColors.outline),
             ),
             child: compact
                 ? LayoutBuilder(
@@ -1424,15 +1429,74 @@ class _ExamCard extends StatelessWidget {
 
 /// 周视图下方的“考试安排”列表：日期、时间段、科目、地点、考号都直接给出，
 /// 与课程卡片保持明显不同的朱红色系。
-class _ExamScheduleSection extends StatelessWidget {
+class _ExamScheduleSection extends StatefulWidget {
   const _ExamScheduleSection({required this.exams});
 
   final List<ExamEntry> exams;
 
   @override
+  State<_ExamScheduleSection> createState() => _ExamScheduleSectionState();
+}
+
+class _ExamScheduleSectionState extends State<_ExamScheduleSection> {
+  bool _showAll = true;
+
+  bool _isExamEnded(ExamEntry exam, DateTime now) {
+    final day = DateTime(exam.date.year, exam.date.month, exam.date.day);
+    final startMinutes = PeriodTimes.parseTime(exam.startTime);
+    final endMinutes =
+        PeriodTimes.parseTime(exam.endTime) ??
+        (startMinutes == null ? null : startMinutes + PeriodTimes.periodMinutes);
+    if (endMinutes == null) {
+      return day.isBefore(DateTime(now.year, now.month, now.day));
+    }
+    final end = day.add(Duration(minutes: endMinutes));
+    return !now.isBefore(end);
+  }
+
+  Widget _filterButton() {
+    return Tooltip(
+      message: _showAll ? '只显示未考考试' : '显示所有考试',
+      child: InkWell(
+        onTap: () => setState(() => _showAll = !_showAll),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            border: Border.all(color: AppColors.line),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _showAll ? Icons.filter_alt_outlined : Icons.filter_alt,
+                size: 12,
+                color: AppColors.campusBlue,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _showAll ? '全部' : '未考',
+                style: TextStyle(
+                  color: AppColors.campusBlue,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final exams = _showAll
+        ? widget.exams
+        : widget.exams.where((exam) => !_isExamEnded(exam, now)).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1455,6 +1519,8 @@ class _ExamScheduleSection extends StatelessWidget {
                 style: TextStyle(color: AppColors.faint, fontSize: 9),
               ),
             ],
+            const Spacer(),
+            _filterButton(),
           ],
         ),
         const SizedBox(height: 8),
@@ -1479,7 +1545,7 @@ class _ExamScheduleSection extends StatelessWidget {
                       ),
                       SizedBox(width: 8),
                       Text(
-                        '本学期暂无考试安排',
+                        _showAll ? '本学期暂无考试安排' : '暂无未考考试',
                         style: TextStyle(color: AppColors.muted, fontSize: 10),
                       ),
                     ],
@@ -1492,7 +1558,7 @@ class _ExamScheduleSection extends StatelessWidget {
                         Divider(height: 1, thickness: 1, color: AppColors.line),
                       _ExamScheduleRow(
                         exam: exams[i],
-                        isPast: exams[i].date.isBefore(today),
+                        isEnded: _isExamEnded(exams[i], now),
                       ),
                     ],
                   ],
@@ -1504,10 +1570,10 @@ class _ExamScheduleSection extends StatelessWidget {
 }
 
 class _ExamScheduleRow extends StatelessWidget {
-  const _ExamScheduleRow({required this.exam, required this.isPast});
+  const _ExamScheduleRow({required this.exam, required this.isEnded});
 
   final ExamEntry exam;
-  final bool isPast;
+  final bool isEnded;
 
   @override
   Widget build(BuildContext context) {
@@ -1516,7 +1582,7 @@ class _ExamScheduleRow extends StatelessWidget {
       if (exam.room.trim().isNotEmpty) '地点 ${exam.room.trim()}',
       if (exam.seat.trim().isNotEmpty) '考号 ${exam.seat.trim()}',
     ].join(' · ');
-    final nameColor = isPast ? AppColors.muted : _ExamColors.accent;
+    final nameColor = isEnded ? AppColors.faint : _ExamColors.accent;
     final now = DateTime.now();
     final isToday =
         exam.date.year == now.year &&
@@ -1536,7 +1602,7 @@ class _ExamScheduleRow extends StatelessWidget {
                 Text(
                   _dateLabel(exam.date),
                   style: TextStyle(
-                    color: isPast ? AppColors.muted : AppColors.ink,
+                    color: isEnded ? AppColors.faint : AppColors.ink,
                     fontSize: 13,
                     height: 1.25,
                     fontWeight: FontWeight.w600,
@@ -1547,7 +1613,9 @@ class _ExamScheduleRow extends StatelessWidget {
                 Text(
                   isToday ? '今天' : _weekdays[exam.date.weekday - 1],
                   style: TextStyle(
-                    color: isToday ? _ExamColors.accent : AppColors.faint,
+                    color: isToday && !isEnded
+                        ? _ExamColors.accent
+                        : AppColors.faint,
                     fontSize: 8,
                     height: 1.2,
                     fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
@@ -1585,13 +1653,17 @@ class _ExamScheduleRow extends StatelessWidget {
                         vertical: 1,
                       ),
                       decoration: BoxDecoration(
-                        color: _ExamColors.soft,
+                        color: isEnded
+                            ? AppColors.line.withValues(alpha: 0.35)
+                            : _ExamColors.soft,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         typeLabel,
                         style: TextStyle(
-                          color: _ExamColors.accent,
+                          color: isEnded
+                              ? AppColors.faint
+                              : _ExamColors.accent,
                           fontSize: 8,
                           height: 1.2,
                           fontWeight: FontWeight.w600,
@@ -1607,7 +1679,7 @@ class _ExamScheduleRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: AppColors.muted,
+                      color: isEnded ? AppColors.faint : AppColors.muted,
                       fontSize: 9,
                       height: 1.35,
                       fontFeatures: [FontFeature.tabularFigures()],
