@@ -52,9 +52,16 @@ String _examTimeLabel(ExamEntry exam) {
 }
 
 class TimetablePage extends StatefulWidget {
-  const TimetablePage({super.key, this.compact = false});
+  const TimetablePage({
+    super.key,
+    this.compact = false,
+    this.mobile = false,
+  });
 
   final bool compact;
+
+  /// 手机端专属：竖屏满屏周视图（7 列完整显示、12 节完整显示）。
+  final bool mobile;
 
   @override
   State<TimetablePage> createState() => _TimetablePageState();
@@ -180,6 +187,7 @@ class _TimetablePageState extends State<TimetablePage> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        if (widget.mobile) return _buildMobile(context, constraints);
         final viewportHeight =
             constraints.maxHeight.isFinite && constraints.maxHeight > 0
             ? constraints.maxHeight
@@ -240,7 +248,75 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
-  Widget _buildWeekView(double slotHeight) {
+  /// 手机端满屏布局：标题与摘要固定，周视图独占剩余高度并精确换算节高，
+  /// 让 7 天 × 12 节一次性完整显示，不需要任何滚动。
+  Widget _buildMobile(BuildContext context, BoxConstraints constraints) {
+    final headerAndSummary = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: _buildHeader(context),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildSummary(),
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+    if (!_weekView) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          headerAndSummary,
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+              child: _buildDayAgenda(),
+            ),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        headerAndSummary,
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            child: LayoutBuilder(
+              builder: (context, gridConstraints) {
+                final slotHeight = _mobileSlotHeight(gridConstraints.maxHeight);
+                return _buildWeekView(
+                  slotHeight,
+                  fitWidth: true,
+                  gutterWidth: 34,
+                  dense: true,
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  double _mobileSlotHeight(double gridViewportHeight) {
+    final raw =
+        (gridViewportHeight - _headerHeight - 2 * _breakGap) /
+        PeriodTimes.periodsPerDay;
+    return raw.floorToDouble().clamp(24.0, _maxSlotHeight);
+  }
+
+  Widget _buildWeekView(
+    double slotHeight, {
+    bool fitWidth = false,
+    double gutterWidth = _timeGutterWidth,
+    bool dense = false,
+  }) {
     final pager = _WeekPager(
       week: _week,
       direction: _direction,
@@ -251,9 +327,11 @@ class _TimetablePageState extends State<TimetablePage> {
         today: _isWeekToday(week),
         onWeekDrag: _onWeekDrag,
         slotHeight: slotHeight,
+        gutterWidth: gutterWidth,
+        dense: dense,
       ),
     );
-    if (!widget.compact) return pager;
+    if (!widget.compact || fitWidth) return pager;
     // 窄窗口也保留完整的周视图；宽度不够时允许横向滚动，
     // 而不是直接退化成单日列表。
     return LayoutBuilder(

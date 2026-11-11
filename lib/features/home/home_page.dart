@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -96,9 +98,15 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// 手机端（安卓）使用底部导航栏；Windows 保留左侧栏。
+  bool get _isMobilePlatform =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 760;
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 760;
+    final mobile = _isMobilePlatform;
     // 主题切换时让 HomePage 及其 IndexedStack 子页面一起重建。
     ref.watch(appSettingsProvider.select((settings) => settings.isDarkNow));
     ref.listen<AppSettingsController>(appSettingsProvider, (previous, next) {
@@ -111,12 +119,106 @@ class _HomePageState extends ConsumerState<HomePage> {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: compact ? _buildCompact(context) : _buildDesktop(context),
+        child: mobile
+            ? _buildMobile(context)
+            : Column(
+                children: [
+                  Expanded(
+                    child: compact
+                        ? _buildCompact(context)
+                        : _buildDesktop(context),
+                  ),
+                  _buildStatusBar(context),
+                ],
+              ),
+      ),
+      bottomNavigationBar: mobile ? _buildMobileNav(context) : null,
+    );
+  }
+
+  /// 手机端布局：顶部只留品牌与设置/退出，主导航放到底部导航栏。
+  Widget _buildMobile(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 10, 8, 6),
+          child: Row(
+            children: [
+              const _Brand(),
+              const Spacer(),
+              IconButton(
+                tooltip: '设置',
+                onPressed: _openSettings,
+                icon: Icon(
+                  Icons.settings_outlined,
+                  size: 21,
+                  color: AppColors.campusBlue,
+                ),
+              ),
+              IconButton(
+                tooltip: '退出登录',
+                onPressed: _logout,
+                icon: const Icon(Icons.logout_rounded, size: 20),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: _tab,
+            children: [
+              TimetablePage(compact: true, mobile: true),
+              DormPowerPage(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 底部导航栏：课表 / 寝室用电，配色沿用静蓝令牌。
+  Widget _buildMobileNav(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.line)),
+      ),
+      child: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          backgroundColor: AppColors.surface,
+          indicatorColor: AppColors.campusBlue.withValues(alpha: 0.12),
+          iconTheme: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return IconThemeData(
+              color: selected ? AppColors.campusBlue : AppColors.muted,
+              size: 22,
+            );
+          }),
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return TextStyle(
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              color: selected ? AppColors.campusBlue : AppColors.muted,
+            );
+          }),
+        ),
+        child: NavigationBar(
+          height: 62,
+          selectedIndex: _tab,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          onDestinationSelected: (index) => setState(() => _tab = index),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.calendar_month_outlined),
+              selectedIcon: Icon(Icons.calendar_month),
+              label: '课表',
             ),
-            _buildStatusBar(context),
+            NavigationDestination(
+              icon: Icon(Icons.electric_bolt_outlined),
+              selectedIcon: Icon(Icons.electric_bolt),
+              label: '寝室用电',
+            ),
           ],
         ),
       ),

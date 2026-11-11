@@ -8,6 +8,8 @@ class _WeekGrid extends StatelessWidget {
     required this.today,
     required this.onWeekDrag,
     required this.slotHeight,
+    this.gutterWidth = _timeGutterWidth,
+    this.dense = false,
   });
 
   final DateTime? weekStart;
@@ -15,6 +17,8 @@ class _WeekGrid extends StatelessWidget {
   final List<ExamEntry> exams;
   final bool today;
   final double slotHeight;
+  final double gutterWidth;
+  final bool dense;
 
   /// Horizontal swipe on the grid switches weeks; the state owns the
   /// direction bookkeeping for the slide transition.
@@ -39,7 +43,7 @@ class _WeekGrid extends StatelessWidget {
               height: _headerHeight,
               child: Row(
                 children: [
-                  const SizedBox(width: _timeGutterWidth),
+                  SizedBox(width: gutterWidth),
                   for (var day = 1; day <= 7; day++)
                     Expanded(
                       child: _DayHeader(
@@ -59,7 +63,7 @@ class _WeekGrid extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SizedBox(
-                        width: _timeGutterWidth,
+                        width: gutterWidth,
                         child: Column(
                           children: [
                             for (
@@ -128,6 +132,7 @@ class _WeekGrid extends StatelessWidget {
                                 .toList(),
                             isToday: today && day == now.weekday,
                             slotHeight: slotHeight,
+                            dense: dense,
                           ),
                         ),
                     ],
@@ -273,6 +278,7 @@ class _DayColumn extends StatelessWidget {
     required this.exams,
     required this.isToday,
     required this.slotHeight,
+    this.dense = false,
   });
 
   final int day;
@@ -280,6 +286,7 @@ class _DayColumn extends StatelessWidget {
   final List<ExamEntry> exams;
   final bool isToday;
   final double slotHeight;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -305,16 +312,16 @@ class _DayColumn extends StatelessWidget {
           for (final session in sessions)
             Positioned(
               top: _slotTopFor(slotHeight, session.startPeriod) + 3,
-              left: 4,
-              right: 4,
+              left: dense ? 2 : 4,
+              right: dense ? 2 : 4,
               height:
                   _slotSpanHeightFor(
                     slotHeight,
                     session.startPeriod,
                     session.endPeriod,
                   ) -
-                  6,
-              child: _CourseCard(session: session),
+                  (dense ? 4 : 6),
+              child: _CourseCard(session: session, dense: dense),
             ),
           for (final exam in exams) _examPositioned(exam, gridHeight),
         ],
@@ -362,9 +369,10 @@ class _DayColumn extends StatelessWidget {
 }
 
 class _CourseCard extends StatelessWidget {
-  const _CourseCard({required this.session});
+  const _CourseCard({required this.session, this.dense = false});
 
   final CourseSession session;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -381,9 +389,9 @@ class _CourseCard extends StatelessWidget {
           waitDuration: const Duration(milliseconds: 700),
           child: Container(
             padding: EdgeInsets.fromLTRB(
-              8,
+              dense ? 5 : 8,
               compact ? 3 : 6,
-              6,
+              dense ? 4 : 6,
               compact ? 3 : 5,
             ),
             decoration: BoxDecoration(
@@ -400,7 +408,7 @@ class _CourseCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: inkColor,
-                    fontSize: compact ? 10.5 : 11,
+                    fontSize: dense ? 9.2 : (compact ? 10.5 : 11),
                     height: 1.25,
                     fontWeight: FontWeight.w600,
                   ),
@@ -413,7 +421,7 @@ class _CourseCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: inkColor.withValues(alpha: 0.75),
-                      fontSize: 8,
+                      fontSize: dense ? 7.5 : 8,
                       height: 1.3,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
