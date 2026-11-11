@@ -250,7 +250,7 @@ class _DayHeader extends StatelessWidget {
             const SizedBox(height: 3),
             if (date != null)
               Text(
-                isToday ? '今天 ${_dateLabel(date!)}' : _dateLabel(date!),
+                _dateLabel(date!),
                 style: TextStyle(
                   color: isToday ? AppColors.campusBlue : AppColors.faint,
                   fontSize: 8,

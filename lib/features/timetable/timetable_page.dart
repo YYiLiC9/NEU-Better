@@ -268,15 +268,18 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   Widget _buildDayAgenda() {
-    return SizedBox(
-      width: double.infinity,
-      child: _DayAgenda(
-        week: _week,
-        weekStart: _weekStart,
-        selectedDay: _selectedDay,
-        sessions: _daySessions,
-        exams: _dayExams,
-        onDayChanged: (day) => setState(() => _selectedDay = day),
+    return Align(
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        width: double.infinity,
+        child: _DayAgenda(
+          week: _week,
+          weekStart: _weekStart,
+          selectedDay: _selectedDay,
+          sessions: _daySessions,
+          exams: _dayExams,
+          onDayChanged: (day) => setState(() => _selectedDay = day),
+        ),
       ),
     );
   }
