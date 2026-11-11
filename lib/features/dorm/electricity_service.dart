@@ -4,7 +4,7 @@ import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/neu_elec_client.dart';
 import '../../core/network/neu_service_session.dart';
-import 'electricity_models.dart';
+import '../../core/electricity/electricity_models.dart';
 import 'electricity_store.dart';
 
 /// 电量数据变化信号：后台每日查询或页面查询成功后自增，

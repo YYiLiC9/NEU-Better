@@ -116,9 +116,9 @@ class ElectricityReading {
 
   static DateTime? _parseSlashDate(String? raw) {
     if (raw == null) return null;
-    final match =
-        RegExp(r'^(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})')
-            .firstMatch(raw.trim());
+    final match = RegExp(
+      r'^(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+    ).firstMatch(raw.trim());
     if (match == null) return null;
     return DateTime(
       int.parse(match.group(1)!),
@@ -138,20 +138,21 @@ class ElectricityReading {
       rawRemain: json['rawRemain'] as String? ?? '',
       meterAddr: json['meterAddr'] as String?,
       lastReadTime: DateTime.tryParse(json['lastReadTime'] as String? ?? ''),
-      fetchedAt: DateTime.tryParse(json['fetchedAt'] as String? ?? '') ??
+      fetchedAt:
+          DateTime.tryParse(json['fetchedAt'] as String? ?? '') ??
           DateTime.now(),
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'roomCode': roomCode,
-        'roomInfo': roomInfo,
-        'remainKwh': remainKwh,
-        'rawRemain': rawRemain,
-        if (meterAddr != null) 'meterAddr': meterAddr,
-        if (lastReadTime != null) 'lastReadTime': lastReadTime!.toIso8601String(),
-        'fetchedAt': fetchedAt.toIso8601String(),
-      };
+    'roomCode': roomCode,
+    'roomInfo': roomInfo,
+    'remainKwh': remainKwh,
+    'rawRemain': rawRemain,
+    if (meterAddr != null) 'meterAddr': meterAddr,
+    if (lastReadTime != null) 'lastReadTime': lastReadTime!.toIso8601String(),
+    'fetchedAt': fetchedAt.toIso8601String(),
+  };
 
   factory ElectricityReading.fromPayResponse({
     required String roomCode,
@@ -202,14 +203,14 @@ class DormPrefs {
   }
 
   Map<String, dynamic> toJson() => {
-        if (roomCode != null) 'roomCode': roomCode,
-        'alertThreshold': alertThreshold,
-        if (lastQueryDate != null)
-          'lastQueryDate': DateTime(
-            lastQueryDate!.year,
-            lastQueryDate!.month,
-            lastQueryDate!.day,
-          ).toIso8601String(),
-        if (lastReading != null) 'lastReading': lastReading!.toJson(),
-      };
+    if (roomCode != null) 'roomCode': roomCode,
+    'alertThreshold': alertThreshold,
+    if (lastQueryDate != null)
+      'lastQueryDate': DateTime(
+        lastQueryDate!.year,
+        lastQueryDate!.month,
+        lastQueryDate!.day,
+      ).toIso8601String(),
+    if (lastReading != null) 'lastReading': lastReading!.toJson(),
+  };
 }

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../features/dorm/electricity_models.dart';
+import '../electricity/electricity_models.dart';
 import 'neu_cas_client.dart';
 import 'neu_service_session.dart';
 

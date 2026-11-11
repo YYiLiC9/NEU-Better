@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:local_notifier/local_notifier.dart';
 
 import '../../app/theme/app_theme.dart';
-import 'electricity_models.dart';
+import '../../core/electricity/electricity_models.dart';
 
 /// 寝室电量提醒的唯一出口：系统通知 + 应用内弹窗。
 ///

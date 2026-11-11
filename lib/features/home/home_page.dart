@@ -10,7 +10,7 @@ import '../../core/settings/app_settings.dart';
 import '../auth/auth_controller.dart';
 import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
-import '../dorm/electricity_models.dart';
+import '../../core/electricity/electricity_models.dart';
 import '../dorm/electricity_service.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';

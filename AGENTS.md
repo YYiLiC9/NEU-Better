@@ -10,7 +10,7 @@
 
 ```powershell
 .\tools\flutter.cmd analyze     # 必须 No issues found
-.\tools\flutter.cmd test        # 必须 32 个全过
+.\tools\flutter.cmd test        # 必须 35 个全过
 .\tools\flutter.cmd build windows --debug   # 或 --release
 ```
 
@@ -30,10 +30,12 @@
 
 ## 架构地图（lib/）
 
+完整的依赖边界与分层规则见 [docs/architecture.md](docs/architecture.md)。核心约束：`features/*` 可以依赖 `core/*`，但 `core/*` 不得反向依赖任何 feature。
+
 ```text
 lib/
   main.dart                     入口：ProviderScope + localNotifier.setup(仅 Windows)
-  app/app.dart                  NeuBetterApp 根组件与页面路由（无 go_router 页面表）
+  app/app.dart                  NeuBetterApp 根组件、主题模式、页面分流
   app/theme/app_theme.dart      全部设计令牌（见下节），唯一取色处
   core/
     auth/credential_store.dart      SecureCredentialStore：账号密码 DPAPI 加密存取
@@ -41,14 +43,20 @@ lib/
     auth/saved_credentials.dart     保存的账号密码模型
     auth/student_identity.dart      姓名/学号身份模型
     auth/auth_exception.dart        AuthException 等异常类型
+    auth/webview_login_result.dart  WebView 登录结果模型
+    electricity/electricity_models.dart 电费领域模型：楼栋表/房间码/读数/DormPrefs
     storage/windows_dpapi_file.dart Windows DPAPI 文件加解密原语
     network/neu_cas_client.dart  统一身份认证 CAS 登录核心（详见下文数据流）
     network/neu_elec_client.dart 缴费大厅电费查询客户端
-    network/yjs_timetable_client.dart 研究生课表抓取客户端
+    network/neu_service_session.dart 用 CAS 会话换取目标服务 cookies
+    network/yjs_timetable_client.dart 研究生课表/考试抓取客户端
     network/portal_identity_client.dart / cas_identity_client.dart / windows_portal_identity_client.dart  身份解析辅助
     crypto/rsa_encryptor.dart    CAS 密码 RSA(PKCS1) 加密，公钥常量
+    settings/app_settings.dart   主题/托盘偏好 + settings.json 持久化
+    platform/windows_window.dart MethodChannel：任务栏标题/关闭行为/托盘显隐
   features/
-    auth/login_page.dart         登录页（账号密码 + webview_login_page.dart 兜底）
+    auth/login_page.dart         登录页外壳（状态与动作）；widgets/login_widgets.dart 为品牌/表单组件
+    auth/webview_login_page.dart WebView 登录分发；widgets/webview_login_{android,windows,widgets}.dart 为平台页与共用脚手架
     auth/auth_gate.dart          登录态分流（未登录→登录页）
     auth/auth_controller.dart    Riverpod 登录状态机 + 会话恢复/身份刷新
     landing/m0_landing_page.dart M0 过场页
@@ -63,15 +71,15 @@ lib/
     timetable/timetable_import.dart    教务 HTML → TimetableData 解析
     timetable/timetable_store.dart     timetable.json 持久化
     timetable/timetable_models.dart    CourseSession/TimetableData/PeriodTimes
-    dorm/dorm_page.dart          寝室用电页（房间码保存/查询/提醒线）
+    timetable/timetable_sync.dart      TimetableSyncService：登录后自动同步课表
+    dorm/dorm_page.dart          寝室用电页外壳（状态/加载/查询入口）
+    dorm/widgets/dorm_cards.dart 寝室页的读数卡、设置卡、错误条、阈值步进器
     dorm/electricity_service.dart 查询编排 + 每日一次 + dormPrefsChanged 通知
     dorm/electricity_store.dart   electricity.json 持久化
-    dorm/electricity_models.dart  楼栋编号表/房间码拼接/读数模型
-    settings/settings_page.dart  设置弹窗（showSettingsDialog 居中小窗，右上角关闭）
-    timetable/timetable_sync.dart TimetableSyncService：登录后自动同步课表
-  core/settings/app_settings.dart     主题/托盘偏好 + settings.json 持久化
-  core/platform/windows_window.dart   MethodChannel：任务栏标题/关闭行为/托盘显隐
-test/widget_test.dart            32 个测试（解析器、存储、凭据往返等）
+    settings/settings_page.dart  设置弹窗外壳（showSettingsDialog 居中小窗）
+    settings/widgets/settings_widgets.dart 设置页的主题选择/开关/小节组件
+test/widget_test.dart            23 个测试（界面、解析器、存储、凭据往返等）
+test/timetable_data_test.dart    12 个课表解析/领域计算测试
 tools/flutter.cmd                唯一 flutter 入口
 ```
 
@@ -85,7 +93,7 @@ tools/flutter.cmd                唯一 flutter 入口
 研究生系统：CAS(service=研究生门户) → getUserInfo.do → changeAppRole_yjs.do → getCanVisitAppList.do → wdkbapp 列表 → POST `xspkjgcx.do`（`XNXQDM=20261`）→ 解析行（KCMC/XQJ/KSJC/JSJC/ZCMC/SKJS/SKDD/周次）→ `TimetableData`。当前周从欢迎词「第N周」正则取。
 
 ### 电费查询（neu_elec_client.dart）
-缴费大厅 `https://pay.neu.edu.cn/`：CAS(service=`…/drCasLogin`) → 手动跟到 `/openPortal` → POST `/queryRommInfo`（form：`elecroomno=<7-8位房间码>&factorycode=E039`）→ JSON `{elecroominfo, elecRemain("148 度"), mAddr, lastReadTime, returncode}`。房间码 = 楼栋缴费编号(3位,空调楼4位)+寝室号(4位补零)，全表在 `electricity_models.dart dormCampusNames`。每日一次逻辑在 `electricity_service.dart dailyCheck()`，由 `home_page.dart` 启动后触发；低于提醒线 → Windows toast（尽力而为）+ AlertDialog。
+缴费大厅 `https://pay.neu.edu.cn/`：CAS(service=`…/drCasLogin`) → 手动跟到 `/openPortal` → POST `/queryRommInfo`（form：`elecroomno=<7-8位房间码>&factorycode=E039`）→ JSON `{elecroominfo, elecRemain("148 度"), mAddr, lastReadTime, returncode}`。房间码 = 楼栋缴费编号(3位,空调楼4位)+寝室号(4位补零)，全表在 `core/electricity/electricity_models.dart` 的 `dormCampusNames`。每日一次逻辑在 `electricity_service.dart dailyCheck()`，由 `home_page.dart` 启动后触发；低于提醒线 → Windows toast（尽力而为）+ AlertDialog。
 
 ## 持久化文件（exe 同目录 data\，找不到再依次退到 cwd\data、systemTemp\NEU Better、LOCALAPPDATA\NEU Better）
 

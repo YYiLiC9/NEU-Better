@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import 'electricity_models.dart';
+import '../../core/electricity/electricity_models.dart';
 
 /// Persists dorm electricity prefs (room code, threshold, last query) so the
 /// app can check daily-once and show the last reading without re-entering the
