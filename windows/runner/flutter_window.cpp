@@ -170,12 +170,10 @@ void FlutterWindow::AddTrayIcon() {
   tray_icon_data_.uID = kTrayIconId;
   tray_icon_data_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
   tray_icon_data_.uCallbackMessage = kTrayCallbackMessage;
-  tray_icon_data_.hIcon = LoadAppIcon(GetSystemMetrics(SM_CXSMICON),
-                                      GetSystemMetrics(SM_CYSMICON));
+  tray_icon_data_.hIcon = LoadAppIcon(16, 16);
   if (tray_icon_data_.hIcon == nullptr) {
-    // Retry once with the full-size icon; the tray scales it down.
-    tray_icon_data_.hIcon =
-        LoadAppIcon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+    // Retry once with the 32x32 frame; the tray scales it down.
+    tray_icon_data_.hIcon = LoadAppIcon(32, 32);
   }
   // Short, stable tooltip; Dart replaces it with a concise electricity hint
   // (e.g. "dorm power 49 kWh") once the prefs are loaded.

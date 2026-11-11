@@ -88,25 +88,40 @@ WindowClassRegistrar* WindowClassRegistrar::instance_ = nullptr;
 
 const wchar_t* WindowClassRegistrar::GetWindowClass() {
   if (!class_registered_) {
-    WNDCLASS window_class{};
+    // Use WNDCLASSEX (not WNDCLASS) so the class can carry both the big and the
+    // small icon; WNDCLASS has no hIconSm member.
+    WNDCLASSEX window_class{};
+    window_class.cbSize = sizeof(WNDCLASSEX);
     window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
     window_class.lpszClassName = kWindowClassName;
     window_class.style = CS_HREDRAW | CS_VREDRAW;
     window_class.cbClsExtra = 0;
     window_class.cbWndExtra = 0;
     window_class.hInstance = GetModuleHandle(nullptr);
-    // Load the app icon at the DPI-correct size. LoadImage is used instead of
-    // LoadIcon because it honours the requested metrics and the icon's embedded
-    // frames; set both the big and small class icons so the title bar and
-    // taskbar show the app's own icon.
+    // Load the app icon at fixed, well-known sizes. LoadImage is used instead
+    // of LoadIcon because it honours the requested metrics and the icon's
+    // embedded frames. The class carries both a big (32x32) and a small (16x16)
+    // icon so the title bar, taskbar and Alt-Tab all show the app's own logo.
+    // Always fall back to LoadIcon so the class never registers with a null
+    // icon (a null class icon is one path to the generic blank-document glyph).
     window_class.hIcon = static_cast<HICON>(LoadImage(
-        window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
-        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
+        window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 32,
+        32, LR_DEFAULTCOLOR | LR_SHARED));
+    if (window_class.hIcon == nullptr) {
+      window_class.hIcon = LoadIcon(window_class.hInstance,
+                                    MAKEINTRESOURCE(IDI_APP_ICON));
+    }
+    window_class.hIconSm = static_cast<HICON>(LoadImage(
+        window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16,
+        16, LR_DEFAULTCOLOR | LR_SHARED));
+    if (window_class.hIconSm == nullptr) {
+      window_class.hIconSm = LoadIcon(window_class.hInstance,
+                                      MAKEINTRESOURCE(IDI_APP_ICON));
+    }
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
-    RegisterClass(&window_class);
+    RegisterClassEx(&window_class);
     class_registered_ = true;
   }
   return kWindowClassName;
@@ -154,15 +169,22 @@ bool Win32Window::Create(const std::wstring& title,
 
   // Explicitly assign the big/small window icons so the title bar and taskbar
   // always show the app's own icon (the class default alone is not always
-  // picked up, e.g. after an explorer restart).
+  // picked up, e.g. after an explorer restart). ICON_BIG is a 32x32 icon and
+  // ICON_SMALL/ICON_SMALL2 a 16x16 icon; a null handle is never sent because an
+  // empty WM_SETICON makes the taskbar fall back to the generic blank glyph.
   HICON big_icon = static_cast<HICON>(LoadImage(
-      GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
-      GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
-      LR_DEFAULTCOLOR | LR_SHARED));
+      GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 32,
+      32, LR_DEFAULTCOLOR | LR_SHARED));
+  if (big_icon == nullptr) {
+    big_icon = LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON));
+  }
   HICON small_icon = static_cast<HICON>(LoadImage(
-      GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
-      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
-      LR_DEFAULTCOLOR | LR_SHARED));
+      GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16,
+      16, LR_DEFAULTCOLOR | LR_SHARED));
+  if (small_icon == nullptr) {
+    small_icon = LoadIcon(GetModuleHandle(nullptr),
+                          MAKEINTRESOURCE(IDI_APP_ICON));
+  }
   if (big_icon != nullptr) {
     SendMessage(window, WM_SETICON, ICON_BIG,
                 reinterpret_cast<LPARAM>(big_icon));

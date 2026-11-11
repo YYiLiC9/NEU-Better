@@ -397,7 +397,11 @@ class _CourseCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: tint,
               borderRadius: BorderRadius.circular(8),
-              border: Border(left: BorderSide(color: inkColor, width: 3)),
+              // 手机端（dense）去掉左侧 3px 深色竖条，改用与底色同系的极淡
+              // 1px 描边；桌面端保持原有的深色左边条。
+              border: dense
+                  ? Border.all(color: inkColor.withValues(alpha: 0.18))
+                  : Border(left: BorderSide(color: inkColor, width: 3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -408,7 +412,7 @@ class _CourseCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: inkColor,
-                    fontSize: dense ? 9.2 : (compact ? 10.5 : 11),
+                    fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
                     height: 1.25,
                     fontWeight: FontWeight.w600,
                   ),
@@ -421,7 +425,7 @@ class _CourseCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: inkColor.withValues(alpha: 0.75),
-                      fontSize: dense ? 7.5 : 8,
+                      fontSize: dense ? 9 : 8,
                       height: 1.3,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),

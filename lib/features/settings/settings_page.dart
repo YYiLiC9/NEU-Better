@@ -149,3 +149,81 @@ class _SettingsDialog extends ConsumerWidget {
     );
   }
 }
+
+/// 手机端内嵌设置页：作为底部导航「设置」的第三项常驻主界面。
+///
+/// 与桌面弹窗 [_SettingsDialog] 的差异：
+/// - 不含「窗口」相关设置（托盘图标/最小化到托盘是 Windows 桌面能力）；
+/// - 保留「外观」，并在底部提供「退出登录」按钮（退出入口从顶部移到这里）。
+class MobileSettingsPage extends ConsumerWidget {
+  const MobileSettingsPage({super.key, required this.onLogout});
+
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final controller = ref.read(appSettingsProvider.notifier);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: AppColors.campusBlue.withValues(
+                  alpha: AppColors.isDark ? 0.22 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.palette_outlined,
+                size: 17,
+                color: AppColors.campusBlue,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '设置',
+              style: TextStyle(
+                color: AppColors.ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        const _SectionLabel(icon: Icons.palette_outlined, label: '外观'),
+        const SizedBox(height: 10),
+        _ThemeModeSelector(
+          value: settings.themePreference,
+          onChanged: controller.setThemePreference,
+        ),
+        const SizedBox(height: 24),
+        const _Footnote(),
+        const SizedBox(height: 28),
+        SizedBox(
+          width: double.infinity,
+          height: 46,
+          child: OutlinedButton.icon(
+            onPressed: onLogout,
+            icon: const Icon(Icons.logout_rounded, size: 18),
+            label: const Text('退出登录'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.danger,
+              side: BorderSide(color: AppColors.danger.withValues(alpha: 0.4)),
+              textStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}

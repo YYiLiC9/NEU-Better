@@ -39,11 +39,27 @@ extension _DormPowerCards on _DormPowerPageState {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          TextField(
+            controller: _fullCodeController,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 8,
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+            decoration: _fieldDecoration('完整房间码（7/8 位，自动识别楼栋与寝室）')
+                .copyWith(counterText: ''),
+            onChanged: _onFullCodeChanged,
+          ),
+          const SizedBox(height: 14),
           Text('选择楼栋', style: _cardTitleStyle()),
           const SizedBox(height: 10),
           _campusSegmented(),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
+            key: ValueKey('building-$_campus-${_buildingCode ?? ''}'),
             initialValue: _buildingCode,
             isDense: true,
             decoration: _fieldDecoration('楼栋（缴费编号）'),
@@ -61,7 +77,10 @@ extension _DormPowerCards on _DormPowerPageState {
                   ),
                 ),
             ],
-            onChanged: (value) => _rebuild(() => _buildingCode = value),
+            onChanged: (value) => _rebuild(() {
+              _buildingCode = value;
+              _syncFullCodeFromParts();
+            }),
           ),
           const SizedBox(height: 10),
           TextField(
@@ -76,7 +95,7 @@ extension _DormPowerCards on _DormPowerPageState {
             ),
             decoration: _fieldDecoration('寝室号（4 位，不足自动补 0）')
                 .copyWith(counterText: ''),
-            onChanged: (_) => _rebuild(() {}),
+            onChanged: (_) => _rebuild(_syncFullCodeFromParts),
           ),
           if (preview != null) ...[
             const SizedBox(height: 8),
@@ -122,7 +141,11 @@ extension _DormPowerCards on _DormPowerPageState {
                 ),
                 onPressed: _loading
                     ? null
-                    : () => _saveAndQuery(roomCode: preview ?? ''),
+                    : () => _saveAndQuery(
+                        roomCode: _fullCodeController.text.trim().isNotEmpty
+                            ? _fullCodeController.text.trim()
+                            : (preview ?? ''),
+                      ),
                 child: _loading
                     ? const SizedBox(
                         width: 14,
@@ -133,48 +156,6 @@ extension _DormPowerCards on _DormPowerPageState {
                         ),
                       )
                     : const Text('保存并查询'),
-              ),
-            ],
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Expanded(child: Divider(height: 1)),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('或', style: TextStyle(fontSize: 10)),
-                ),
-                Expanded(child: Divider(height: 1)),
-              ],
-            ),
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _codeController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.ink,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                  decoration: _fieldDecoration('直接输入完整房间码（7/8 位数字）'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.ink,
-                  minimumSize: const Size(0, 40),
-                  side: BorderSide(color: AppColors.line),
-                ),
-                onPressed: _loading
-                    ? null
-                    : () => _saveAndQuery(roomCode: _codeController.text),
-                child: const Text('使用该码'),
               ),
             ],
           ),
@@ -207,6 +188,7 @@ extension _DormPowerCards on _DormPowerPageState {
                 onTap: () => _rebuild(() {
                   _campus = campus;
                   _buildingCode = null;
+                  _fullCodeController.clear();
                 }),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
@@ -382,7 +364,7 @@ extension _DormPowerCards on _DormPowerPageState {
                 Text('提醒线', style: _cardTitleStyle()),
                 const SizedBox(height: 4),
                 Text(
-                  '剩余电量不超过提醒线时，打开软件会弹窗与系统通知提醒',
+                  '剩余电量低于提醒线时，打开软件会弹窗与系统通知提醒',
                   style: TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
               ],

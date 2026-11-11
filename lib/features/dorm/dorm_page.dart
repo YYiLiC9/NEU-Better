@@ -33,7 +33,7 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
   String _campus = '浑南校区';
   String? _buildingCode;
   final _roomController = TextEditingController();
-  final _codeController = TextEditingController();
+  final _fullCodeController = TextEditingController();
   final _thresholdController = TextEditingController();
 
   @override
@@ -49,7 +49,7 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
   void dispose() {
     dormPrefsChanged.removeListener(_loadPrefs);
     _roomController.dispose();
-    _codeController.dispose();
+    _fullCodeController.dispose();
     _thresholdController.dispose();
     super.dispose();
   }
@@ -62,12 +62,73 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
       _thresholdController.text = prefs.alertThreshold == 0
           ? '20'
           : prefs.alertThreshold.truncate().toString();
+      if (prefs.roomCode != null &&
+          prefs.roomCode!.trim().isNotEmpty &&
+          _fullCodeController.text.isEmpty) {
+        _applyRoomCodeToFields(prefs.roomCode!);
+      }
     });
   }
 
   double get _threshold {
     final value = double.tryParse(_thresholdController.text.trim());
     return value == null || value <= 0 ? 20 : value;
+  }
+
+  // 完整房间码 ↔ 校区/楼栋/寝室号 双向联动。
+
+  /// 把 7/8 位完整房间码解析成 (校区, 楼栋编号, 寝室号)。寝室号去掉前导 0。
+  (String, String, String)? _resolveRoomCode(String code) {
+    final digits = code.replaceAll(RegExp(r'\D'), '');
+    for (final entry in dormCampusNames.entries) {
+      for (final building in entry.value) {
+        if (digits.length == building.code.length + 4 &&
+            digits.startsWith(building.code)) {
+          var room = digits.substring(building.code.length);
+          room = room.replaceFirst(RegExp(r'^0+'), '');
+          if (room.isEmpty) room = '0';
+          return (entry.key, building.code, room);
+        }
+      }
+    }
+    return null;
+  }
+
+  /// 顶部完整房间码变化 → 反填校区/楼栋/寝室号。
+  void _onFullCodeChanged(String raw) {
+    final resolved = _resolveRoomCode(raw);
+    if (resolved == null) return;
+    if (_campus == resolved.$1 &&
+        _buildingCode == resolved.$2 &&
+        _roomController.text == resolved.$3) {
+      return;
+    }
+    setState(() {
+      _campus = resolved.$1;
+      _buildingCode = resolved.$2;
+      _roomController.text = resolved.$3;
+    });
+  }
+
+  /// 校区/楼栋/寝室号变化 → 正向填回完整房间码。
+  void _syncFullCodeFromParts() {
+    final code = _buildingCode;
+    final room = _roomController.text.trim();
+    if (code == null || room.isEmpty) return;
+    final full = buildRoomCode(code, room);
+    if (_fullCodeController.text != full) {
+      _fullCodeController.text = full;
+    }
+  }
+
+  /// 用完整房间码初始化表单（保存后 / 恢复历史房间时）。
+  void _applyRoomCodeToFields(String code) {
+    _fullCodeController.text = code;
+    final resolved = _resolveRoomCode(code);
+    if (resolved == null) return;
+    _campus = resolved.$1;
+    _buildingCode = resolved.$2;
+    _roomController.text = resolved.$3;
   }
 
   bool get _isLow =>

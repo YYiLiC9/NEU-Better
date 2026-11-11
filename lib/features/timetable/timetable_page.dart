@@ -187,7 +187,7 @@ class _TimetablePageState extends State<TimetablePage> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (widget.mobile) return _buildMobile(context, constraints);
+        if (widget.mobile) return _buildMobile(context);
         final viewportHeight =
             constraints.maxHeight.isFinite && constraints.maxHeight > 0
             ? constraints.maxHeight
@@ -248,29 +248,19 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
-  /// 手机端满屏布局：标题与摘要固定，周视图独占剩余高度并精确换算节高，
-  /// 让 7 天 × 12 节一次性完整显示，不需要任何滚动。
-  Widget _buildMobile(BuildContext context, BoxConstraints constraints) {
-    final headerAndSummary = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: _buildHeader(context),
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _buildSummary(),
-        ),
-        const SizedBox(height: 10),
-      ],
+  /// 手机端满屏布局：头部固定（仅学期+同步、周切换/今天/视图切换一行），
+  /// 周视图独占剩余高度并精确换算节高，让 7 天 × 12 节一次性完整显示。
+  Widget _buildMobile(BuildContext context) {
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: _buildHeader(context),
     );
     if (!_weekView) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          headerAndSummary,
+          header,
+          const SizedBox(height: 10),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
@@ -283,7 +273,8 @@ class _TimetablePageState extends State<TimetablePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        headerAndSummary,
+        header,
+        const SizedBox(height: 8),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
@@ -391,13 +382,15 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    if (widget.compact) return _buildCompactHeader(context);
+
     final title = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           '我的课表',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontSize: widget.compact ? 21 : 24,
+            fontSize: 24,
             height: 1.2,
             letterSpacing: -0.3,
           ),
@@ -442,45 +435,109 @@ class _TimetablePageState extends State<TimetablePage> {
           weekView: _weekView,
           onChanged: (value) => setState(() => _weekView = value),
         ),
-        if (!widget.compact)
-          FilledButton.icon(
-            onPressed: _syncTimetable,
-            icon: Icon(Icons.sync_rounded, size: 15),
-            label: Text('同步课表'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              minimumSize: const Size(0, 36),
-              textStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
-            ),
+        FilledButton.icon(
+          onPressed: _syncTimetable,
+          icon: Icon(Icons.sync_rounded, size: 15),
+          label: Text('同步课表'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            minimumSize: const Size(0, 36),
+            textStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
           ),
+        ),
       ],
     );
-
-    if (widget.compact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: title),
-              IconButton(
-                tooltip: '同步课表',
-                onPressed: _syncTimetable,
-                icon: Icon(Icons.sync_rounded, size: 19),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          controls,
-        ],
-      );
-    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(child: title),
         controls,
+      ],
+    );
+  }
+
+  /// 手机端头部：第一行「学期 + 文字「同步」按钮」（不显示「我的课表」），
+  /// 第二行把周切换 / 今天 / 周-日视图切换压到同一行。
+  Widget _buildCompactHeader(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _data.termName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 11,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _syncTimetable,
+              icon: const Icon(Icons.sync_rounded, size: 14),
+              label: const Text('同步'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.campusBlue,
+                side: BorderSide(color: AppColors.line),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                minimumSize: const Size(0, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _WeekStepper(
+              week: _week,
+              totalWeeks: _data.totalWeeks,
+              onChanged: _changeWeek,
+              dense: true,
+            ),
+            const SizedBox(width: 6),
+            OutlinedButton(
+              onPressed: _goToday,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.ink,
+                side: BorderSide(color: AppColors.line),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                minimumSize: const Size(0, 34),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              child: const Text('今天'),
+            ),
+            const Spacer(),
+            _ViewToggle(
+              weekView: _weekView,
+              onChanged: (value) => setState(() => _weekView = value),
+              dense: true,
+            ),
+          ],
+        ),
       ],
     );
   }

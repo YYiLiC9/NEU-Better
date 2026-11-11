@@ -30,7 +30,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   final _elecService = DormElectricityService();
 
-  /// 0 = 课表, 1 = 寝室用电。
+  /// 0 = 课表, 1 = 寝室用电, 2 = 设置。
   int _tab = 0;
   DormPrefs? _statusPrefs;
 
@@ -129,47 +129,20 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 手机端布局：顶部只留品牌与设置/退出，主导航放到底部导航栏。
+  /// 手机端布局：不再有顶部品牌行与设置/退出图标，三块内容全部交给
+  /// 底部导航（课表 / 寝室用电 / 设置）。设置以内嵌页呈现。
   Widget _buildMobile(BuildContext context) {
-    return Column(
+    return IndexedStack(
+      index: _tab,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 10, 8, 6),
-          child: Row(
-            children: [
-              const _Brand(),
-              const Spacer(),
-              IconButton(
-                tooltip: '设置',
-                onPressed: _openSettings,
-                icon: Icon(
-                  Icons.settings_outlined,
-                  size: 21,
-                  color: AppColors.campusBlue,
-                ),
-              ),
-              IconButton(
-                tooltip: '退出登录',
-                onPressed: _logout,
-                icon: const Icon(Icons.logout_rounded, size: 20),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: IndexedStack(
-            index: _tab,
-            children: [
-              TimetablePage(compact: true, mobile: true),
-              DormPowerPage(),
-            ],
-          ),
-        ),
+        TimetablePage(compact: true, mobile: true),
+        DormPowerPage(),
+        MobileSettingsPage(onLogout: _logout),
       ],
     );
   }
 
-  /// 底部导航栏：课表 / 寝室用电，配色沿用静蓝令牌。
+  /// 底部导航栏：课表 / 寝室用电 / 设置，配色沿用静蓝令牌。
   Widget _buildMobileNav(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
@@ -211,6 +184,11 @@ class _HomePageState extends ConsumerState<HomePage> {
               icon: Icon(Icons.electric_bolt_outlined),
               selectedIcon: Icon(Icons.electric_bolt),
               label: '寝室用电',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: '设置',
             ),
           ],
         ),

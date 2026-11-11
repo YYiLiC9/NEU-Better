@@ -126,12 +126,16 @@ class _BrandPanel extends StatelessWidget {
 }
 
 class _MobileHero extends StatelessWidget {
-  const _MobileHero();
+  const _MobileHero({this.compact = false});
+
+  /// 紧凑版：高度由父级 SizedBox 限定（约 150），内部字号/内边距同步收紧，
+  /// 让登录卡片能在一屏内完整显示。
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 300,
+      height: double.infinity,
       width: double.infinity,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -141,50 +145,57 @@ class _MobileHero extends StatelessWidget {
         ),
       ),
       child: Stack(
+        clipBehavior: Clip.hardEdge,
         children: [
           Positioned(
             right: -120,
-            top: 36,
-            child: _Ring(size: 300, opacity: 0.16),
+            top: compact ? 4 : 36,
+            child: _Ring(size: compact ? 210 : 300, opacity: 0.16),
           ),
           Positioned(
             right: -60,
-            top: 92,
-            child: _Ring(size: 200, opacity: 0.1),
+            top: compact ? 44 : 92,
+            child: _Ring(size: compact ? 140 : 200, opacity: 0.1),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 54, 24, 0),
+            padding: EdgeInsets.fromLTRB(
+              compact ? 20 : 24,
+              compact ? 16 : 54,
+              compact ? 20 : 24,
+              0,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const _LargeMark(size: 42),
-                const SizedBox(height: 22),
-                const Text(
+                _LargeMark(size: compact ? 30 : 42),
+                SizedBox(height: compact ? 10 : 22),
+                Text(
                   'NORTHEASTERN UNIVERSITY',
                   style: TextStyle(
-                    color: Color(0x99FFFFFF),
-                    fontSize: 8,
+                    color: const Color(0x99FFFFFF),
+                    fontSize: compact ? 7 : 8,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 1.8,
+                    letterSpacing: compact ? 1.4 : 1.8,
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
+                SizedBox(height: compact ? 5 : 8),
+                Text(
                   '你的校园，清楚一点。',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
-                    height: 1.35,
+                    fontSize: compact ? 19 : 28,
+                    height: 1.3,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.4,
                   ),
                 ),
-                const SizedBox(height: 7),
+                SizedBox(height: compact ? 3 : 7),
                 Text(
                   '课表、通知与校园服务，慢慢装进一个地方。',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.68),
-                    fontSize: 10,
+                    fontSize: compact ? 9 : 10,
                   ),
                 ),
               ],

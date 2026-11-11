@@ -6,32 +6,114 @@ import 'package:local_notifier/local_notifier.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/electricity/electricity_models.dart';
 
+/// 通知渠道的抽象接口。
+///
+/// 用电提醒的“系统通知”部分被抽成可插拔渠道：调用方（[DormAlertPresenter]）
+/// 只依赖该接口，具体用 Windows toast、桌面右下角应用内弹窗，还是别的实现，
+/// 都由渠道自身决定。后续接入新的提醒方式时，只需新增一个实现，不必改动
+/// [DormAlertPresenter] 的公开签名。
+abstract class ElectricityAlertChannel {
+  const ElectricityAlertChannel();
+
+  /// 发出一次用电提醒通知。
+  ///
+  /// 返回值只表示“通知已尽力发出”，渠道内部应自行吞掉可恢复的错误，
+  /// 不应向外抛出，以免影响随后必然出现的应用内弹窗兜底。
+  Future<void> show({
+    required ElectricityReading reading,
+    required DormPrefs prefs,
+    VoidCallback? onView,
+  });
+}
+
+/// Windows 系统 toast 通知渠道（基于 local_notifier / WinToast）。
+class WindowsToastChannel implements ElectricityAlertChannel {
+  const WindowsToastChannel();
+
+  @override
+  Future<void> show({
+    required ElectricityReading reading,
+    required DormPrefs prefs,
+    VoidCallback? onView,
+  }) async {
+    try {
+      final notification = LocalNotification(
+        title: '寝室电量不足',
+        body:
+            '${reading.roomInfo} · 剩余 ${reading.rawRemain}，低于提醒线'
+            '（${prefs.alertThreshold.truncate()} 度）',
+      );
+      await notification.show().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    } catch (error) {
+      debugPrint('[elec] toast channel failed: $error');
+    }
+  }
+}
+
+/// 预留：桌面右下角应用内弹窗渠道（当前为占位实现，no-op + 记日志）。
+///
+/// 设计意图：在不依赖系统通知中心、或以应用内浮层为主的场景下，由 Flutter
+/// 侧在窗口右下角绘制一个轻量提醒卡片。当前仅保留接口与参数，不实际绘制。
+class DesktopCornerPopupChannel implements ElectricityAlertChannel {
+  const DesktopCornerPopupChannel();
+
+  /// 预留：弹窗在屏幕上的停留时长。
+  static const Duration dwell = Duration(seconds: 6);
+
+  /// 预留：弹窗距屏幕右下角的边距。
+  static const EdgeInsets margin = EdgeInsets.all(24);
+
+  /// 预留：入场/退场动画时长。
+  static const Duration animation = Duration(milliseconds: 200);
+
+  @override
+  Future<void> show({
+    required ElectricityReading reading,
+    required DormPrefs prefs,
+    VoidCallback? onView,
+  }) async {
+    // 占位：暂不绘制弹窗，仅记录，便于后续接入。
+    debugPrint(
+      '[elec] desktop-corner popup channel reserved (no-op): '
+      '${reading.roomInfo}',
+    );
+  }
+}
+
 /// 寝室电量提醒的唯一出口：系统通知 + 应用内弹窗。
 ///
 /// 每日检查和“测试通知”按钮都走这里，保证两条路径完全一致。
 abstract final class DormAlertPresenter {
+  /// 可选的通知渠道覆盖。为空时按平台自动选择：
+  /// Windows 用 [WindowsToastChannel]，其余平台用占位的
+  /// [DesktopCornerPopupChannel]。预留给未来“设置里切换通知方式”等配置。
+  static ElectricityAlertChannel? channelOverride;
+
+  /// 依据平台 / 配置选择通知渠道。
+  static ElectricityAlertChannel selectChannel() {
+    final override = channelOverride;
+    if (override != null) {
+      return override;
+    }
+    if (Platform.isWindows) {
+      return const WindowsToastChannel();
+    }
+    return const DesktopCornerPopupChannel();
+  }
+
   static Future<void> present(
     BuildContext context, {
     required ElectricityReading reading,
     required DormPrefs prefs,
     VoidCallback? onView,
   }) async {
-    if (Platform.isWindows) {
-      try {
-        final notification = LocalNotification(
-          title: '寝室电量不足',
-          body:
-              '${reading.roomInfo} · 剩余 ${reading.rawRemain}，低于提醒线'
-              '（${prefs.alertThreshold.truncate()} 度）',
-        );
-        await notification.show().timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {},
-        );
-      } catch (error) {
-        debugPrint('[elec] notification failed: $error');
-      }
-    }
+    // 先尝试系统通知渠道（可插拔）；渠道内部自行兜底，不抛出。
+    await selectChannel().show(reading: reading, prefs: prefs, onView: onView);
+
+    // 应用内弹窗始终作为兜底保留。
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,

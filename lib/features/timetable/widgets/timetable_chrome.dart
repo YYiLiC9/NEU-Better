@@ -5,17 +5,19 @@ class _WeekStepper extends StatelessWidget {
     required this.week,
     required this.totalWeeks,
     required this.onChanged,
+    this.dense = false,
   });
 
   final int week;
   final int totalWeeks;
   final ValueChanged<int> onChanged;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      height: dense ? 34 : 36,
+      padding: EdgeInsets.symmetric(horizontal: dense ? 2 : 4),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border.all(color: AppColors.line),
@@ -27,18 +29,21 @@ class _WeekStepper extends StatelessWidget {
           IconButton(
             tooltip: '上一周',
             onPressed: week <= 1 ? null : () => onChanged(week - 1),
-            icon: Icon(Icons.chevron_left_rounded, size: 18),
+            icon: Icon(Icons.chevron_left_rounded, size: dense ? 16 : 18),
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            constraints: BoxConstraints.tightFor(
+              width: dense ? 24 : 28,
+              height: dense ? 26 : 28,
+            ),
           ),
           SizedBox(
-            width: 58,
+            width: dense ? 44 : 58,
             child: Text(
               '第 $week 周',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.ink,
-                fontSize: 11,
+                fontSize: dense ? 10.5 : 11,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -46,9 +51,12 @@ class _WeekStepper extends StatelessWidget {
           IconButton(
             tooltip: '下一周',
             onPressed: week >= totalWeeks ? null : () => onChanged(week + 1),
-            icon: Icon(Icons.chevron_right_rounded, size: 18),
+            icon: Icon(Icons.chevron_right_rounded, size: dense ? 16 : 18),
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            constraints: BoxConstraints.tightFor(
+              width: dense ? 24 : 28,
+              height: dense ? 26 : 28,
+            ),
           ),
         ],
       ),
@@ -57,16 +65,21 @@ class _WeekStepper extends StatelessWidget {
 }
 
 class _ViewToggle extends StatelessWidget {
-  const _ViewToggle({required this.weekView, required this.onChanged});
+  const _ViewToggle({
+    required this.weekView,
+    required this.onChanged,
+    this.dense = false,
+  });
 
   final bool weekView;
   final ValueChanged<bool> onChanged;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 36,
-      padding: const EdgeInsets.all(3),
+      height: dense ? 34 : 36,
+      padding: EdgeInsets.all(dense ? 2 : 3),
       decoration: BoxDecoration(
         color: AppColors.canvas,
         borderRadius: BorderRadius.circular(8),
@@ -79,11 +92,13 @@ class _ViewToggle extends StatelessWidget {
             label: '周视图',
             active: weekView,
             onTap: () => onChanged(true),
+            dense: dense,
           ),
           _ToggleItem(
             label: '日视图',
             active: !weekView,
             onTap: () => onChanged(false),
+            dense: dense,
           ),
         ],
       ),
@@ -96,11 +111,13 @@ class _ToggleItem extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
+    this.dense = false,
   });
 
   final String label;
   final bool active;
   final VoidCallback onTap;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +125,10 @@ class _ToggleItem extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: EdgeInsets.symmetric(
+          horizontal: dense ? 7 : 10,
+          vertical: dense ? 5 : 6,
+        ),
         decoration: BoxDecoration(
           color: active ? AppColors.surface : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
@@ -120,7 +140,7 @@ class _ToggleItem extends StatelessWidget {
           label,
           style: TextStyle(
             color: active ? AppColors.campusBlue : AppColors.muted,
-            fontSize: 10,
+            fontSize: dense ? 9.5 : 10,
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),

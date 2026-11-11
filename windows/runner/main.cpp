@@ -2,8 +2,101 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <propkey.h>
+#include <propvarutil.h>
+#include <shlguid.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+
+#include <string>
+
 #include "flutter_window.h"
 #include "utils.h"
+
+namespace {
+
+// App User Model ID shared with the local_notifier setup (appName) so that the
+// toast path and the taskbar grouping resolve to the same registration.
+constexpr const wchar_t kAppUserModelId[] = L"neu_better_pro";
+
+// Returns the full path of the running executable.
+std::wstring CurrentExecutablePath() {
+  wchar_t buffer[MAX_PATH] = {0};
+  const DWORD written = ::GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+  return std::wstring(buffer, written);
+}
+
+// Ensures a Start Menu shortcut exists whose target is this executable, whose
+// icon is this executable's embedded app icon, and whose AppUserModelID matches
+// kAppUserModelId. Windows resolves a taskbar button's icon from the AUMID
+// registration; a stale or missing shortcut (for example one left pointing at
+// another exe with no icon) makes the taskbar fall back to a generic blank
+// document icon even though the window's own WM_SETICON is correct. This must
+// run before any window is shown.
+void EnsureStartMenuShortcut() {
+  const std::wstring exe_path = CurrentExecutablePath();
+  if (exe_path.empty()) {
+    return;
+  }
+
+  wchar_t appdata[MAX_PATH] = {0};
+  const DWORD appdata_len =
+      ::GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+  if (appdata_len == 0 || appdata_len >= MAX_PATH) {
+    return;
+  }
+
+  const std::wstring link_path = std::wstring(appdata) +
+      L"\\Microsoft\\Windows\\Start Menu\\Programs\\neu_better_pro.lnk";
+
+  std::wstring working_dir = exe_path;
+  const size_t slash = working_dir.find_last_of(L"\\/");
+  if (slash != std::wstring::npos) {
+    working_dir.erase(slash);
+  }
+
+  IShellLinkW* shell_link = nullptr;
+  HRESULT hr = ::CoCreateInstance(
+      CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+      reinterpret_cast<void**>(&shell_link));
+  if (FAILED(hr) || shell_link == nullptr) {
+    return;
+  }
+
+  shell_link->SetPath(exe_path.c_str());
+  shell_link->SetArguments(L"");
+  shell_link->SetWorkingDirectory(working_dir.c_str());
+  // Use the exe's own embedded app icon (frame 0) so the taskbar shows the
+  // project logo rather than a blank document glyph.
+  shell_link->SetIconLocation(exe_path.c_str(), 0);
+  shell_link->SetDescription(L"NEU Better");
+
+  IPropertyStore* property_store = nullptr;
+  hr = shell_link->QueryInterface(IID_IPropertyStore,
+                                  reinterpret_cast<void**>(&property_store));
+  if (SUCCEEDED(hr) && property_store != nullptr) {
+    PROPVARIANT prop;
+    ::PropVariantInit(&prop);
+    if (SUCCEEDED(::InitPropVariantFromString(kAppUserModelId, &prop))) {
+      property_store->SetValue(PKEY_AppUserModel_ID, prop);
+      property_store->Commit();
+    }
+    ::PropVariantClear(&prop);
+    property_store->Release();
+  }
+
+  IPersistFile* persist_file = nullptr;
+  hr = shell_link->QueryInterface(IID_IPersistFile,
+                                  reinterpret_cast<void**>(&persist_file));
+  if (SUCCEEDED(hr) && persist_file != nullptr) {
+    persist_file->Save(link_path.c_str(), TRUE);
+    persist_file->Release();
+  }
+
+  shell_link->Release();
+}
+
+}  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -16,6 +109,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  // Register a stable AppUserModelID and a matching Start Menu shortcut before
+  // any window exists. This is what lets the taskbar button show the app's own
+  // icon (instead of a generic blank document) and is also required for Windows
+  // toast notifications to be delivered.
+  ::SetCurrentProcessExplicitAppUserModelID(kAppUserModelId);
+  EnsureStartMenuShortcut();
 
   flutter::DartProject project(L"data");
 
