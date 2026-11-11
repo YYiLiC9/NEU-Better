@@ -6,7 +6,8 @@ import 'package:flutter/services.dart';
 /// 封装 NEU Better 在 Windows 桌面端需要的原生窗口能力。
 ///
 /// 目前提供三项能力：
-/// * [setTaskbarTitle]：设置窗口标题，任务栏/托盘悬浮时显示（例如寝室用电）。
+/// * [setTaskbarTitle]：设置窗口标题（仅任务栏标题，不携带用电信息）。
+/// * [setTrayTooltip]：设置托盘图标的悬浮提示（可带简短用电信息）。
 /// * [setCloseBehavior]：设置点击关闭按钮时的行为（隐藏到托盘或退出）。
 /// * [setTrayIconVisible]：显示或隐藏系统托盘图标。
 ///
@@ -15,7 +16,7 @@ import 'package:flutter/services.dart';
 abstract final class WindowsWindow {
   static const MethodChannel _channel = MethodChannel('neu_better/window');
 
-  /// 设置窗口标题（也用于任务栏悬浮提示）。
+  /// 设置窗口标题（仅影响窗口标题，不再联动托盘提示）。
   static Future<void> setTaskbarTitle(String title) async {
     if (!Platform.isWindows) {
       return;
@@ -24,6 +25,21 @@ abstract final class WindowsWindow {
       await _channel.invokeMethod<void>('setTitle', title);
     } catch (error) {
       debugPrint('WindowsWindow.setTaskbarTitle failed: $error');
+    }
+  }
+
+  /// 设置托盘图标的悬浮提示（建议简短，如「寝室用电 49 度」）。
+  ///
+  /// 与窗口标题解耦：任务栏标题悬浮不再携带用电信息，用电提示只出现在
+  /// 托盘图标上。
+  static Future<void> setTrayTooltip(String tooltip) async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _channel.invokeMethod<void>('setTrayTooltip', tooltip);
+    } catch (error) {
+      debugPrint('WindowsWindow.setTrayTooltip failed: $error');
     }
   }
 

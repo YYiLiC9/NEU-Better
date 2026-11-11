@@ -95,8 +95,14 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     window_class.cbClsExtra = 0;
     window_class.cbWndExtra = 0;
     window_class.hInstance = GetModuleHandle(nullptr);
-    window_class.hIcon =
-        LoadIcon(window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
+    // Load the app icon at the DPI-correct size. LoadImage is used instead of
+    // LoadIcon because it honours the requested metrics and the icon's embedded
+    // frames; set both the big and small class icons so the title bar and
+    // taskbar show the app's own icon.
+    window_class.hIcon = static_cast<HICON>(LoadImage(
+        window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
@@ -145,6 +151,29 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+
+  // Explicitly assign the big/small window icons so the title bar and taskbar
+  // always show the app's own icon (the class default alone is not always
+  // picked up, e.g. after an explorer restart).
+  HICON big_icon = static_cast<HICON>(LoadImage(
+      GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+      GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+      LR_DEFAULTCOLOR | LR_SHARED));
+  HICON small_icon = static_cast<HICON>(LoadImage(
+      GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+      LR_DEFAULTCOLOR | LR_SHARED));
+  if (big_icon != nullptr) {
+    SendMessage(window, WM_SETICON, ICON_BIG,
+                reinterpret_cast<LPARAM>(big_icon));
+  }
+  if (small_icon != nullptr) {
+    SendMessage(window, WM_SETICON, ICON_SMALL,
+                reinterpret_cast<LPARAM>(small_icon));
+    // ICON_SMALL2 is what the taskbar/Alt-Tab use on high-DPI displays.
+    SendMessage(window, WM_SETICON, ICON_SMALL2,
+                reinterpret_cast<LPARAM>(small_icon));
+  }
 
   return OnCreate();
 }

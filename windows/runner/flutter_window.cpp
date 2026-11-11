@@ -15,6 +15,15 @@ namespace {
 constexpr UINT kTrayCallbackMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
 
+// Tray right-click menu command identifiers.
+constexpr UINT kTrayShowCommand = 1001;
+constexpr UINT kTrayExitCommand = 1002;
+
+// Menu labels. Written as \u escapes (show / exit) so they render correctly
+// regardless of the source file's encoding under MSVC.
+constexpr const wchar_t kTrayShowLabel[] = L"\u663e\u793a";
+constexpr const wchar_t kTrayExitLabel[] = L"\u9000\u51fa";
+
 // Loads the app icon as an HICON of the requested size. LoadImageW can fail
 // (return null) when the ICO lacks a matching frame, so fall back to the
 // default full-size icon before giving up.
@@ -89,7 +98,18 @@ bool FlutterWindow::OnCreate() {
           }
           const std::wstring wide_title = Utf8ToWide(*title);
           SetWindowTextW(GetHandle(), wide_title.c_str());
-          UpdateTrayTooltip(wide_title);
+          result->Success();
+          return;
+        }
+
+        if (call.method_name() == "setTrayTooltip") {
+          const auto* tooltip = std::get_if<std::string>(call.arguments());
+          if (tooltip == nullptr) {
+            result->Error("invalid_arguments",
+                          "setTrayTooltip expects a string");
+            return;
+          }
+          UpdateTrayTooltip(Utf8ToWide(*tooltip));
           result->Success();
           return;
         }
@@ -157,8 +177,9 @@ void FlutterWindow::AddTrayIcon() {
     tray_icon_data_.hIcon =
         LoadAppIcon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
   }
-  wcsncpy_s(tray_icon_data_.szTip, 128, L"NEU Better · 寝室用电",
-            _TRUNCATE);
+  // Short, stable tooltip; Dart replaces it with a concise electricity hint
+  // (e.g. "dorm power 49 kWh") once the prefs are loaded.
+  wcsncpy_s(tray_icon_data_.szTip, 128, L"NEU Better", _TRUNCATE);
   // Clear any phantom entry left by a force-killed instance or a failed
   // add before registering; NIM_DELETE on a missing entry is a no-op.
   Shell_NotifyIconW(NIM_DELETE, &tray_icon_data_);
@@ -178,6 +199,37 @@ void FlutterWindow::UpdateTrayTooltip(const std::wstring& tooltip) {
   if (tray_icon_added_) {
     tray_icon_data_.uFlags = NIF_TIP;
     Shell_NotifyIconW(NIM_MODIFY, &tray_icon_data_);
+  }
+}
+
+void FlutterWindow::ShowTrayMenu(HWND hwnd) {
+  HMENU menu = CreatePopupMenu();
+  if (menu == nullptr) {
+    return;
+  }
+  AppendMenuW(menu, MF_STRING, kTrayShowCommand, kTrayShowLabel);
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, kTrayExitCommand, kTrayExitLabel);
+
+  POINT cursor;
+  GetCursorPos(&cursor);
+  // SetForegroundWindow is required so the popup dismisses when the user
+  // clicks elsewhere (standard Win32 tray-menu workaround).
+  SetForegroundWindow(hwnd);
+  const UINT command = TrackPopupMenu(
+      menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, cursor.x, cursor.y,
+      0, hwnd, nullptr);
+  PostMessage(hwnd, WM_NULL, 0, 0);
+  DestroyMenu(menu);
+
+  if (command == kTrayShowCommand) {
+    ShowWindow(hwnd, SW_RESTORE);
+    SetForegroundWindow(hwnd);
+  } else if (command == kTrayExitCommand) {
+    // Quit even when the close button would normally hide to the tray: clear
+    // the minimize flag and post WM_CLOSE so the normal teardown runs.
+    minimize_on_close_ = false;
+    PostMessage(hwnd, WM_CLOSE, 0, 0);
   }
 }
 
@@ -208,11 +260,14 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     // Fall through so Flutter plugins can react to the message too.
   }
 
-  // Clicking the notification-area icon restores the main window.
+  // Clicking the notification-area icon restores the main window; right-click
+  // opens the tray menu (show / exit).
   if (message == kTrayCallbackMessage) {
     if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
       ShowWindow(hwnd, SW_RESTORE);
       SetForegroundWindow(hwnd);
+    } else if (lparam == WM_RBUTTONUP || lparam == WM_CONTEXTMENU) {
+      ShowTrayMenu(hwnd);
     }
     return 0;
   }

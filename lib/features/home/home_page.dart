@@ -73,11 +73,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (!mounted) return;
     setState(() => _statusPrefs = prefs);
     final reading = prefs.lastReading;
-    if (reading != null) {
-      unawaited(
-        WindowsWindow.setTaskbarTitle('NEU Better · 寝室用电 ${reading.rawRemain}'),
-      );
-    }
+    unawaited(
+      WindowsWindow.setTrayTooltip(
+        reading == null ? 'NEU Better' : '寝室用电 ${reading.rawRemain}',
+      ),
+    );
   }
 
   /// 每日一次：打开软件时若今天还没查过电量就查一次；

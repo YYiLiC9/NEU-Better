@@ -31,6 +31,8 @@ class FlutterWindow : public Win32Window {
   void AddTrayIcon();
   void RemoveTrayIcon();
   void UpdateTrayTooltip(const std::wstring& tooltip);
+  // Shows the tray right-click menu (show / exit).
+  void ShowTrayMenu(HWND hwnd);
 
   // The project to run.
   flutter::DartProject project_;
