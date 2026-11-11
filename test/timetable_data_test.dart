@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/features/timetable/timetable_import.dart';
 import 'package:neu_better_pro/features/timetable/timetable_models.dart';
+import 'package:neu_better_pro/features/timetable/timetable_schedule.dart';
 
 void main() {
   group('PeriodTimes', () {
@@ -179,6 +180,62 @@ void main() {
         exams: [ExamEntry(id: 'a', name: '考试', date: DateTime(2026, 9, 1))],
       );
       expect(data.examsForWeek(1), isEmpty);
+    });
+  });
+
+  group('TimetableSchedule', () {
+    final data = TimetableData(
+      termName: '2026-2027秋季学期',
+      totalWeeks: 16,
+      currentWeek: 11,
+      termStartDate: DateTime(2026, 8, 31),
+      sessions: [
+        CourseSession(
+          id: 'a',
+          name: '测试课程',
+          teacher: '老师',
+          room: 'A101',
+          className: '测试班',
+          day: 3,
+          startPeriod: 5,
+          endPeriod: 6,
+          weeks: {11},
+        ),
+      ],
+      exams: [
+        ExamEntry(
+          id: 'e1',
+          name: '本周考试',
+          date: DateTime(2026, 11, 11),
+          startTime: '13:50',
+          endTime: '15:50',
+        ),
+        ExamEntry(id: 'e2', name: '下周考试', date: DateTime(2026, 11, 18)),
+      ],
+    );
+
+    test('computes week starts and current week from the calendar', () {
+      final schedule = TimetableSchedule(data);
+      expect(schedule.weekStartFor(1), DateTime(2026, 8, 31));
+      expect(schedule.weekStartFor(11), DateTime(2026, 11, 9));
+      expect(schedule.nowWeek(DateTime(2026, 11, 11)), 11);
+      expect(schedule.isWeekToday(11, now: DateTime(2026, 11, 11)), isTrue);
+      expect(schedule.isWeekToday(10, now: DateTime(2026, 11, 11)), isFalse);
+    });
+
+    test('filters weekly exams with a fallback-free term start', () {
+      final schedule = TimetableSchedule(data);
+      expect(schedule.examsForWeek(11).map((e) => e.id), ['e1']);
+      expect(schedule.examsForWeek(12).map((e) => e.id), ['e2']);
+      expect(schedule.allExams.map((e) => e.id), ['e1', 'e2']);
+    });
+
+    test('selects the next session for the displayed week', () {
+      final schedule = TimetableSchedule(data);
+      final next = schedule.nextSession(11, now: DateTime(2026, 11, 11, 9));
+      expect(next?.$1.name, '测试课程');
+      expect(next?.$2, '');
+      expect(schedule.nextSession(11, now: DateTime(2026, 11, 12)), isNull);
     });
   });
 }

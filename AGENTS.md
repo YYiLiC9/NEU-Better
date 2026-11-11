@@ -52,8 +52,13 @@ lib/
     auth/auth_gate.dart          登录态分流（未登录→登录页）
     auth/auth_controller.dart    Riverpod 登录状态机 + 会话恢复/身份刷新
     landing/m0_landing_page.dart M0 过场页
-    home/home_page.dart          桌面侧栏 + 页面切换 + 每日电费检查入口
-    timetable/timetable_page.dart      课表页（周/日视图、当前时刻线）
+    home/home_page.dart          桌面侧栏 + 页面切换 + 每日电费检查入口（widgets/home_chrome.dart 为品牌/导航/账号块）
+    timetable/timetable_page.dart      课表页控制器与外壳（状态、加载、周切换、摘要）
+    timetable/widgets/timetable_chrome.dart     工具栏：周步进、周/日视图切换、周分页动画
+    timetable/widgets/timetable_week_grid.dart  周网格、时间轴、午/晚休带、课程卡、单日列
+    timetable/widgets/timetable_exam_widgets.dart 考试卡、考试安排列表与筛选
+    timetable/widgets/timetable_day_agenda.dart 日视图议程与日卡片
+    timetable/timetable_schedule.dart  纯领域计算：周起点/当前周/周考试/下一节课
     timetable/yjs_timetable_page.dart  研究生课表同步页
     timetable/timetable_import.dart    教务 HTML → TimetableData 解析
     timetable/timetable_store.dart     timetable.json 持久化
