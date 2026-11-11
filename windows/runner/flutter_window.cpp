@@ -15,6 +15,19 @@ namespace {
 constexpr UINT kTrayCallbackMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
 
+// Loads the app icon as an HICON of the requested size. LoadImageW can fail
+// (return null) when the ICO lacks a matching frame, so fall back to the
+// default full-size icon before giving up.
+HICON LoadAppIcon(int width, int height) {
+  HICON icon = static_cast<HICON>(LoadImageW(
+      GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON,
+      width, height, LR_DEFAULTCOLOR | LR_SHARED));
+  if (icon == nullptr) {
+    icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON));
+  }
+  return icon;
+}
+
 // Converts a UTF-8 string into a UTF-16 wide string for Win32 APIs.
 std::wstring Utf8ToWide(const std::string& utf8) {
   if (utf8.empty()) {
@@ -137,12 +150,18 @@ void FlutterWindow::AddTrayIcon() {
   tray_icon_data_.uID = kTrayIconId;
   tray_icon_data_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
   tray_icon_data_.uCallbackMessage = kTrayCallbackMessage;
-  tray_icon_data_.hIcon = static_cast<HICON>(LoadImageW(
-      GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON,
-      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
-      LR_DEFAULTCOLOR | LR_SHARED));
+  tray_icon_data_.hIcon = LoadAppIcon(GetSystemMetrics(SM_CXSMICON),
+                                      GetSystemMetrics(SM_CYSMICON));
+  if (tray_icon_data_.hIcon == nullptr) {
+    // Retry once with the full-size icon; the tray scales it down.
+    tray_icon_data_.hIcon =
+        LoadAppIcon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+  }
   wcsncpy_s(tray_icon_data_.szTip, 128, L"NEU Better · 寝室用电",
             _TRUNCATE);
+  // Clear any phantom entry left by a force-killed instance or a failed
+  // add before registering; NIM_DELETE on a missing entry is a no-op.
+  Shell_NotifyIconW(NIM_DELETE, &tray_icon_data_);
   tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_data_) != FALSE;
 }
 
@@ -177,6 +196,18 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // explorer.exe rebuilds the taskbar (after a restart or a crash) and
+  // broadcasts TaskbarCreated, which invalidates the old tray icon.
+  // Re-add it so the tray entry self-heals.
+  static const UINT kTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+  if (message == kTaskbarCreated) {
+    if (tray_icon_added_) {
+      RemoveTrayIcon();
+    }
+    AddTrayIcon();
+    // Fall through so Flutter plugins can react to the message too.
+  }
+
   // Clicking the notification-area icon restores the main window.
   if (message == kTrayCallbackMessage) {
     if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {

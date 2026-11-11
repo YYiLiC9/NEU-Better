@@ -71,7 +71,14 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       themeAnimationDuration: const Duration(milliseconds: 200),
       themeAnimationCurve: Curves.easeOutCubic,
-      home: const AuthGate(),
+      // 界面取色走 AppColors 静态令牌（不是 Theme.of），而大量子树以 const
+      // 实例化——明暗切换时 Element 因 widget identical 被跳过，烘焙在
+      // build 里的旧颜色不会刷新。用随明暗变化的 key 强制重挂载根子树，
+      // 让所有静态取色重新求值。
+      home: KeyedSubtree(
+        key: ValueKey<String>('root-$isDark'),
+        child: const AuthGate(),
+      ),
     );
   }
 }

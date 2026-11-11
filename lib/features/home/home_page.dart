@@ -122,8 +122,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+    await showSettingsDialog(context);
   }
 
   Widget _buildStatusBar(BuildContext context) {
@@ -236,13 +235,10 @@ class _HomePageState extends ConsumerState<HomePage> {
               IconButton(
                 tooltip: '设置',
                 onPressed: _openSettings,
-                icon: Text(
-                  '⚙',
-                  style: TextStyle(
-                    fontSize: 21,
-                    height: 1,
-                    color: AppColors.campusBlue,
-                  ),
+                icon: Icon(
+                  Icons.settings_outlined,
+                  size: 21,
+                  color: AppColors.campusBlue,
                 ),
               ),
               IconButton(
@@ -497,13 +493,10 @@ class _AccountTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
                   padding: const EdgeInsets.all(5),
-                  child: Text(
-                    '⚙',
-                    style: TextStyle(
-                      fontSize: 18,
-                      height: 1,
-                      color: AppColors.muted,
-                    ),
+                  child: Icon(
+                    Icons.settings_outlined,
+                    size: 17,
+                    color: AppColors.muted,
                   ),
                 ),
               ),

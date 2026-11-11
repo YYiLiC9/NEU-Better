@@ -4,13 +4,13 @@
 
 ## 项目一句话
 
-东北大学非官方校园客户端，Flutter 3.47.9（Dart 3.13.7），目标平台 Windows + Android（iOS 暂缓）。本地优先、无自建后端、A 静蓝视觉。当前状态：**M1 登录、M2 课表+同步、M3 界面统一重做、M4 寝室用电 均已完成并提交**（dev 分支，`57b4300` → `ce70d0c`）。
+东北大学非官方校园客户端，Flutter 3.47.9（Dart 3.13.7），目标平台 Windows + Android（iOS 暂缓）。本地优先、无自建后端、A 静蓝视觉。当前状态：**M1 登录、M2 课表+同步、M3 界面统一重做、M4 寝室用电、M5 设置弹窗+托盘 均已完成并提交**（dev 分支，`ce70d0c` 之后：`14cc490` 托盘与自动同步、界面细节统一提交）。
 
 ## 构建与验证（每次改完必须全绿再提交）
 
 ```powershell
 .\tools\flutter.cmd analyze     # 必须 No issues found
-.\tools\flutter.cmd test        # 必须 21 个全过
+.\tools\flutter.cmd test        # 必须 32 个全过
 .\tools\flutter.cmd build windows --debug   # 或 --release
 ```
 
@@ -62,7 +62,11 @@ lib/
     dorm/electricity_service.dart 查询编排 + 每日一次 + dormPrefsChanged 通知
     dorm/electricity_store.dart   electricity.json 持久化
     dorm/electricity_models.dart  楼栋编号表/房间码拼接/读数模型
-test/widget_test.dart            21 个测试（解析器、存储、凭据往返等）
+    settings/settings_page.dart  设置弹窗（showSettingsDialog 居中小窗，右上角关闭）
+    timetable/timetable_sync.dart TimetableSyncService：登录后自动同步课表
+  core/settings/app_settings.dart     主题/托盘偏好 + settings.json 持久化
+  core/platform/windows_window.dart   MethodChannel：任务栏标题/关闭行为/托盘显隐
+test/widget_test.dart            32 个测试（解析器、存储、凭据往返等）
 tools/flutter.cmd                唯一 flutter 入口
 ```
 
@@ -100,6 +104,7 @@ tools/flutter.cmd                唯一 flutter 入口
 
 ## 已知问题 / 后续路线
 
+- **托盘图标在本仓库目录树下无法注册**：`Shell_NotifyIconW(NIM_ADD)` 对 `D:\Documents\Code\NEUBetterPro\` 下的 exe 一律返回失败（同一份 exe 复制到 Temp/D 盘其他目录即成功，explorer 启动也一样失败，注册表 `NotifyIconSettings` 不建项）。已排除：图标句柄、uID 冲突、flags、manifest DPI、SRP/AppLocker（均为空）。疑似第三方安全软件针对该目录的规则，机器环境问题、非代码问题——把 exe 复制到仓库外运行托盘即正常。
 - Windows toast 通知：本机 WinToast AUMI 快捷方式注册失败（`Error while attaching the AUMID...`），toast 发不出；应用内弹窗是主提醒通道，不受影响。后续可研究开机后重试注册或换 flutter_local_notifications。
 - 侧栏「通知」「邮件」是占位（后续），点击无动作。
 - M4 寝室用电只在 Windows 实测过（真实房间 3510409 → 148 度）；Android 端 DPAPI/Keystore 路径与 UI 响应式未回归。

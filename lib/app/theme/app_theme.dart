@@ -135,14 +135,27 @@ abstract final class AppTheme {
       surface: palette.surface,
     );
 
-    // Keep the OS font on each platform. On Windows the explicit family
-    // prevents Chinese glyphs from falling back to a different typeface than
-    // the Latin text, which makes headings look uneven at small sizes.
+    // Windows 优先 Segoe UI Variable Text（Win11 系统字体，数字等宽观感更
+    // 整齐），缺省时逐级回落到 Segoe UI 与雅黑；明确列出 fallback 避免中文
+    // 与拉丁字符落到不同字体上。
+    const windowsFontStack = <String>[
+      'Segoe UI Variable Text',
+      'Segoe UI',
+      'Microsoft YaHei UI',
+      'Microsoft YaHei',
+    ];
     final fontFamily = defaultTargetPlatform == TargetPlatform.windows
-        ? 'Microsoft YaHei UI'
+        ? windowsFontStack.first
         : null;
+    final List<String> fontFamilyFallback = defaultTargetPlatform ==
+            TargetPlatform.windows
+        ? windowsFontStack.skip(1).toList()
+        : const <String>[];
     final isDark = brightness == Brightness.dark;
     final onPrimary = isDark ? const Color(0xFF08131F) : Colors.white;
+    // 数字统一等宽（tabular figures）：时间、周次、电量等数值在卡片里
+    // 不会因比例数字宽度抖动。
+    const numericFeatures = <FontFeature>[FontFeature.tabularFigures()];
 
     return ThemeData(
       useMaterial3: true,
@@ -151,6 +164,7 @@ abstract final class AppTheme {
       scaffoldBackgroundColor: palette.canvas,
       splashFactory: InkSparkle.splashFactory,
       fontFamily: fontFamily,
+      fontFamilyFallback: fontFamilyFallback,
       textTheme: TextTheme(
         displaySmall: TextStyle(
           color: palette.ink,
@@ -158,24 +172,28 @@ abstract final class AppTheme {
           height: 1.18,
           fontWeight: FontWeight.w600,
           letterSpacing: -0.8,
+          fontFeatures: numericFeatures,
         ),
         headlineSmall: TextStyle(
           color: palette.ink,
           fontSize: 22,
           height: 1.3,
           fontWeight: FontWeight.w600,
+          fontFeatures: numericFeatures,
         ),
         titleMedium: TextStyle(
           color: palette.ink,
           fontSize: 15,
           height: 1.4,
           fontWeight: FontWeight.w500,
+          fontFeatures: numericFeatures,
         ),
         bodyMedium: TextStyle(
           color: palette.muted,
           fontSize: 14,
           height: 1.7,
           fontWeight: FontWeight.w400,
+          fontFeatures: numericFeatures,
         ),
         labelMedium: TextStyle(
           color: palette.muted,
@@ -183,6 +201,7 @@ abstract final class AppTheme {
           height: 1.4,
           fontWeight: FontWeight.w500,
           letterSpacing: 0.3,
+          fontFeatures: numericFeatures,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(

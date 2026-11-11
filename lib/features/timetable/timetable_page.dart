@@ -14,8 +14,9 @@ const _minSlotHeight = 34.0;
 const _maxSlotHeight = 54.0;
 
 /// 午休（第 4 节后）与晚休（第 8 节后）的视觉留白。格子本身按节次等分，
-/// 这里把真实作息中的长间隔折成一条细长横条，避免时间轴看起来是连续的。
-const _breakGap = 12.0;
+/// 这里把真实作息中的长间隔折成一条横条；22px 才能放下「午休/晚休」
+/// 字样（12px 会裁字）。
+const _breakGap = 22.0;
 
 double _gridHeightFor(double slotHeight) =>
     PeriodTimes.periodsPerDay * slotHeight + 2 * _breakGap;
@@ -909,6 +910,8 @@ class _WeekGrid extends StatelessWidget {
 }
 
 /// 午休 / 晚休横条：不透明底色覆盖整行，覆盖掉各天列的竖分隔线。
+/// 底色取分隔线的半透明色叠在网格 surface 上，明暗两套主题下都与网格
+/// 同色系（不直接用 canvas，避免暗黑模式下与格子底色脱节）。
 class _BreakBand extends StatelessWidget {
   const _BreakBand({required this.label});
 
@@ -918,7 +921,7 @@ class _BreakBand extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.canvas,
+        color: AppColors.line.withValues(alpha: 0.28),
         border: Border.symmetric(
           horizontal: BorderSide(color: AppColors.line.withValues(alpha: 0.6)),
         ),
@@ -928,9 +931,9 @@ class _BreakBand extends StatelessWidget {
         label,
         style: TextStyle(
           color: AppColors.muted,
-          fontSize: 8,
+          fontSize: 9.5,
           fontWeight: FontWeight.w600,
-          letterSpacing: 2,
+          letterSpacing: 3,
         ),
       ),
     );
