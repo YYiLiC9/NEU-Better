@@ -288,36 +288,47 @@ class _ExamScheduleSectionState extends State<_ExamScheduleSection> {
   }
 
   Widget _filterButton() {
-    return Tooltip(
-      message: _showAll ? '只显示未考考试' : '显示所有考试',
-      child: InkWell(
-        onTap: () => setState(() => _showAll = !_showAll),
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            border: Border.all(color: AppColors.line),
-            borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _filterOption('全部', _showAll, () => setState(() => _showAll = true)),
+          _filterOption(
+            '未考',
+            !_showAll,
+            () => setState(() => _showAll = false),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _showAll ? Icons.filter_alt_outlined : Icons.filter_alt,
-                size: 12,
-                color: AppColors.campusBlue,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _showAll ? '全部' : '未考',
-                style: TextStyle(
-                  color: AppColors.campusBlue,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+        ],
+      ),
+    );
+  }
+
+  Widget _filterOption(String label, bool selected, VoidCallback onTap) {
+    return Tooltip(
+      message: selected ? '当前显示$label' : '切换到$label',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(4),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.campusBlue : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : AppColors.muted,
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
