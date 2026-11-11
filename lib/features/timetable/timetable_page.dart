@@ -35,15 +35,6 @@ double _slotSpanHeightFor(double slotHeight, int startPeriod, int endPeriod) {
   return height;
 }
 
-double _slotYForMinutes(double slotHeight, int minutes) {
-  final slot = PeriodTimes.slotOffset(minutes);
-  final whole = slot.floor();
-  var y = whole * slotHeight;
-  if (whole >= 4) y += _breakGap;
-  if (whole >= 8) y += _breakGap;
-  return y + (slot - whole) * slotHeight;
-}
-
 String _dateLabel(DateTime date) => '${date.month}/${date.day}';
 
 String _examTimeLabel(ExamEntry exam) {
@@ -1087,15 +1078,29 @@ class _DayColumn extends StatelessWidget {
   Widget _examPositioned(ExamEntry exam, double gridHeight) {
     final start = PeriodTimes.parseTime(exam.startTime);
     final end = PeriodTimes.parseTime(exam.endTime);
-    final top = start == null ? 4.0 : _slotYForMinutes(slotHeight, start) + 3;
-    // 考试高度固定：1 小时以内占 1 格，超过 1 小时占 2 格。
+    // 考试卡必须严格落在课表格子上：按开始时间吸附到所在节次，
+    // 再按 1 小时 1 格、超过 1 小时 2 格取固定高度。不能按真实分钟差
+    // 直接算像素，否则 10:20–12:20 这类考试会从 10:20 起跨过 2 格后
+    // 压到下一节。
+    final startSlot = start == null
+        ? 0
+        : PeriodTimes.slotOffset(start)
+              .floor()
+              .clamp(0, PeriodTimes.periodsPerDay - 1);
     final durationMinutes = (start != null && end != null)
         ? (end - start).clamp(0, 24 * 60)
         : 0;
     final spanSlots = durationMinutes > 60 ? 2 : 1;
-    final cardHeight = (spanSlots * slotHeight - 6).toDouble();
+    final startPeriod = startSlot + 1;
+    final endPeriod = (startSlot + spanSlots).clamp(
+      1,
+      PeriodTimes.periodsPerDay,
+    );
+    final top = _slotTopFor(slotHeight, startPeriod) + 3;
+    final cardHeight =
+        _slotSpanHeightFor(slotHeight, startPeriod, endPeriod) - 6;
     var safeTop = top;
-    if (safeTop < 0) safeTop = 4;
+    if (safeTop < 4) safeTop = 4;
     if (safeTop + cardHeight > gridHeight) {
       safeTop = gridHeight - cardHeight - 4;
     }
@@ -1199,7 +1204,7 @@ class _ExamColors {
   /// Day-view exam cards use a visible, closed outline. Keep it in the same
   /// 朱红 family instead of a neutral divider colour.
   static Color get outline =>
-      AppColors.isDark ? const Color(0x66E97A63) : const Color(0x66C2402A);
+      AppColors.isDark ? const Color(0x99E97A63) : const Color(0x99C2402A);
 }
 
 class _ExamCard extends StatelessWidget {
@@ -1226,202 +1231,222 @@ class _ExamCard extends StatelessWidget {
     final typeLabel = exam.type.trim().isEmpty ? '考试' : exam.type.trim();
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Stack(
-        children: [
-          Container(
-            padding: EdgeInsets.fromLTRB(
-              compact ? 6 : 13,
-              compact ? 4 : 11,
-              compact ? 5 : 13,
-              compact ? 3 : 11,
-            ),
-            clipBehavior: Clip.hardEdge,
-            decoration: BoxDecoration(
-              color: _ExamColors.background,
-              // 周视图里考试卡只保留顶部强调色，去掉左右/下边的描边；
-              // 日视图保留完整描边并闭合。
-              border: compact ? null : Border.all(color: _ExamColors.outline),
-            ),
-            child: compact
-                ? LayoutBuilder(
-                    builder: (context, constraints) {
-                      // 考试卡高度固定（1 格或 2 格），用 FittedBox 保证科目、时间、
-                      // 地点/考号在有限高度内始终完整可见，不因卡片矮而丢字段。
-                      return FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.topLeft,
-                        child: SizedBox(
-                          width: constraints.maxWidth,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 周视图用 Positioned 给了固定高度，Stack 必须撑满这格；
+          // 日视图高度由内容决定，保持 loose 以免无界高度报错。
+          return Stack(
+            fit: constraints.hasBoundedHeight
+                ? StackFit.expand
+                : StackFit.loose,
+            children: [
+              Container(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 6 : 13,
+                  compact ? 4 : 11,
+                  compact ? 5 : 13,
+                  compact ? 3 : 11,
+                ),
+                decoration: BoxDecoration(color: _ExamColors.background),
+                child: compact
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          // 考试卡高度固定（1 格或 2 格），用 FittedBox 保证科目、时间、
+                          // 地点/考号在有限高度内始终完整可见，不因卡片矮而丢字段。
+                          return FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.topLeft,
+                            child: SizedBox(
+                              width: constraints.maxWidth,
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 1),
-                                    child: Icon(
-                                      Icons.event_note_rounded,
-                                      size: 10,
-                                      color: _ExamColors.accent,
-                                    ),
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 1),
+                                        child: Icon(
+                                          Icons.event_note_rounded,
+                                          size: 10,
+                                          color: _ExamColors.accent,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Expanded(
+                                        child: Text(
+                                          exam.name,
+                                          maxLines: 3,
+                                          softWrap: true,
+                                          overflow: TextOverflow.clip,
+                                          style: TextStyle(
+                                            color: _ExamColors.accent,
+                                            fontSize: 10,
+                                            height: 1.15,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 3),
-                                  Expanded(
-                                    child: Text(
-                                      exam.name,
-                                      maxLines: 3,
-                                      softWrap: true,
+                                  if (_timeLabel.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _timeLabel,
+                                      maxLines: 1,
+                                      softWrap: false,
                                       overflow: TextOverflow.clip,
                                       style: TextStyle(
                                         color: _ExamColors.accent,
-                                        fontSize: 10,
-                                        height: 1.15,
-                                        fontWeight: FontWeight.w700,
+                                        fontSize: 8,
+                                        height: 1.2,
+                                        fontWeight: FontWeight.w500,
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures(),
+                                        ],
                                       ),
+                                    ),
+                                  ],
+                                  if (detail.isNotEmpty) ...[
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      detail,
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.clip,
+                                      style: TextStyle(
+                                        color: _ExamColors.accent.withValues(
+                                          alpha: 0.78,
+                                        ),
+                                        fontSize: 8,
+                                        height: 1.2,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.event_note_rounded,
+                              size: 15,
+                              color: _ExamColors.accent,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        exam.name,
+                                        maxLines: 3,
+                                        softWrap: true,
+                                        overflow: TextOverflow.clip,
+                                        style: TextStyle(
+                                          color: _ExamColors.accent,
+                                          fontSize: 13,
+                                          height: 1.25,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _ExamColors.soft,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        typeLabel,
+                                        style: TextStyle(
+                                          color: _ExamColors.accent,
+                                          fontSize: 8,
+                                          height: 1.2,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (_timeLabel.isNotEmpty) ...[
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _timeLabel,
+                                    style: TextStyle(
+                                      color: _ExamColors.accent,
+                                      fontSize: 10,
+                                      height: 1.3,
+                                      fontWeight: FontWeight.w500,
+                                      fontFeatures: [
+                                        FontFeature.tabularFigures(),
+                                      ],
                                     ),
                                   ),
                                 ],
-                              ),
-                              if (_timeLabel.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  _timeLabel,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  overflow: TextOverflow.clip,
-                                  style: TextStyle(
-                                    color: _ExamColors.accent,
-                                    fontSize: 8,
-                                    height: 1.2,
-                                    fontWeight: FontWeight.w500,
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              if (detail.isNotEmpty) ...[
-                                const SizedBox(height: 1),
-                                Text(
-                                  detail,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  overflow: TextOverflow.clip,
-                                  style: TextStyle(
-                                    color: _ExamColors.accent.withValues(
-                                      alpha: 0.78,
-                                    ),
-                                    fontSize: 8,
-                                    height: 1.2,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Icon(
-                          Icons.event_note_rounded,
-                          size: 15,
-                          color: _ExamColors.accent,
-                        ),
-                      ),
-                      const SizedBox(width: 7),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    exam.name,
-                                    maxLines: 3,
+                                if (detail.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    detail,
+                                    maxLines: 2,
                                     softWrap: true,
                                     overflow: TextOverflow.clip,
                                     style: TextStyle(
-                                      color: _ExamColors.accent,
-                                      fontSize: 13,
-                                      height: 1.25,
-                                      fontWeight: FontWeight.w700,
+                                      color: _ExamColors.accent.withValues(
+                                        alpha: 0.78,
+                                      ),
+                                      fontSize: 9,
+                                      height: 1.35,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _ExamColors.soft,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    typeLabel,
-                                    style: TextStyle(
-                                      color: _ExamColors.accent,
-                                      fontSize: 8,
-                                      height: 1.2,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
+                                ],
                               ],
                             ),
-                            if (_timeLabel.isNotEmpty) ...[
-                              const SizedBox(height: 3),
-                              Text(
-                                _timeLabel,
-                                style: TextStyle(
-                                  color: _ExamColors.accent,
-                                  fontSize: 10,
-                                  height: 1.3,
-                                  fontWeight: FontWeight.w500,
-                                  fontFeatures: [FontFeature.tabularFigures()],
-                                ),
-                              ),
-                            ],
-                            if (detail.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                detail,
-                                maxLines: 2,
-                                softWrap: true,
-                                overflow: TextOverflow.clip,
-                                style: TextStyle(
-                                  color: _ExamColors.accent.withValues(
-                                    alpha: 0.78,
-                                  ),
-                                  fontSize: 9,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ],
+                          ),
+                        ],
+                      ),
+              ),
+              if (!compact)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _ExamColors.outline,
+                          width: 1,
                         ),
                       ),
-                    ],
+                    ),
                   ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 3,
-            child: ColoredBox(color: _ExamColors.accent),
-          ),
-        ],
+                ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 3,
+                child: ColoredBox(color: _ExamColors.accent),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1446,7 +1471,9 @@ class _ExamScheduleSectionState extends State<_ExamScheduleSection> {
     final startMinutes = PeriodTimes.parseTime(exam.startTime);
     final endMinutes =
         PeriodTimes.parseTime(exam.endTime) ??
-        (startMinutes == null ? null : startMinutes + PeriodTimes.periodMinutes);
+        (startMinutes == null
+            ? null
+            : startMinutes + PeriodTimes.periodMinutes);
     if (endMinutes == null) {
       return day.isBefore(DateTime(now.year, now.month, now.day));
     }
@@ -1661,9 +1688,7 @@ class _ExamScheduleRow extends StatelessWidget {
                       child: Text(
                         typeLabel,
                         style: TextStyle(
-                          color: isEnded
-                              ? AppColors.faint
-                              : _ExamColors.accent,
+                          color: isEnded ? AppColors.faint : _ExamColors.accent,
                           fontSize: 8,
                           height: 1.2,
                           fontWeight: FontWeight.w600,
