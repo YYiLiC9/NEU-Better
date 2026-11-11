@@ -287,21 +287,8 @@ class _TimetablePageState extends State<TimetablePage> {
                     SizedBox(height: widget.compact ? 18 : 12),
                     _buildSummary(),
                     SizedBox(height: widget.compact ? 16 : 12),
-                    if (widget.compact)
-                      _buildDayAgenda()
-                    else if (_weekView)
-                      _WeekPager(
-                        week: _week,
-                        direction: _direction,
-                        pageBuilder: (week) => _WeekGrid(
-                          weekStart: _weekStartFor(week),
-                          sessions: _data.forWeek(week),
-                          exams: _examsForWeek(week),
-                          today: _isWeekToday(week),
-                          onWeekDrag: _onWeekDrag,
-                          slotHeight: slotHeight,
-                        ),
-                      )
+                    if (_weekView)
+                      _buildWeekView(slotHeight)
                     else
                       _buildDayAgenda(),
                     if (!widget.compact && _weekView) ...[
@@ -319,14 +306,44 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
-  Widget _buildDayAgenda() {
-    return _DayAgenda(
+  Widget _buildWeekView(double slotHeight) {
+    final pager = _WeekPager(
       week: _week,
-      weekStart: _weekStart,
-      selectedDay: _selectedDay,
-      sessions: _daySessions,
-      exams: _dayExams,
-      onDayChanged: (day) => setState(() => _selectedDay = day),
+      direction: _direction,
+      pageBuilder: (week) => _WeekGrid(
+        weekStart: _weekStartFor(week),
+        sessions: _data.forWeek(week),
+        exams: _examsForWeek(week),
+        today: _isWeekToday(week),
+        onWeekDrag: _onWeekDrag,
+        slotHeight: slotHeight,
+      ),
+    );
+    if (!widget.compact) return pager;
+    // 窄窗口也保留完整的周视图；宽度不够时允许横向滚动，
+    // 而不是直接退化成单日列表。
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth < 620 ? 620.0 : constraints.maxWidth;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(width: width, child: pager),
+        );
+      },
+    );
+  }
+
+  Widget _buildDayAgenda() {
+    return SizedBox(
+      width: double.infinity,
+      child: _DayAgenda(
+        week: _week,
+        weekStart: _weekStart,
+        selectedDay: _selectedDay,
+        sessions: _daySessions,
+        exams: _dayExams,
+        onDayChanged: (day) => setState(() => _selectedDay = day),
+      ),
     );
   }
 
@@ -392,11 +409,10 @@ class _TimetablePageState extends State<TimetablePage> {
             textStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
           ),
         ),
-        if (!widget.compact)
-          _ViewToggle(
-            weekView: _weekView,
-            onChanged: (value) => setState(() => _weekView = value),
-          ),
+        _ViewToggle(
+          weekView: _weekView,
+          onChanged: (value) => setState(() => _weekView = value),
+        ),
         if (!widget.compact)
           FilledButton.icon(
             onPressed: _syncTimetable,
@@ -1313,8 +1329,8 @@ class _ExamCard extends StatelessWidget {
                                     const SizedBox(height: 1),
                                     Text(
                                       detail,
-                                      maxLines: 1,
-                                      softWrap: false,
+                                      maxLines: 2,
+                                      softWrap: true,
                                       overflow: TextOverflow.clip,
                                       style: TextStyle(
                                         color: _ExamColors.accent.withValues(
@@ -1740,6 +1756,7 @@ class _DayAgenda extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SingleChildScrollView(
