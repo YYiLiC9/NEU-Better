@@ -167,6 +167,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildDesktop(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
           width: 224,
