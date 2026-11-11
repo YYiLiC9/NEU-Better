@@ -14,6 +14,7 @@ import 'package:neu_better_pro/core/crypto/rsa_encryptor.dart';
 import 'package:neu_better_pro/core/network/cas_identity_client.dart';
 import 'package:neu_better_pro/core/network/neu_cas_client.dart';
 import 'package:neu_better_pro/core/network/portal_identity_client.dart';
+import 'package:neu_better_pro/core/settings/app_settings.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
 import 'package:neu_better_pro/features/timetable/timetable_import.dart';
 
@@ -138,9 +139,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('我的课表'), findsOneWidget);
-    // The header shows the real current week (derived from the term start
-    // date) plus the week's date range, so match the stable prefix only.
-    expect(find.textContaining('2026–2027 秋季学期 · 第'), findsOneWidget);
+    // 标题下方只保留学期名，不再显示周次和日期范围。
+    expect(find.textContaining('2026–2027 秋季学期'), findsOneWidget);
     expect(find.text('测试同学'), findsWidgets);
   });
 
@@ -519,5 +519,22 @@ void main() {
     expect(data.sessions.single.day, 1);
     expect(data.sessions.single.startPeriod, 1);
     expect(data.sessions.single.endPeriod, 2);
+  });
+
+  test('app settings keep the tray icon preference across JSON', () {
+    const defaults = AppSettings();
+    expect(defaults.showTrayIcon, isTrue);
+    expect(defaults.minimizeOnClose, isTrue);
+    final toggled = defaults.copyWith(
+      showTrayIcon: false,
+      minimizeOnClose: false,
+    );
+    final restored = AppSettings.fromJson(
+      jsonDecode(jsonEncode(toggled.toJson())) as Map<String, dynamic>,
+    );
+    expect(restored.showTrayIcon, isFalse);
+    expect(restored.minimizeOnClose, isFalse);
+    final missing = AppSettings.fromJson(<String, dynamic>{});
+    expect(missing.showTrayIcon, isTrue);
   });
 }

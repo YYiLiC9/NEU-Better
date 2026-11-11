@@ -9,13 +9,13 @@ import 'yjs_timetable_page.dart';
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const _headerHeight = 40.0;
-const _timeGutterWidth = 56.0;
-const _minSlotHeight = 36.0;
+const _timeGutterWidth = 64.0;
+const _minSlotHeight = 34.0;
 const _maxSlotHeight = 54.0;
 
 /// 午休（第 4 节后）与晚休（第 8 节后）的视觉留白。格子本身按节次等分，
-/// 这里只把真实作息中的长间隔折成一条窄缝，避免时间轴看起来是连续的。
-const _breakGap = 8.0;
+/// 这里把真实作息中的长间隔折成一条细长横条，避免时间轴看起来是连续的。
+const _breakGap = 12.0;
 
 double _gridHeightFor(double slotHeight) =>
     PeriodTimes.periodsPerDay * slotHeight + 2 * _breakGap;
@@ -76,6 +76,7 @@ class _TimetablePageState extends State<TimetablePage> {
   void initState() {
     super.initState();
     _loadCachedTimetable();
+    timetableChanged.addListener(_onTimetableChanged);
     // "当前时间线"是信息不是装饰：每半分钟检查一次，只在跨过整分时重建。
     _minuteTimer = Timer.periodic(const Duration(milliseconds: 15000), (_) {
       final now = DateTime.now();
@@ -88,14 +89,20 @@ class _TimetablePageState extends State<TimetablePage> {
 
   @override
   void dispose() {
+    timetableChanged.removeListener(_onTimetableChanged);
     _minuteTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadCachedTimetable() async {
+  void _onTimetableChanged() {
+    _loadCachedTimetable(force: true);
+  }
+
+  Future<void> _loadCachedTimetable({bool force = false}) async {
     final cached = await const TimetableStore().read();
-    if (!mounted || cached == null || !_data.isSample) return;
+    if (!mounted || cached == null) return;
+    if (!force && !_data.isSample) return;
     setState(() {
       _data = cached;
       _week = cached.weekFor(DateTime.now());
@@ -298,12 +305,6 @@ class _TimetablePageState extends State<TimetablePage> {
                       _ExamScheduleSection(exams: _allExams),
                     ],
                     SizedBox(height: widget.compact ? 18 : 12),
-                    Text(
-                      _data.isSample
-                          ? '示例课表 · 数据接入教务系统后可自动同步'
-                          : '来自研究生教务系统 · 本地缓存',
-                      style: TextStyle(color: AppColors.faint, fontSize: 10),
-                    ),
                   ],
                 ),
               ),
@@ -340,9 +341,6 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   Widget _buildHeader(BuildContext context) {
-    final range = _weekStart == null
-        ? ''
-        : '${_dateLabel(_weekStart!)}–${_dateLabel(_weekStart!.add(const Duration(days: 6)))}';
     final title = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -356,7 +354,7 @@ class _TimetablePageState extends State<TimetablePage> {
         ),
         const SizedBox(height: 5),
         Text(
-          '${_data.termName} · 第 $_week 周${range.isEmpty ? '' : ' · $range'}',
+          _data.termName,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -804,73 +802,99 @@ class _WeekGrid extends StatelessWidget {
             ),
             SizedBox(
               height: _gridHeightFor(slotHeight),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Stack(
                 children: [
-                  SizedBox(
-                    width: _timeGutterWidth,
-                    child: Column(
-                      children: [
-                        for (
-                          var period = 1;
-                          period <= PeriodTimes.periodsPerDay;
-                          period++
-                        ) ...[
-                          SizedBox(
-                            height: slotHeight,
-                            child: Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    '$period',
-                                    style: TextStyle(
-                                      color: AppColors.ink,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    PeriodTimes.startLabel(period),
-                                    style: TextStyle(
-                                      color: AppColors.faint,
-                                      fontSize: 8,
-                                      height: 1.2,
-                                      fontFeatures: [
-                                        FontFeature.tabularFigures(),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: _timeGutterWidth,
+                        child: Column(
+                          children: [
+                            for (
+                              var period = 1;
+                              period <= PeriodTimes.periodsPerDay;
+                              period++
+                            ) ...[
+                              SizedBox(
+                                height: slotHeight,
+                                child: Center(
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          '$period',
+                                          style: TextStyle(
+                                            color: AppColors.ink,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '${PeriodTimes.startLabel(period)}'
+                                          '–${PeriodTimes.endLabel(period)}',
+                                          style: TextStyle(
+                                            color: AppColors.faint,
+                                            fontSize: 8,
+                                            height: 1.15,
+                                            fontFeatures: [
+                                              FontFeature.tabularFigures(),
+                                            ],
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
-                          if (period == 4 || period == 8)
-                            const SizedBox(height: _breakGap),
-                        ],
-                      ],
-                    ),
-                  ),
-                  for (var day = 1; day <= 7; day++)
-                    Expanded(
-                      child: _DayColumn(
-                        day: day,
-                        sessions: sessions.where((s) => s.day == day).toList(),
-                        exams: exams
-                            .where(
-                              (e) =>
-                                  weekStart != null &&
-                                  _sameDay(
-                                    e.date,
-                                    weekStart!.add(Duration(days: day - 1)),
-                                  ),
-                            )
-                            .toList(),
-                        isToday: today && day == now.weekday,
-                        slotHeight: slotHeight,
+                              if (period == 4 || period == 8)
+                                const SizedBox(height: _breakGap),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
+                      for (var day = 1; day <= 7; day++)
+                        Expanded(
+                          child: _DayColumn(
+                            day: day,
+                            sessions: sessions
+                                .where((s) => s.day == day)
+                                .toList(),
+                            exams: exams
+                                .where(
+                                  (e) =>
+                                      weekStart != null &&
+                                      _sameDay(
+                                        e.date,
+                                        weekStart!.add(Duration(days: day - 1)),
+                                      ),
+                                )
+                                .toList(),
+                            isToday: today && day == now.weekday,
+                            slotHeight: slotHeight,
+                          ),
+                        ),
+                    ],
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 4 * slotHeight,
+                    height: _breakGap,
+                    child: const _BreakBand(label: '午休'),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 8 * slotHeight + _breakGap,
+                    height: _breakGap,
+                    child: const _BreakBand(label: '晚休'),
+                  ),
                 ],
               ),
             ),
@@ -882,6 +906,35 @@ class _WeekGrid extends StatelessWidget {
 
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+/// 午休 / 晚休横条：不透明底色覆盖整行，覆盖掉各天列的竖分隔线。
+class _BreakBand extends StatelessWidget {
+  const _BreakBand({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        border: Border.symmetric(
+          horizontal: BorderSide(color: AppColors.line.withValues(alpha: 0.6)),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: AppColors.muted,
+          fontSize: 8,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 2,
+        ),
+      ),
+    );
+  }
 }
 
 class _DayHeader extends StatelessWidget {
@@ -1020,16 +1073,12 @@ class _DayColumn extends StatelessWidget {
     final start = PeriodTimes.parseTime(exam.startTime);
     final end = PeriodTimes.parseTime(exam.endTime);
     final top = start == null ? 4.0 : _slotYForMinutes(slotHeight, start) + 3;
-    var cardHeight = (slotHeight - 6).clamp(30.0, 46.0).toDouble();
-    if (start != null && end != null && end > start) {
-      // 考试卡的高度按真实考试时长占据对应节次：2 小时≈两节，3 小时≈三节，
-      // 跨午休/晚休时补上格子之间的窄缝，保证周视图里比例可信。
-      cardHeight =
-          _slotYForMinutes(slotHeight, end) -
-          _slotYForMinutes(slotHeight, start) -
-          6;
-      if (cardHeight < slotHeight - 6) cardHeight = slotHeight - 6;
-    }
+    // 考试高度固定：1 小时以内占 1 格，超过 1 小时占 2 格。
+    final durationMinutes = (start != null && end != null)
+        ? (end - start).clamp(0, 24 * 60)
+        : 0;
+    final spanSlots = durationMinutes > 60 ? 2 : 1;
+    final cardHeight = (spanSlots * slotHeight - 6).toDouble();
     var safeTop = top;
     if (safeTop < 0) safeTop = 4;
     if (safeTop + cardHeight > gridHeight) {
@@ -1167,8 +1216,8 @@ class _ExamCard extends StatelessWidget {
         color: _ExamColors.background,
         borderRadius: BorderRadius.circular(8),
         border: Border(
-          left: BorderSide(color: _ExamColors.accent, width: 3),
-          top: BorderSide(color: _ExamColors.soft),
+          top: BorderSide(color: _ExamColors.accent, width: 3),
+          left: BorderSide(color: _ExamColors.soft),
           right: BorderSide(color: _ExamColors.soft),
           bottom: BorderSide(color: _ExamColors.soft),
         ),
@@ -1176,60 +1225,80 @@ class _ExamCard extends StatelessWidget {
       child: compact
           ? LayoutBuilder(
               builder: (context, constraints) {
-                // 考试时长决定卡片高度，名字随之多行铺开，不再用省略号。
-                final maxLines = switch (constraints.maxHeight) {
-                  >= 84 => 4,
-                  >= 60 => 3,
-                  >= 42 => 2,
-                  _ => 1,
-                };
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
+                // 考试卡高度固定（1 格或 2 格），用 FittedBox 保证科目、时间、
+                // 地点/考号在有限高度内始终完整可见，不因卡片矮而丢字段。
+                return FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 1),
-                          child: Icon(
-                            Icons.event_note_rounded,
-                            size: 10,
-                            color: _ExamColors.accent,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Icon(
+                                Icons.event_note_rounded,
+                                size: 10,
+                                color: _ExamColors.accent,
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            Expanded(
+                              child: Text(
+                                exam.name,
+                                maxLines: 3,
+                                softWrap: true,
+                                overflow: TextOverflow.clip,
+                                style: TextStyle(
+                                  color: _ExamColors.accent,
+                                  fontSize: 10,
+                                  height: 1.15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 3),
-                        Expanded(
-                          child: Text(
-                            exam.name,
-                            maxLines: maxLines,
-                            softWrap: true,
+                        if (_timeLabel.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _timeLabel,
+                            maxLines: 1,
+                            softWrap: false,
                             overflow: TextOverflow.clip,
                             style: TextStyle(
                               color: _ExamColors.accent,
-                              fontSize: 10,
-                              height: 1.15,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 8,
+                              height: 1.2,
+                              fontWeight: FontWeight.w500,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
                             ),
                           ),
-                        ),
+                        ],
+                        if (detail.isNotEmpty) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            detail,
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.clip,
+                            style: TextStyle(
+                              color: _ExamColors.accent.withValues(alpha: 0.78),
+                              fontSize: 8,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    if (detail.isNotEmpty && constraints.maxHeight >= 52) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        detail,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.clip,
-                        style: TextStyle(
-                          color: _ExamColors.accent.withValues(alpha: 0.78),
-                          fontSize: 8,
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 );
               },
             )

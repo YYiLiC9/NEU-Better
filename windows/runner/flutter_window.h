@@ -4,8 +4,11 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <flutter/method_channel.h>
+#include <windows.h>
+#include <shellapi.h>
 
 #include <memory>
+#include <string>
 
 #include "win32_window.h"
 
@@ -24,6 +27,11 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  // Adds/removes the notification-area icon and updates its hover tooltip.
+  void AddTrayIcon();
+  void RemoveTrayIcon();
+  void UpdateTrayTooltip(const std::wstring& tooltip);
+
   // The project to run.
   flutter::DartProject project_;
 
@@ -34,9 +42,17 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       window_channel_;
 
-  // Whether WM_CLOSE minimizes the window to the taskbar instead of quitting.
-  // Dart can change this through the "setCloseBehavior" method.
+  // Whether WM_CLOSE hides the window to the notification area instead of
+  // quitting. Dart can change this through the "setCloseBehavior" method.
   bool minimize_on_close_ = true;
+
+  // Whether the notification-area icon should be visible. Dart can change this
+  // through the "setTrayIconVisible" method.
+  bool show_tray_icon_ = true;
+
+  // Notification-area icon state.
+  NOTIFYICONDATAW tray_icon_data_{};
+  bool tray_icon_added_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -18,6 +18,7 @@ class AppSettings {
     this.darkStart = const TimeOfDay(hour: 19, minute: 0),
     this.lightStart = const TimeOfDay(hour: 7, minute: 0),
     this.minimizeOnClose = true,
+    this.showTrayIcon = true,
   });
 
   final ThemePreference themePreference;
@@ -25,6 +26,7 @@ class AppSettings {
   final TimeOfDay darkStart;
   final TimeOfDay lightStart;
   final bool minimizeOnClose;
+  final bool showTrayIcon;
 
   AppSettings copyWith({
     ThemePreference? themePreference,
@@ -32,6 +34,7 @@ class AppSettings {
     TimeOfDay? darkStart,
     TimeOfDay? lightStart,
     bool? minimizeOnClose,
+    bool? showTrayIcon,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -39,6 +42,7 @@ class AppSettings {
       darkStart: darkStart ?? this.darkStart,
       lightStart: lightStart ?? this.lightStart,
       minimizeOnClose: minimizeOnClose ?? this.minimizeOnClose,
+      showTrayIcon: showTrayIcon ?? this.showTrayIcon,
     );
   }
 
@@ -49,6 +53,7 @@ class AppSettings {
       'darkStart': _timeToJson(darkStart),
       'lightStart': _timeToJson(lightStart),
       'minimizeOnClose': minimizeOnClose,
+      'showTrayIcon': showTrayIcon,
     };
   }
 
@@ -67,6 +72,7 @@ class AppSettings {
         json['minimizeOnClose'],
         defaults.minimizeOnClose,
       ),
+      showTrayIcon: _parseBool(json['showTrayIcon'], defaults.showTrayIcon),
     );
   }
 
@@ -211,34 +217,18 @@ class AppSettingsController extends ChangeNotifier {
   TimeOfDay get darkStart => _settings.darkStart;
   TimeOfDay get lightStart => _settings.lightStart;
   bool get minimizeOnClose => _settings.minimizeOnClose;
+  bool get showTrayIcon => _settings.showTrayIcon;
   Brightness get platformBrightness => _platformBrightness;
 
-  /// 当前实际应使用的明暗状态（定时模式优先于三选一偏好）。
+  /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
   bool get isDarkNow => isDarkNowAt(DateTime.now());
 
   bool isDarkNowAt(DateTime time) {
-    if (_settings.scheduledTheme) {
-      return _isDarkAt(time, _settings.darkStart, _settings.lightStart);
-    }
     return switch (_settings.themePreference) {
       ThemePreference.system => _platformBrightness == Brightness.dark,
       ThemePreference.light => false,
       ThemePreference.dark => true,
     };
-  }
-
-  /// 深色时段 [darkStart, lightStart)；跨午夜时拆成两段。
-  static bool _isDarkAt(
-    DateTime time,
-    TimeOfDay darkStart,
-    TimeOfDay lightStart,
-  ) {
-    final minutes = time.hour * 60 + time.minute;
-    final dark = darkStart.hour * 60 + darkStart.minute;
-    final light = lightStart.hour * 60 + lightStart.minute;
-    if (dark == light) return false;
-    if (dark < light) return minutes >= dark && minutes < light;
-    return minutes >= dark || minutes < light;
   }
 
   /// 应用启动时加载持久化设置。重复调用安全。
@@ -278,6 +268,12 @@ class AppSettingsController extends ChangeNotifier {
   void setMinimizeOnClose(bool value) {
     if (_settings.minimizeOnClose == value) return;
     _settings = _settings.copyWith(minimizeOnClose: value);
+    _commit();
+  }
+
+  void setShowTrayIcon(bool value) {
+    if (_settings.showTrayIcon == value) return;
+    _settings = _settings.copyWith(showTrayIcon: value);
     _commit();
   }
 

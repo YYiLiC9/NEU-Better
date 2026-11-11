@@ -5,6 +5,9 @@ import 'package:flutter/foundation.dart';
 
 import 'timetable_models.dart';
 
+/// 课表快照更新通知：自动同步完成后，课表页可据此从缓存重新加载。
+final ValueNotifier<int> timetableChanged = ValueNotifier<int>(0);
+
 /// Persists the last successfully synced timetable locally so the app can
 /// display it immediately on the next launch, without hitting the school
 /// system again.
@@ -31,7 +34,12 @@ class TimetableStore {
     ];
     final local = Platform.environment['LOCALAPPDATA'];
     if (local != null && local.isNotEmpty) {
-      files.add(File('$local$separator' 'NEU Better$separator$_fileName'));
+      files.add(
+        File(
+          '$local$separator'
+          'NEU Better$separator$_fileName',
+        ),
+      );
     }
     return files;
   }
@@ -62,6 +70,7 @@ class TimetableStore {
         await file.parent.create(recursive: true);
         await file.writeAsString(payload, flush: true);
         debugPrint('[timetable] saved to ${file.path}');
+        timetableChanged.value++;
         return;
       } catch (error) {
         lastError = error;

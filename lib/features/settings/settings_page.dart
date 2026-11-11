@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
 
-/// 设置页：外观（明暗主题 / 定时切换）与窗口行为。
+/// 设置页：外观（明暗主题）与窗口行为。
 /// 通过 `Navigator.push` 直接打开，无必填参数。
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -43,48 +43,11 @@ class SettingsPage extends ConsumerWidget {
                 _SectionCard(
                   icon: Icons.palette_outlined,
                   title: '外观',
-                  subtitle: '选择界面的明暗风格，或按时间自动切换。',
+                  subtitle: '选择界面的明暗风格。',
                   children: [
                     _ThemeModeSelector(
                       value: settings.themePreference,
                       onChanged: controller.setThemePreference,
-                    ),
-                    const _SettingsDivider(),
-                    _SwitchRow(
-                      icon: Icons.schedule_rounded,
-                      title: '定时切换',
-                      subtitle: '到点自动切换深色 / 浅色，优先于上方选择。',
-                      value: settings.scheduledTheme,
-                      onChanged: controller.setScheduledTheme,
-                    ),
-                    AnimatedCrossFade(
-                      firstChild: const SizedBox(width: double.infinity),
-                      secondChild: Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Column(
-                          children: [
-                            _SettingsDivider(),
-                            _TimeRow(
-                              icon: Icons.dark_mode_outlined,
-                              label: '深色开始',
-                              value: settings.darkStart,
-                              onChanged: controller.setDarkStart,
-                            ),
-                            const SizedBox(height: 10),
-                            _TimeRow(
-                              icon: Icons.light_mode_outlined,
-                              label: '浅色开始',
-                              value: settings.lightStart,
-                              onChanged: controller.setLightStart,
-                            ),
-                          ],
-                        ),
-                      ),
-                      crossFadeState: settings.scheduledTheme
-                          ? CrossFadeState.showSecond
-                          : CrossFadeState.showFirst,
-                      duration: const Duration(milliseconds: 180),
-                      sizeCurve: Curves.easeOutCubic,
                     ),
                   ],
                 ),
@@ -95,11 +58,29 @@ class SettingsPage extends ConsumerWidget {
                   subtitle: '控制桌面窗口的关闭行为。',
                   children: [
                     _SwitchRow(
+                      icon: Icons.notifications_active_outlined,
+                      title: '显示托盘栏图标',
+                      subtitle: '在系统托盘显示应用图标，鼠标悬浮可查看寝室用电。',
+                      value: settings.showTrayIcon,
+                      onChanged: (value) {
+                        controller.setShowTrayIcon(value);
+                        if (!value && settings.minimizeOnClose) {
+                          controller.setMinimizeOnClose(false);
+                        }
+                      },
+                      trailing: const _PlatformTag('Windows'),
+                    ),
+                    const SizedBox(height: 6),
+                    _SwitchRow(
                       icon: Icons.minimize_rounded,
-                      title: '关闭窗口时最小化到任务栏',
-                      subtitle: '点击关闭按钮时不退出应用，可从任务栏恢复。',
-                      value: settings.minimizeOnClose,
-                      onChanged: controller.setMinimizeOnClose,
+                      title: '关闭窗口时最小化到托盘',
+                      subtitle: settings.showTrayIcon
+                          ? '点击关闭按钮时不退出应用，可从系统托盘恢复。'
+                          : '托盘图标已隐藏，关闭窗口将直接退出应用。',
+                      value: settings.minimizeOnClose && settings.showTrayIcon,
+                      onChanged: settings.showTrayIcon
+                          ? controller.setMinimizeOnClose
+                          : null,
                       trailing: const _PlatformTag('Windows'),
                     ),
                   ],
@@ -339,7 +320,7 @@ class _SwitchRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
   final Widget? trailing;
 
   @override
@@ -393,88 +374,6 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
-class _TimeRow extends StatelessWidget {
-  const _TimeRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String label;
-  final TimeOfDay value;
-  final ValueChanged<TimeOfDay> onChanged;
-
-  Future<void> _pick(BuildContext context) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: value,
-      helpText: '选择$label时间',
-      cancelText: '取消',
-      confirmText: '确定',
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-    );
-    if (picked != null) onChanged(picked);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final labelText =
-        '${value.hour.toString().padLeft(2, '0')}:'
-        '${value.minute.toString().padLeft(2, '0')}';
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => _pick(context),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-          decoration: BoxDecoration(
-            color: AppColors.canvas,
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(color: AppColors.line),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 16, color: AppColors.muted),
-              const SizedBox(width: 10),
-              Text(label, style: TextStyle(color: AppColors.ink, fontSize: 12)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.campusBlue.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: Text(
-                  labelText,
-                  style: TextStyle(
-                    color: AppColors.campusBlue,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: AppColors.faint,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _PlatformTag extends StatelessWidget {
   const _PlatformTag(this.label);
 
@@ -498,18 +397,6 @@ class _PlatformTag extends StatelessWidget {
           letterSpacing: 0.3,
         ),
       ),
-    );
-  }
-}
-
-class _SettingsDivider extends StatelessWidget {
-  const _SettingsDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Container(height: 1, color: AppColors.line),
     );
   }
 }

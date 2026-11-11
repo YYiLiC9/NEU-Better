@@ -17,8 +17,6 @@ class NeuBetterApp extends ConsumerStatefulWidget {
 
 class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     with WidgetsBindingObserver {
-  Timer? _scheduleTimer;
-
   @override
   void initState() {
     super.initState();
@@ -27,16 +25,16 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     controller.updatePlatformBrightness(
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
     );
+    _applyWindowSettings(ref.read(appSettingsProvider));
+  }
+
+  void _applyWindowSettings(AppSettingsController settings) {
+    unawaited(WindowsWindow.setTrayIconVisible(settings.showTrayIcon));
     unawaited(
       WindowsWindow.setCloseBehavior(
-        minimizeToTaskbar: ref.read(appSettingsProvider).minimizeOnClose,
+        minimizeToTaskbar: settings.minimizeOnClose && settings.showTrayIcon,
       ),
     );
-    // 定时主题按分钟粒度刷新，保证跨过设定时间点时自动切换。
-    _scheduleTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (!mounted) return;
-      ref.read(appSettingsProvider.notifier).refreshSchedule();
-    });
   }
 
   @override
@@ -50,7 +48,6 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
 
   @override
   void dispose() {
-    _scheduleTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -61,11 +58,9 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     final isDark = settings.isDarkNow;
     AppColors.setDark(isDark);
 
-    ref.listen<bool>(
-      appSettingsProvider.select((value) => value.minimizeOnClose),
-      (_, next) {
-        unawaited(WindowsWindow.setCloseBehavior(minimizeToTaskbar: next));
-      },
+    ref.listen<AppSettingsController>(
+      appSettingsProvider,
+      (_, next) => _applyWindowSettings(next),
     );
 
     return MaterialApp(

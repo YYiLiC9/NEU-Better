@@ -14,6 +14,7 @@ import '../dorm/electricity_models.dart';
 import '../dorm/electricity_service.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
+import '../timetable/timetable_sync.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key, required this.session});
@@ -39,12 +40,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     final settings = ref.read(appSettingsProvider);
     unawaited(
       WindowsWindow.setCloseBehavior(
-        minimizeToTaskbar: settings.minimizeOnClose,
+        minimizeToTaskbar: settings.minimizeOnClose && settings.showTrayIcon,
       ),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runDailyElectricityCheck();
+      // 刚刚登录（而非恢复旧会话）时后台同步一次课表。
+      final sinceLogin = DateTime.now().difference(widget.session.createdAt);
+      if (!sinceLogin.isNegative && sinceLogin < const Duration(minutes: 3)) {
+        _autoSyncTimetable();
+      }
     });
+  }
+
+  Future<void> _autoSyncTimetable() async {
+    final data = await TimetableSyncService.syncWithSession(widget.session);
+    if (data != null && mounted) {
+      debugPrint('[timetable] auto synced ${data.sessions.length} sessions');
+    }
   }
 
   @override
@@ -88,7 +101,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     ref.watch(appSettingsProvider.select((settings) => settings.isDarkNow));
     ref.listen<AppSettingsController>(appSettingsProvider, (previous, next) {
       unawaited(
-        WindowsWindow.setCloseBehavior(minimizeToTaskbar: next.minimizeOnClose),
+        WindowsWindow.setCloseBehavior(
+          minimizeToTaskbar: next.minimizeOnClose && next.showTrayIcon,
+        ),
       );
     });
     return Scaffold(
@@ -113,11 +128,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildStatusBar(BuildContext context) {
     final reading = _statusPrefs?.lastReading;
-    final room = reading?.roomInfo ?? '';
-    final text = reading == null
-        ? '寝室用电 · 暂无电量数据'
-        : '寝室用电 · ${room.isEmpty ? reading.roomCode : room} · '
-              '剩余 ${reading.rawRemain}';
+    final remaining = reading?.rawRemain.trim() ?? '';
+    final text = remaining.isEmpty ? '--' : remaining;
     return InkWell(
       onTap: () => setState(() => _tab = 1),
       child: Container(
@@ -129,27 +141,22 @@ class _HomePageState extends ConsumerState<HomePage> {
         ),
         child: Row(
           children: [
+            const Spacer(),
             Icon(
               Icons.electric_bolt_rounded,
               size: 13,
-              color: reading == null ? AppColors.faint : AppColors.campusBlue,
+              color: remaining.isEmpty ? AppColors.faint : AppColors.campusBlue,
             ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 10,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ),
+            const SizedBox(width: 4),
             Text(
-              '点击查看用电',
-              style: TextStyle(color: AppColors.faint, fontSize: 9),
+              text,
+              maxLines: 1,
+              style: TextStyle(
+                color: remaining.isEmpty ? AppColors.faint : AppColors.ink,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ],
         ),
@@ -169,31 +176,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 20, 8, 20),
-                child: SizedBox(
-                  height: 48,
-                  child: Row(
-                    children: [
-                      const Expanded(child: _Brand()),
-                      Tooltip(
-                        message: '设置',
-                        child: InkWell(
-                          onTap: _openSettings,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: Icon(
-                              Icons.settings_outlined,
-                              size: 18,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(22, 20, 8, 20),
+                child: SizedBox(height: 48, child: _Brand()),
               ),
               _NavItem(
                 icon: Icons.calendar_month_outlined,
@@ -220,7 +205,11 @@ class _HomePageState extends ConsumerState<HomePage> {
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: _AccountTile(session: widget.session, onLogout: _logout),
+                child: _AccountTile(
+                  session: widget.session,
+                  onLogout: _logout,
+                  onSettings: _openSettings,
+                ),
               ),
             ],
           ),
@@ -247,10 +236,13 @@ class _HomePageState extends ConsumerState<HomePage> {
               IconButton(
                 tooltip: '设置',
                 onPressed: _openSettings,
-                icon: Icon(
-                  Icons.settings_outlined,
-                  size: 20,
-                  color: AppColors.muted,
+                icon: Text(
+                  '⚙',
+                  style: TextStyle(
+                    fontSize: 21,
+                    height: 1,
+                    color: AppColors.campusBlue,
+                  ),
                 ),
               ),
               IconButton(
@@ -344,23 +336,12 @@ class _Brand extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
+        Image.asset(
+          'assets/app_icon.png',
           width: 34,
           height: 34,
-          decoration: BoxDecoration(
-            color: AppColors.campusBlue,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            '静',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              height: 1.0,
-            ),
-          ),
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
         ),
         const SizedBox(width: 10),
         Flexible(
@@ -457,10 +438,15 @@ class _NavItem extends StatelessWidget {
 }
 
 class _AccountTile extends StatelessWidget {
-  const _AccountTile({required this.session, required this.onLogout});
+  const _AccountTile({
+    required this.session,
+    required this.onLogout,
+    required this.onSettings,
+  });
 
   final AuthSession session;
   final VoidCallback onLogout;
+  final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -502,6 +488,24 @@ class _AccountTile extends StatelessWidget {
                     style: TextStyle(color: AppColors.muted, fontSize: 9),
                   ),
                 ],
+              ),
+            ),
+            Tooltip(
+              message: '设置',
+              child: InkWell(
+                onTap: onSettings,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: Text(
+                    '⚙',
+                    style: TextStyle(
+                      fontSize: 18,
+                      height: 1,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
