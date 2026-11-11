@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/app/app.dart';
@@ -122,9 +120,8 @@ void main() {
   testWidgets('M1 gate restores a saved session into the home page', (
     tester,
   ) async {
-    // 这两个用例验证 Windows 桌面侧栏版首页（侧栏含账号名与“退出登录”文字）。
-    // 手机端(安卓)改为底部导航，这里显式按桌面平台运行。
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    // 默认测试视口宽 800 > 断点 760，会走桌面侧栏布局。
+
     final session = AuthSession(
       studentId: '20260001',
       displayName: '测试同学',
@@ -147,13 +144,11 @@ void main() {
     // 标题下方只保留学期名，不再显示周次和日期范围。
     expect(find.textContaining('2026–2027 秋季学期'), findsOneWidget);
     expect(find.text('测试同学'), findsWidgets);
-    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('logout returns from the home page to the login page', (
     tester,
   ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     final session = AuthSession(
       studentId: '20260001',
       displayName: '20260001',
@@ -176,7 +171,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('登录你的校园'), findsOneWidget);
-    debugDefaultTargetPlatformOverride = null;
   });
 
   test('AuthSession survives a JSON round trip', () {

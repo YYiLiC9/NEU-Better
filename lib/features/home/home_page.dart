@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -98,15 +96,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 手机端（安卓）使用底部导航栏；Windows 保留左侧栏。
-  bool get _isMobilePlatform =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  /// 宽窗口（桌面/平板）用左侧栏；窄窗口（手机）用底部导航。
+  /// 断点按「可用窗口宽度」判断，而非硬件平台或屏幕方向
+  /// （见 flutter-build-responsive-layout skill）。
+  static const double _wideLayoutMinWidth = 760;
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final compact = width < 760;
-    final mobile = _isMobilePlatform;
+    final isWide = MediaQuery.sizeOf(context).width >= _wideLayoutMinWidth;
     // 主题切换时让 HomePage 及其 IndexedStack 子页面一起重建。
     ref.watch(appSettingsProvider.select((settings) => settings.isDarkNow));
     ref.listen<AppSettingsController>(appSettingsProvider, (previous, next) {
@@ -119,20 +116,16 @@ class _HomePageState extends ConsumerState<HomePage> {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
-        child: mobile
-            ? _buildMobile(context)
-            : Column(
+        child: isWide
+            ? Column(
                 children: [
-                  Expanded(
-                    child: compact
-                        ? _buildCompact(context)
-                        : _buildDesktop(context),
-                  ),
+                  Expanded(child: _buildDesktop(context)),
                   _buildStatusBar(context),
                 ],
-              ),
+              )
+            : _buildMobile(context),
       ),
-      bottomNavigationBar: mobile ? _buildMobileNav(context) : null,
+      bottomNavigationBar: isWide ? null : _buildMobileNav(context),
     );
   }
 
@@ -325,102 +318,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildCompact(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
-          child: Row(
-            children: [
-              const _Brand(),
-              const Spacer(),
-              IconButton(
-                tooltip: '设置',
-                onPressed: _openSettings,
-                icon: Icon(
-                  Icons.settings_outlined,
-                  size: 21,
-                  color: AppColors.campusBlue,
-                ),
-              ),
-              IconButton(
-                tooltip: '退出登录',
-                onPressed: _logout,
-                icon: const Icon(Icons.logout_rounded, size: 20),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _compactSwitcher(),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: IndexedStack(
-            index: _tab,
-            children: [TimetablePage(compact: true), DormPowerPage()],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _compactSwitcher() {
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: AppColors.canvas,
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Row(
-        children: [
-          _compactTab('课表', Icons.calendar_month_outlined, 0),
-          _compactTab('寝室用电', Icons.electric_bolt_outlined, 1),
-        ],
-      ),
-    );
-  }
-
-  Widget _compactTab(String label, IconData icon, int index) {
-    final active = _tab == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _tab = index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: active ? AppColors.surface : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
-            border: active ? Border.all(color: AppColors.line) : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 14,
-                color: active ? AppColors.campusBlue : AppColors.muted,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                  color: active ? AppColors.ink : AppColors.muted,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 

@@ -290,6 +290,18 @@ class _TimetablePageState extends State<TimetablePage> {
             child: LayoutBuilder(
               builder: (context, gridConstraints) {
                 final slotHeight = _mobileSlotHeight(gridConstraints.maxHeight);
+                // 正常高度：精确铺满剩余空间，12 节之后不留空白行。
+                // 极矮屏（横屏/折叠态）节高过小，则保底 24 并允许滚动，避免溢出。
+                if (slotHeight < 24) {
+                  return SingleChildScrollView(
+                    child: _buildWeekView(
+                      24.0,
+                      fitWidth: true,
+                      gutterWidth: 34,
+                      dense: true,
+                    ),
+                  );
+                }
                 return _buildWeekView(
                   slotHeight,
                   fitWidth: true,
@@ -304,11 +316,13 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
+  /// 手机端周视图节高：把 12 节精确铺满可用高度（含表头与两条休息带），
+  /// 不取整、不设上限 —— 否则剩余像素会在第 12 节下堆成一条空白行。
+  /// 减去的 2.0 是网格外框上下各 1px 的边框（BoxDecoration.border 会作为
+  /// 内边距吃掉子节点 2px，算漏就会触发 2px 溢出）。
   double _mobileSlotHeight(double gridViewportHeight) {
-    final raw =
-        (gridViewportHeight - _headerHeight - 2 * _breakGap) /
+    return (gridViewportHeight - _headerHeight - 2 * _breakGap - 2.0) /
         PeriodTimes.periodsPerDay;
-    return raw.floorToDouble().clamp(24.0, _maxSlotHeight);
   }
 
   Widget _buildWeekView(
