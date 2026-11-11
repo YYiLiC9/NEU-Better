@@ -96,10 +96,7 @@ class _SettingsDialog extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 16),
-            const _SectionLabel(
-              icon: Icons.palette_outlined,
-              label: '外观',
-            ),
+            const _SectionLabel(icon: Icons.palette_outlined, label: '外观'),
             const SizedBox(height: 10),
             _ThemeModeSelector(
               value: settings.themePreference,
@@ -123,7 +120,6 @@ class _SettingsDialog extends ConsumerWidget {
                   _SwitchRow(
                     icon: Icons.notifications_active_outlined,
                     title: '显示托盘栏图标',
-                    subtitle: '在系统托盘显示应用图标，鼠标悬浮可查看寝室用电。',
                     value: settings.showTrayIcon,
                     onChanged: (value) {
                       controller.setShowTrayIcon(value);
@@ -131,19 +127,14 @@ class _SettingsDialog extends ConsumerWidget {
                         controller.setMinimizeOnClose(false);
                       }
                     },
-                    trailing: const _PlatformTag('Windows'),
                   ),
                   _SwitchRow(
                     icon: Icons.picture_in_picture_rounded,
                     title: '关闭窗口时最小化到托盘',
-                    subtitle: settings.showTrayIcon
-                        ? '点击关闭按钮时不退出应用，可从系统托盘恢复。'
-                        : '托盘图标已隐藏，关闭窗口将直接退出应用。',
                     value: settings.minimizeOnClose && settings.showTrayIcon,
                     onChanged: settings.showTrayIcon
                         ? controller.setMinimizeOnClose
                         : null,
-                    trailing: const _PlatformTag('Windows'),
                   ),
                 ],
               ),
@@ -303,18 +294,14 @@ class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
     required this.value,
     required this.onChanged,
-    this.trailing,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
   final bool value;
   final ValueChanged<bool>? onChanged;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -323,37 +310,13 @@ class _SwitchRow extends StatelessWidget {
         Icon(icon, size: 17, color: AppColors.muted),
         const SizedBox(width: 11),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      title,
-                      style: TextStyle(
-                        color: AppColors.ink,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (trailing != null) ...[
-                    const SizedBox(width: 8),
-                    trailing!,
-                  ],
-                ],
-              ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 10.5,
-                  height: 1.5,
-                ),
-              ),
-            ],
+          child: Text(
+            title,
+            style: TextStyle(
+              color: AppColors.ink,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -363,33 +326,6 @@ class _SwitchRow extends StatelessWidget {
           activeTrackColor: AppColors.campusBlue,
         ),
       ],
-    );
-  }
-}
-
-class _PlatformTag extends StatelessWidget {
-  const _PlatformTag(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: AppColors.faint,
-          fontSize: 8.5,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-        ),
-      ),
     );
   }
 }
