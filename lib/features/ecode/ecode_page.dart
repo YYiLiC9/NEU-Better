@@ -14,32 +14,64 @@ import '../../core/auth/auth_session.dart';
 const String _ecodeUrl = 'https://ecode.neu.edu.cn/ecode/#/';
 
 /// 只保留页面中的二维码：隐藏其余内容并把二维码居中放大。
-/// 脚本会自我轮询（页面/JS 渲染后二维码才出现）并监听 DOM 变化，重复应用。
+/// 脚本自我轮询（页面/JS 渲染后二维码才出现）并监听 DOM 变化；一旦检测不到
+/// 二维码（例如刷新/重新渲染的间隙），就先盖一层底色，杜绝官方界面（含宣传
+/// 图、姓名卡）一闪而过。
 const String _cleanScript = r"""
 (function(){
-  function square(r){
-    if(r.width<120||r.height<120) return false;
-    var d=Math.abs(r.width-r.height);
-    return d < Math.max(r.width,r.height)*0.28;
+  function isSquare(r){
+    return r.width>=120 && r.height>=120 &&
+      Math.abs(r.width-r.height) < Math.max(r.width,r.height)*0.30;
   }
+  // 只认真正的二维码：优先 canvas；否则只接受 data:/blob: 动态生成的 img。
+  // 借此排除官方宣传图（大尺寸静态图片）被误判为二维码。
   function pick(){
-    var els=[].slice.call(document.querySelectorAll('img,canvas'));
-    var best=null,area=0;
-    els.forEach(function(el){
-      if(el.tagName==='IMG' && (el.naturalWidth&&el.naturalWidth<60)) return;
-      var r=el.getBoundingClientRect();
-      if(square(r)){var a=r.width*r.height; if(a>area){area=a;best=el;}}
-    });
-    if(!best){
-      var c=[].slice.call(document.querySelectorAll('canvas,img')).filter(function(e){var r=e.getBoundingClientRect();return r.width>80&&r.height>80;});
-      if(c.length){c.sort(function(a,b){return b.getBoundingClientRect().width-a.getBoundingClientRect().width;});best=c[0];}
+    var best=null, area=0, i, r, a;
+    var cs=document.querySelectorAll('canvas');
+    for(i=0;i<cs.length;i++){
+      r=cs[i].getBoundingClientRect();
+      if(isSquare(r)){ a=r.width*r.height; if(a>area){area=a;best=cs[i];} }
+    }
+    if(best) return best;
+    var imgs=document.querySelectorAll('img');
+    area=0;
+    for(i=0;i<imgs.length;i++){
+      var el=imgs[i];
+      var src=el.currentSrc||el.src||'';
+      if(src.indexOf('data:')!==0 && src.indexOf('blob:')!==0) continue;
+      r=el.getBoundingClientRect();
+      if(isSquare(r)){ a=r.width*r.height; if(a>area){area=a;best=el;} }
     }
     return best;
   }
+  function cover(on){
+    try{
+      var id='__ecode_cover__';
+      var c=document.getElementById(id);
+      if(on){
+        if(!c){
+          c=document.createElement('div'); c.id=id;
+          c.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;background:#F6F8FB;z-index:2147483646;';
+          (document.body||document.documentElement).appendChild(c);
+        }
+      } else if(c && c.parentNode){ c.parentNode.removeChild(c); }
+    }catch(e){}
+  }
+  function ensureStyle(){
+    try{
+      if(document.getElementById('ecode_style')) return;
+      var s=document.createElement('style'); s.id='ecode_style';
+      s.textContent='canvas:not(.ecode-qr),img:not(.ecode-qr){visibility:hidden !important;}';
+      (document.head||document.documentElement).appendChild(s);
+    }catch(e){}
+  }
+  var lastEl=null;
   function apply(){
     try{
+      ensureStyle();
       var t=pick();
-      if(!t) return false;
+      if(!t){ cover(true); return false; } // 二维码渲染中：先用底色盖住，避免露出官方界面
+      t.classList.add('ecode-qr'); // 标记为已识别二维码（未被标记的 canvas/img 一律隐藏，杜绝未定位时的错位闪现）
       var chain=[],n=t;
       while(n&&n!==document.body){chain.push(n);n=n.parentElement;}
       chain.reverse();
@@ -58,14 +90,20 @@ const String _cleanScript = r"""
       t.style.width=m+'px'; t.style.height=m+'px';
       t.style.maxWidth='92vw'; t.style.maxHeight='92vw';
       t.style.zIndex='2147483647'; t.style.display='block';
+      // 新出现的二维码元素先盖一层底色再显示（避免官方界面/宣传图闪一下），
+      // 同一元素在后续 tick 里再撤销底色只留二维码。
+      var isNew = (t!==lastEl);
+      lastEl=t;
+      cover(isNew);
       if(window.EcodeBridge){ window.EcodeBridge.postMessage('ready'); }
       return true;
     }catch(e){ return false; }
   }
-  if(apply()){ return 'first'; }
-  var n=0, iv=setInterval(function(){ n++; if(apply()||n>50){ clearInterval(iv); } }, 150);
-  try{ var mo=new MutationObserver(function(){ apply(); }); mo.observe(document.body,{childList:true,subtree:true,attributes:true}); setTimeout(function(){ mo.disconnect(); },12000); }catch(e){}
-  return 'poll';
+  apply();
+  // 官方 H5 会周期性自动换码（会替换 DOM 中的二维码元素），因此常驻高频轮询，
+  // 保证每次换码后依旧只居中显示二维码、且换码间隙始终用底色盖住官方界面。
+  setInterval(apply, 100);
+  return 'loop';
 })();
 """;
 
@@ -231,10 +269,10 @@ class _EcodePageState extends State<EcodePage> {
           ),
         // 加载/清洗完成前用底色盖住，避免官方页面内容一闪而过。
         if (!_ready && _error == null)
-          Positioned.fill(
-            child: Container(
-              color: const Color(0xFFF6F8FB),
-              child: const Center(child: CircularProgressIndicator()),
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Color(0xFFF6F8FB),
+              child: Center(child: CircularProgressIndicator()),
             ),
           ),
         if (_error != null)
