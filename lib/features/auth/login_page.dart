@@ -143,11 +143,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
               // 窄屏/手机：固定成一屏，不出现滚动条。深色 hero 加高，
               // 登录卡片上沿叠压到 hero 底部一点，形成层次。
-              final heroHeight = math.min(360.0, constraints.maxHeight * 0.50);
-              final cardWidth = math.min(
-                460.0,
-                math.max(280.0, constraints.maxWidth - 36),
-              );
+              final heroHeight = math
+                  .min(268.0, constraints.maxHeight * 0.32)
+                  .clamp(205.0, 268.0);
+              final cardWidth = math.min(460.0, constraints.maxWidth - 24);
               return Column(
                 children: [
                   Expanded(
