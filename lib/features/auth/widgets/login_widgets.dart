@@ -61,13 +61,13 @@ class _BrandPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 13),
                   const Text(
-                    'Leave the rest,\nkeep your best.',
+                    '校园的日子，\n都装得下。',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 34,
-                      height: 1.4,
+                      height: 1.45,
                       fontWeight: FontWeight.w600,
-                      letterSpacing: -0.2,
+                      letterSpacing: -0.4,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -181,13 +181,13 @@ class _MobileHero extends StatelessWidget {
                 ),
                 SizedBox(height: compact ? 5 : 8),
                 Text(
-                  'Leave the rest,\nkeep your best.',
+                  '校园的日子，\n都装得下。',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: compact ? 18 : 28,
-                    height: 1.26,
+                    height: 1.3,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: -0.2,
+                    letterSpacing: -0.4,
                   ),
                 ),
                 SizedBox(height: compact ? 3 : 7),
