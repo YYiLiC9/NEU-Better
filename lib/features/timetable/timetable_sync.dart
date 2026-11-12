@@ -15,8 +15,24 @@ abstract final class TimetableSyncService {
     if (!session.hasCookies) return null;
     try {
       final raw = await YjsTimetableClient().fetchWithSession(session: session);
-      final data = parseEnvelope(raw);
+      var data = parseEnvelope(raw);
       if (data == null) return null;
+      // 考试接口偶发失败（返回空）时不要把上一次已缓存的考试清空：保留旧考试，
+      // 避免“同步一次考试就不见了”。
+      if (data.exams.isEmpty) {
+        final previous = await const TimetableStore().read();
+        if (previous != null && previous.exams.isNotEmpty) {
+          data = TimetableData(
+            termName: data.termName,
+            totalWeeks: data.totalWeeks,
+            sessions: data.sessions,
+            isSample: data.isSample,
+            currentWeek: data.currentWeek,
+            termStartDate: data.termStartDate ?? previous.termStartDate,
+            exams: previous.exams,
+          );
+        }
+      }
       await const TimetableStore().save(data);
       return data;
     } catch (error) {

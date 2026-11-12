@@ -330,21 +330,27 @@ class YjsTimetableClient {
     final words = '${data['welcomeWords'] ?? ''}';
     final weekMatch = RegExp(r'第\s*(\d+)\s*周').firstMatch(words);
     final dateMatch = RegExp(r'(\d{1,2})月(\d{1,2})日').firstMatch(words);
-    if (weekMatch == null || dateMatch == null) return null;
-    final week = int.tryParse(weekMatch.group(1)!);
+    var week = int.tryParse(weekMatch?.group(1) ?? '');
+    week ??= _currentWeek(data);
     if (week == null || week < 1 || week > 40) return null;
     final year =
         int.tryParse(term.length >= 4 ? term.substring(0, 4) : '') ??
         DateTime.now().year;
-    final DateTime today;
-    try {
-      today = DateTime(
-        year,
-        int.parse(dateMatch.group(1)!),
-        int.parse(dateMatch.group(2)!),
-      );
-    } catch (_) {
-      return null;
+    // 有明确日期就用它；没有日期文本时退回“今天”，仍能按已知周次反推学期起点，
+    // 保证考试能按周正确归位（否则 termStartDate 为空会让考试 getAll 为空）。
+    DateTime today;
+    if (dateMatch != null) {
+      try {
+        today = DateTime(
+          year,
+          int.parse(dateMatch.group(1)!),
+          int.parse(dateMatch.group(2)!),
+        );
+      } catch (_) {
+        return null;
+      }
+    } else {
+      today = DateTime.now();
     }
     // Monday of the current week, shifted back by (week - 1) weeks.
     return today.subtract(Duration(days: today.weekday - 1 + (week - 1) * 7));

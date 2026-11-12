@@ -272,10 +272,23 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   }
 
   Future<void> _syncTimetable() async {
-    final imported = await Navigator.of(context).push<TimetableData>(
+    final result = await Navigator.of(context).push<TimetableData>(
       MaterialPageRoute(builder: (_) => const YjsTimetablePage()),
     );
-    if (imported == null || !mounted) return;
+    if (result == null || !mounted) return;
+    // 手动同步若本次没拿到考试（接口偶发失败），沿用页面已有考试，避免“考试消失”。
+    var imported = result;
+    if (imported.exams.isEmpty && _data.exams.isNotEmpty) {
+      imported = TimetableData(
+        termName: imported.termName,
+        totalWeeks: imported.totalWeeks,
+        sessions: imported.sessions,
+        isSample: imported.isSample,
+        currentWeek: imported.currentWeek,
+        termStartDate: imported.termStartDate ?? _data.termStartDate,
+        exams: _data.exams,
+      );
+    }
     await const TimetableStore().save(imported);
     if (!mounted) return;
     _applyData(imported);
