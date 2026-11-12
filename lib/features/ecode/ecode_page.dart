@@ -66,7 +66,10 @@ const String _cleanScript = r"""
     }catch(e){}
   }
   var lastEl=null;
+  var applying=false;
   function apply(){
+    if(applying) return false;
+    applying=true;
     try{
       ensureStyle();
       var t=pick();
@@ -98,11 +101,42 @@ const String _cleanScript = r"""
       if(window.EcodeBridge){ window.EcodeBridge.postMessage('ready'); }
       return true;
     }catch(e){ return false; }
+    finally{ applying=false; }
   }
   apply();
   // 官方 H5 会周期性自动换码（会替换 DOM 中的二维码元素），因此常驻高频轮询，
   // 保证每次换码后依旧只居中显示二维码、且换码间隙始终用底色盖住官方界面。
-  setInterval(apply, 100);
+  setInterval(apply, 60);
+  // DOM 变动（换码时可能替换/重建二维码节点）时立刻重新应用，抢在下一帧绘制前
+  // 把新节点标记并居中，避免出现一帧空白/错位。
+  try{ new MutationObserver(function(){ if(!applying) apply(); }).observe(document.body,{childList:true,subtree:true}); }catch(e){}
+  // 点击刷新时直接触发页面自身的换码方法（getUserCode），在同一个页面内原地换码，
+  // 不重新加载页面 → 无加载圈、无白屏/官方界面闪烁。
+  function findVue(){
+    try{
+      var el=document.querySelector('#app');
+      if(!el) return null;
+      var root=el.__vue__ || (el.__vue_app__ && el.__vue_app__._instance) || null;
+      var seen=[], stack=[root];
+      while(stack.length){
+        var v=stack.pop();
+        if(!v || seen.indexOf(v)>=0) continue;
+        seen.push(v);
+        if(typeof v.getUserCode==='function') return v;
+        if(v.$children && v.$children.length) stack.push.apply(stack, v.$children);
+      }
+    }catch(e){}
+    return null;
+  }
+  window.__ecodeRefreshNow = function(){
+    try{
+      var v=findVue();
+      if(v){ v.getUserCode(); return 'ok'; }
+      var r=document.querySelector('[class*="refresh" i],[aria-label*="刷新"],[title*="刷新"]');
+      if(r && typeof r.click==='function'){ r.click(); return 'ok'; }
+      return 'none';
+    }catch(e){ return 'err'; }
+  };
   return 'loop';
 })();
 """;
@@ -185,11 +219,21 @@ class _EcodePageState extends State<EcodePage> {
   }
 
   Future<void> _reload() async {
-    setState(() {
-      _error = null;
-      _ready = false;
-    });
-    await _controller?.reload();
+    final controller = _controller;
+    if (controller == null) return;
+    setState(() => _error = null);
+    // 优先原地换码：不重载页面、不显示加载圈，新二维码就绪后直接覆盖旧码。
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        '(window.__ecodeRefreshNow && window.__ecodeRefreshNow()) || "none"',
+      );
+      debugPrint('[ecode] refresh -> $result');
+      if ('$result'.contains('ok')) return;
+    } catch (error) {
+      debugPrint('[ecode] refresh js failed: $error');
+    }
+    // 兜底：仅当页面自身换码不可用时才整体重载（不显示加载圈，尽量不闪烁）。
+    await controller.reload();
   }
 
   @override
