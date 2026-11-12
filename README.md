@@ -1,111 +1,80 @@
 # NEU Better
 
-东北大学校园客户端（非官方，开源）。目标是用一套 Flutter 代码库覆盖 Windows 与 Android，先解决登录与课表，再逐步扩展其他校园功能。
+> 东北大学**非官方**开源校园客户端 —— 一个用 Flutter 编写的本地优先校园工具，Windows 桌面与 Android 手机共用一套代码。
 
-> 当前阶段：**M1 登录与持久会话已完成，M2 课表已完成**。M0 工程底座与 A 静蓝设计方向已完成；研究生课表支持在 App 内登录后同步。
+## 简介
 
-## 运行最新版本
+NEU Better 在不改变学校既有系统的前提下，把分散的校园入口收拢进一个干净、可读的客户端：一次登录、保持会话、数据只留在本机；课表与寝室用电一屏可达。无自建后端。Windows 用左侧栏 + 内容区（按窗口宽度自适应），Android 用底部导航并锁定竖屏。
 
-仓库根目录的 [`NEU Better.lnk`](<NEU Better.lnk>) 是指向最新 Release 构建的本机快捷方式（`.lnk` 已被 `.gitignore` 忽略，不随仓库提交）：
+## 功能
 
-```text
-build\windows\x64\runner\Release\neu_better_pro.exe
-```
-
-重新执行 `.\tools\flutter.cmd build windows --release` 后，双击该快捷方式即可运行最新版本。
-
-## 为什么做
-
-学校现有系统入口分散、Web 端体验割裂。NEU Better 希望在不改变学校系统的前提下，提供：
-
-- 一次登录、保持会话；
-- 干净、可读的周课表；
-- 多端一致的界面与操作逻辑；
-- 本地优先、可导入导出、无自建后端。
-
-## 当前能力
-
-- 统一身份认证（pass.neu.edu.cn）原生 HTTP 登录，支持 `lt/execution` 表单与 RSA 加密；
-- 登录会话本地加密保存（Windows 使用 DPAPI 文件，Android 使用系统安全存储），重启后自动恢复；
-- 可勾选在本机安全保存账号密码，下次打开登录页自动预填；账号密码登录支持冷启动自动登录；
-- 遇到验证码 / 设备二次验证时，提供 WebView 网页登录兜底，并回传 Cookie；
-- 网页登录不要求预先填写学号，登录后从门户 localStorage / 页面内接口识别真实姓名与学号，并与账号密码登录统一显示；
-- Windows 双栏登录页 / Android 移动端 Hero + 浮层表单，统一 A 静蓝视觉；
-- M2 课表：周视图 / 日视图、周次切换、课程卡片、当日课程列表与响应式移动布局；
-- 课表同步：从“研究生系统（新）—培养—学生课程表”自动读取并保存到本地，启动时自动恢复；未同步时展示示例数据。
+- **统一身份认证登录**：`pass.neu.edu.cn` 原生 HTTP 登录（`lt/execution` 表单 + RSA 加密）；遇到验证码 / 设备二次验证时可用 WebView 网页登录兜底并回传 Cookie。
+- **会话与凭据**：会话 Cookie 加密保存（Windows DPAPI / Android Keystore），重启自动恢复；可选在本机保存账号密码，下次打开自动预填或自动登录。
+- **研究生课表**：登录后自动同步并与本地缓存合并；周视图 / 日视图、周次切换、当前时刻线、考试安排；「每周起始日」可选周一或周日。
+- **寝室用电**：按楼栋与完整房间码查询缴费大厅电费；完整房间码与「校区 / 楼栋 / 寝室号」双向联动；低于提醒线时提醒（Windows 应用内弹窗，Android 悬浮通知）。
+- **设置与外观**：主题（浅色 / 深色 / 跟随系统）、每周起始日；Windows 另有托盘图标与关闭行为。
+- **响应式界面**：桌面按窗口宽度在「侧栏」与「手机布局」之间自适应；手机底部导航、锁定竖屏。
 
 ## 平台
 
 - Windows 11 x64
 - Android 7.0+（API 24+）
-- iOS 后续版本再考虑
+- iOS 暂不考虑
 
 ## 技术栈
 
 - Flutter 3.47.9 / Dart 3.13.7
-- Riverpod、go_router、Dio + CookieJar
-- Drift（SQLite）、flutter_secure_storage
-- webview_flutter（Android WebView） / webview_flutter_windows（Windows WebView2）
-- Windows 系统字体：Microsoft YaHei UI
+- Riverpod（状态）、go_router（路由）、Dio + cookie_jar（网络）
+- flutter_secure_storage、Windows DPAPI（本地加密）
+- webview_flutter（Android）/ webview_flutter_windows（Windows WebView2）
+- local_notifier（Windows 通知）
 
 ## 仓库结构
 
 ```text
-lib/                 Flutter 应用源码
-android/              Android 平台工程
-windows/              Windows 平台工程
-docs/                 架构、接口、设计与构建文档
-packaging/            Windows 安装包脚本
-tools/                辅助脚本
+lib/        Flutter 应用源码（app / core / features 分层）
+android/    Android 平台工程
+windows/    Windows 平台工程
+docs/       架构、设计文档
+tools/      构建与调试脚本
+test/       Dart / Flutter 测试
 ```
+
+## 文档
+
+- 架构与分层：[docs/architecture.md](docs/architecture.md)
+- 设计规范：[docs/design/spec.md](docs/design/spec.md)
+- 开发交接（贡献者 / AI）：[AGENTS.md](AGENTS.md)
 
 ## 本地开发
 
-### 1. 准备工具链
-
-仓库使用本地工具链目录 `.tools/`（不提交）：
-
-```powershell
-# Flutter 3.47.9
-# https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.9-stable.zip
-
-# Android command-line tools
-# https://dl.google.com/android/repository/commandlinetools-win-16111833_latest.zip
-```
-
-### 2. 安装依赖并运行
+仓库使用仓库内的本地工具链目录 `.tools/`（不提交）：
 
 ```powershell
 .\tools\flutter.cmd pub get
-.\tools\flutter.cmd run -d windows
+.\tools\flutter.cmd run -d windows          # 桌面
+.\tools\flutter.cmd run -d <android-device> # 安卓
 ```
 
-> `tools/flutter.cmd` 会把 `APPDATA`、`PUB_CACHE`、`TEMP`、`ANDROID_HOME`、`ANDROID_USER_HOME`、`GRADLE_USER_HOME` 指向仓库内的 `.tools/`，避免 Flutter 写入用户目录失败。PowerShell 版 `tools/flutter.ps1` 需要 `Set-ExecutionPolicy -Scope Process Bypass`。
+> `tools/flutter.cmd` 会把 `APPDATA / PUB_CACHE / TEMP / ANDROID_HOME / ANDROID_USER_HOME / GRADLE_USER_HOME` 重定向到 `.tools/`，避免 Flutter 写入用户目录失败。PowerShell 版 `tools/flutter.ps1` 需先 `Set-ExecutionPolicy -Scope Process Bypass`。
 
-### 3. 检查
+### 构建与检查
 
 ```powershell
-.\tools\flutter.cmd analyze
-.\tools\flutter.cmd test
+.\tools\flutter.cmd analyze           # 必须 No issues found
+.\tools\flutter.cmd test              # 必须全过（当前 35 个）
 .\tools\flutter.cmd build windows --release
-.\tools\flutter.cmd build apk --debug
+.\tools\flutter.cmd build apk --release
 ```
-
-M1 / M2 已验证：
-
-- `flutter analyze`：No issues found
-- `flutter test`：20 个测试通过
-- Windows release：`build\windows\x64\runner\Release\neu_better_pro.exe`
-- Android debug APK：`build\app\outputs\flutter-apk\app-debug.apk`
 
 ## 设计
 
-已选定 **A 静蓝** 作为默认方向，B 流光 / C 纸感保留为后续可选主题。设计令牌与组件规范见 [`docs/design/spec.md`](docs/design/spec.md)；三套概念稿位于 `docs/design/concepts/`。
+默认「A 静蓝」方向：校识蓝为主色，浅色画布 + 白色内容卡，hairline 分隔，朱红只用于考试卡与当前时刻线。完整颜色令牌与组件规范见 [docs/design/spec.md](docs/design/spec.md)。
 
 ## 许可证
 
-AGPL-3.0。详见 [LICENSE](LICENSE)。
+AGPL-3.0，详见 [LICENSE](LICENSE)。
 
 ## 免责声明
 
-本项目为个人/社区开源项目，与东北大学官方无关。使用学校账号登录时，请遵守学校相关管理规定；项目不会收集、上传或出售账号与课表数据。
+本项目为个人 / 社区开源项目，与东北大学官方无关。使用学校账号登录时请遵守学校相关管理规定；项目不会收集、上传或出售账号、课表与用电数据，所有数据仅保存在本机。

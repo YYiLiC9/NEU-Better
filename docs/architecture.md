@@ -6,7 +6,7 @@
 
 ```text
 lib/
-  main.dart                 应用入口：ProviderScope + Windows 通知初始化
+  main.dart                 应用入口：ProviderScope；本地通知在首帧后初始化（仅 Windows）
   app/                      应用壳：主题、MaterialApp、页面分流入口
   core/                     跨 feature 的纯能力与协议模型
     auth/                   登录会话、凭据、身份模型、会话存储

@@ -11,7 +11,7 @@ android/local.properties
 android/key.properties
 ios/Flutter/ephemeral/
 
-# Local toolchain (Flutter SDK, Android SDK, downloads)
+# 本地工具链（Flutter SDK、Android SDK、下载物）
 .tools/
 
 # IDE
@@ -20,7 +20,7 @@ ios/Flutter/ephemeral/
 .vscode/
 *.swp
 
-# Secrets / signing
+# 密钥 / 签名
 *.jks
 *.keystore
 *.p12
@@ -28,12 +28,12 @@ ios/Flutter/ephemeral/
 .env
 .env.*
 
-# Logs / OS
+# 日志 / 系统
 *.log
 .DS_Store
 Thumbs.db
 
-# Build artifacts
+# 构建产物
 dist/
 *.exe
 *.msi
@@ -41,11 +41,11 @@ dist/
 *.aab
 *.lnk
 
-# Local WebView2 runtime data
+# 本地 WebView2 运行数据
 /data/
 
-# Local test account (never commit)
+# 本地开发账号文件（绝不提交）
 账号.txt
 
-# ������ʱ����/��ͼ
+# 本地临时脚本 / 截图
 /.tmp/

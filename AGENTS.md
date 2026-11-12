@@ -1,10 +1,10 @@
 # AGENTS.md — NEU Better 项目交接手册
 
-写给继续开发本项目的 AI 智能体：读完这一份即可上手改代码。人类向介绍见 [README.md](README.md)，设计规范见 [docs/design/spec.md](docs/design/spec.md)。
+写给继续开发本项目的 AI 智能体：读完这一份即可上手改代码。面向人类的介绍见 [README.md](README.md)，设计规范见 [docs/design/spec.md](docs/design/spec.md)。
 
 ## 项目一句话
 
-东北大学非官方校园客户端，Flutter 3.47.9（Dart 3.13.7），目标平台 Windows + Android（iOS 暂缓）。本地优先、无自建后端、A 静蓝视觉。当前状态：**M1 登录、M2 课表+同步、M3 界面统一重做、M4 寝室用电、M5 设置弹窗+托盘 均已完成并提交**（dev 分支，`ce70d0c` 之后：`14cc490` 托盘与自动同步、界面细节统一提交）。
+东北大学非官方校园客户端，Flutter 3.47.9（Dart 3.13.7），目标平台 Windows + Android（iOS 暂缓）。本地优先、无自建后端、A 静蓝视觉。当前状态：**登录、课表+同步、寝室用电、设置、Windows 托盘与通知、Android 端（竖屏 / 底部导航 / 课表完整显示 / 悬浮通知）均已完成**（dev 分支）。
 
 ## 构建与验证（每次改完必须全绿再提交）
 
@@ -24,8 +24,8 @@
 - 多步任务先写 todo，完成一项立刻标 completed；关键节点 1–2 行播报。
 - 提交信息用中文、动词开头（如 `feat: 界面设计统一与寝室用电查询`）。
 - 探查网络接口用的临时脚本/抓包文件（`.elec_*`、`.shot_*`、`test/probe_*.dart` 等）**用完必须删干净再提交**，不要进 git。
-- `账号.txt`（开发用真实学号密码）在仓库根目录但**已被 .gitignore，绝不提交**；`git log` 里也不应有它。
-- UI 改动要用构建后的真实窗口截图验证（PrintWindow，DPI 1.75 下窗口物理 2240x1400），不要只看代码就说「应该没问题」。
+- 本地开发用的账号文件（如 `账号.txt`）**已被 .gitignore，绝不提交**；`git log` 里也不应出现。
+- UI 改动要用构建后的真实窗口截图验证（PrintWindow），不要只看代码就说「应该没问题」。
 - 临时驱动 UI 时不要靠模拟点击（DPI 偏移不可靠），可直接改状态重建再还原。
 
 ## 架构地图（lib/）
@@ -34,7 +34,7 @@
 
 ```text
 lib/
-  main.dart                     入口：ProviderScope + localNotifier.setup(仅 Windows)
+  main.dart                     入口：ProviderScope；本地通知在首帧后初始化(仅 Windows)
   app/app.dart                  NeuBetterApp 根组件、主题模式、页面分流
   app/theme/app_theme.dart      全部设计令牌（见下节），唯一取色处
   core/
@@ -117,9 +117,8 @@ tools/flutter.cmd                唯一 flutter 入口
 
 ## 已知问题 / 后续路线
 
-- **托盘图标在本仓库目录树下无法注册**：`Shell_NotifyIconW(NIM_ADD)` 对 `D:\Documents\Code\NEUBetterPro\` 下的 exe 一律返回失败（同一份 exe 复制到 Temp/D 盘其他目录即成功，explorer 启动也一样失败，注册表 `NotifyIconSettings` 不建项）。已排除：图标句柄、uID 冲突、flags、manifest DPI、SRP/AppLocker（均为空）。疑似第三方安全软件针对该目录的规则，机器环境问题、非代码问题——把 exe 复制到仓库外运行托盘即正常。
+- **托盘图标在本仓库目录树下无法注册**：`Shell_NotifyIconW(NIM_ADD)` 对仓库目录树下的 exe 一律返回失败（同一份 exe 复制到 Temp/D 盘其他目录即成功，explorer 启动也一样失败，注册表 `NotifyIconSettings` 不建项）。已排除：图标句柄、uID 冲突、flags、manifest DPI、SRP/AppLocker（均为空）。疑似第三方安全软件针对该目录的规则，机器环境问题、非代码问题——把 exe 复制到仓库外运行托盘即正常。
 - Windows toast 通知：本机 WinToast AUMI 快捷方式注册失败（`Error while attaching the AUMID...`），toast 发不出；应用内弹窗是主提醒通道，不受影响。后续可研究开机后重试注册或换 flutter_local_notifications。
 - 侧栏「通知」「邮件」是占位（后续），点击无动作。
-- M4 寝室用电只在 Windows 实测过（真实房间 3510409 → 148 度）；Android 端 DPAPI/Keystore 路径与 UI 响应式未回归。
+- 寝室用电早期仅在 Windows 实测；Android 端 DPAPI / Keystore 路径与 UI 响应式需持续回归。
 - 课表页无开学日期数据时会从「当前周」反推学期起点（`_inferTermStartFromCurrentWeek`），教务未提供时是合理近似。
-- README.md 的「当前能力/检查」段落停留在 M2（写 20 个测试），落后于实际，改功能时可顺手更新。
