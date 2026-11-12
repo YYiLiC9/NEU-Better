@@ -14,10 +14,11 @@ class _ExamColors {
 }
 
 class _ExamCard extends StatelessWidget {
-  const _ExamCard({required this.exam, this.compact = false});
+  const _ExamCard({required this.exam, this.compact = false, this.onTap});
 
   final ExamEntry exam;
   final bool compact;
+  final VoidCallback? onTap;
 
   TextStyle _timeStyle(double size) => TextStyle(
     color: _ExamColors.accent,
@@ -26,19 +27,6 @@ class _ExamCard extends StatelessWidget {
     fontWeight: FontWeight.w500,
     fontFeatures: const [FontFeature.tabularFigures()],
   );
-
-  /// 长考试名在窄卡片里逐字竖排很难看；按每 3 个字符一行折行，
-  /// 读起来更自然（短名不超过 3 字则原样返回）。
-  String _wrapThreePerLine(String name) {
-    final runes = name.runes.toList();
-    if (runes.length <= 3) return name;
-    final buffer = StringBuffer();
-    for (var i = 0; i < runes.length; i++) {
-      if (i > 0 && i % 3 == 0) buffer.write('\n');
-      buffer.writeCharCode(runes[i]);
-    }
-    return buffer.toString();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +37,7 @@ class _ExamCard extends StatelessWidget {
       if (seat.isNotEmpty) '考号 $seat',
     ].join(' · ');
     final typeLabel = exam.type.trim().isEmpty ? '考试' : exam.type.trim();
-    return ClipRRect(
+    final card = ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -89,9 +77,9 @@ class _ExamCard extends StatelessWidget {
                                   SizedBox(
                                     width: constraints.maxWidth,
                                     child: Text(
-                                      _wrapThreePerLine(exam.name),
+                                      exam.name,
                                       textAlign: TextAlign.center,
-                                      softWrap: false,
+                                      softWrap: true,
                                       maxLines: null,
                                       overflow: TextOverflow.clip,
                                       style: TextStyle(
@@ -243,6 +231,11 @@ class _ExamCard extends StatelessWidget {
         },
       ),
     );
+        return GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: card,
+        );
   }
 }
 

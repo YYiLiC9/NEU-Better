@@ -9,6 +9,9 @@ class _DayAgenda extends StatelessWidget {
     required this.exams,
     required this.days,
     required this.onDayChanged,
+    this.onOpenCourse,
+    this.onOpenExam,
+    this.notedCourseIds = const <String>{},
   });
 
   final int week;
@@ -20,6 +23,9 @@ class _DayAgenda extends StatelessWidget {
   /// 7 个星期标签的显示顺序（1=周一 … 7=周日），由「每周起始日」决定。
   final List<int> days;
   final ValueChanged<int> onDayChanged;
+  final void Function(CourseSession session)? onOpenCourse;
+  final void Function(ExamEntry exam)? onOpenExam;
+  final Set<String> notedCourseIds;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +53,10 @@ class _DayAgenda extends StatelessWidget {
         const SizedBox(height: 12),
         if (exams.isNotEmpty) ...[
           for (final exam in exams) ...[
-            _ExamCard(exam: exam),
+            _ExamCard(
+              exam: exam,
+              onTap: onOpenExam == null ? null : () => onOpenExam!(exam),
+            ),
             const SizedBox(height: 8),
           ],
           const SizedBox(height: 4),
@@ -74,7 +83,13 @@ class _DayAgenda extends StatelessWidget {
           )
         else
           for (final session in sessions) ...[
-            _AgendaCard(session: session),
+            _AgendaCard(
+              session: session,
+              hasNote: notedCourseIds.contains(session.id),
+              onTap: onOpenCourse == null
+                  ? null
+                  : () => onOpenCourse!(session),
+            ),
             const SizedBox(height: 8),
           ],
         const SizedBox(height: 4),
@@ -142,14 +157,20 @@ class _DayChip extends StatelessWidget {
 }
 
 class _AgendaCard extends StatelessWidget {
-  const _AgendaCard({required this.session});
+  const _AgendaCard({
+    required this.session,
+    this.hasNote = false,
+    this.onTap,
+  });
 
   final CourseSession session;
+  final bool hasNote;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final (_, inkColor) = AppColors.pigmentFor(session.name);
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -204,20 +225,51 @@ class _AgendaCard extends StatelessWidget {
               children: [
                 Text(
                   session.name,
+                  softWrap: true,
                   style: TextStyle(
                     color: AppColors.ink,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 14.5,
+                    height: 1.25,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${session.room} · ${session.teacher}',
-                  style: TextStyle(color: AppColors.muted, fontSize: 9),
-                ),
+                if (session.room.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    session.room,
+                    softWrap: true,
+                    style: TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 10,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
+        ],
+      ),
+    );
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Stack(
+        children: [
+          card,
+          if (hasNote)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: inkColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
         ],
       ),
     );

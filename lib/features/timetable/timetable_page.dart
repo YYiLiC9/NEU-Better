@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
+import 'course_note_store.dart';
 import 'timetable_models.dart';
 import 'timetable_schedule.dart';
 import 'timetable_store.dart';
@@ -15,6 +16,7 @@ part 'widgets/timetable_chrome.dart';
 part 'widgets/timetable_week_grid.dart';
 part 'widgets/timetable_exam_widgets.dart';
 part 'widgets/timetable_day_agenda.dart';
+part 'widgets/course_detail_sheet.dart';
 
 /// 课表数据的跨重建共享缓存：主题切换会重挂载根子树，把它放在
 /// ProviderScope 层可在重建后立即恢复（含考试信息），不必再读磁盘。
@@ -106,9 +108,13 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   Timer? _minuteTimer;
   final ScrollController _scrollController = ScrollController();
 
+  /// 课程备注（键 = 课程 id），独立存 course_notes.json，不受同步覆盖。
+  Map<String, String> _courseNotes = <String, String>{};
+
   @override
   void initState() {
     super.initState();
+    _loadNotes();
     final shared = ref.read(timetableDataProvider);
     final savedView = ref.read(timetableViewProvider);
     // 周/日视图选择持久化在 settings.json；冷启动与主题重挂载都从设置读取。
@@ -182,6 +188,37 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       day: _selectedDay,
       weekView: _weekView,
     );
+  }
+
+  Future<void> _loadNotes() async {
+    final notes = await const CourseNoteStore().read();
+    if (!mounted || notes.isEmpty) return;
+    setState(() => _courseNotes = notes);
+  }
+
+  Future<void> _openCourse(CourseSession session) {
+    return showCourseDetail(
+      context,
+      session: session,
+      initialNote: _courseNotes[session.id] ?? '',
+      onNoteChanged: (text) => _saveNote(session.id, text),
+    );
+  }
+
+  Future<void> _openExam(ExamEntry exam) {
+    return showCourseDetail(context, exam: exam);
+  }
+
+  Future<void> _saveNote(String id, String text) async {
+    final trimmed = text.trim();
+    final next = Map<String, String>.from(_courseNotes);
+    if (trimmed.isEmpty) {
+      next.remove(id);
+    } else {
+      next[id] = trimmed;
+    }
+    if (mounted) setState(() => _courseNotes = next);
+    await const CourseNoteStore().save(next);
   }
 
   TimetableSchedule get _schedule => TimetableSchedule(
@@ -457,6 +494,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         gutterWidth: gutterWidth,
         dense: dense,
         days: days,
+        onOpenCourse: _openCourse,
+        onOpenExam: _openExam,
+        notedCourseIds: _courseNotes.keys.toSet(),
       ),
     );
     if (!widget.compact || fitWidth) return pager;
@@ -485,6 +525,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           sessions: _daySessions,
           exams: _dayExams,
           days: days,
+          onOpenCourse: _openCourse,
+          onOpenExam: _openExam,
+          notedCourseIds: _courseNotes.keys.toSet(),
           onDayChanged: (day) {
             setState(() => _selectedDay = day);
             _persistView();

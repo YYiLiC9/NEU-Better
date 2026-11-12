@@ -11,6 +11,9 @@ class _WeekGrid extends StatelessWidget {
     required this.days,
     this.gutterWidth = _timeGutterWidth,
     this.dense = false,
+    this.onOpenCourse,
+    this.onOpenExam,
+    this.notedCourseIds = const <String>{},
   });
 
   final DateTime? weekStart;
@@ -20,6 +23,9 @@ class _WeekGrid extends StatelessWidget {
   final double slotHeight;
   final double gutterWidth;
   final bool dense;
+  final void Function(CourseSession session)? onOpenCourse;
+  final void Function(ExamEntry exam)? onOpenExam;
+  final Set<String> notedCourseIds;
 
   /// 7 列的显示顺序（1=周一 … 7=周日），由「每周起始日」决定。
   final List<int> days;
@@ -158,6 +164,9 @@ class _WeekGrid extends StatelessWidget {
                             isToday: today && day == now.weekday,
                             slotHeight: slotHeight,
                             dense: dense,
+                            onOpenCourse: onOpenCourse,
+                            onOpenExam: onOpenExam,
+                            notedCourseIds: notedCourseIds,
                           ),
                         ),
                     ],
@@ -304,6 +313,9 @@ class _DayColumn extends StatelessWidget {
     required this.isToday,
     required this.slotHeight,
     this.dense = false,
+    this.onOpenCourse,
+    this.onOpenExam,
+    this.notedCourseIds = const <String>{},
   });
 
   final int day;
@@ -312,6 +324,9 @@ class _DayColumn extends StatelessWidget {
   final bool isToday;
   final double slotHeight;
   final bool dense;
+  final void Function(CourseSession session)? onOpenCourse;
+  final void Function(ExamEntry exam)? onOpenExam;
+  final Set<String> notedCourseIds;
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +361,14 @@ class _DayColumn extends StatelessWidget {
                     session.endPeriod,
                   ) -
                   (dense ? 4 : 6),
-              child: _CourseCard(session: session, dense: dense),
+              child: _CourseCard(
+                session: session,
+                dense: dense,
+                hasNote: notedCourseIds.contains(session.id),
+                onTap: onOpenCourse == null
+                    ? null
+                    : () => onOpenCourse!(session),
+              ),
             ),
           for (final exam in exams) _examPositioned(exam, gridHeight),
         ],
@@ -388,16 +410,27 @@ class _DayColumn extends StatelessWidget {
       left: 4,
       right: 4,
       height: cardHeight,
-      child: _ExamCard(exam: exam, compact: true),
+      child: _ExamCard(
+        exam: exam,
+        compact: true,
+        onTap: onOpenExam == null ? null : () => onOpenExam!(exam),
+      ),
     );
   }
 }
 
 class _CourseCard extends StatelessWidget {
-  const _CourseCard({required this.session, this.dense = false});
+  const _CourseCard({
+    required this.session,
+    this.dense = false,
+    this.hasNote = false,
+    this.onTap,
+  });
 
   final CourseSession session;
   final bool dense;
+  final bool hasNote;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -408,10 +441,10 @@ class _CourseCard extends StatelessWidget {
         // 只有多节连堂才补教师，信息密度随可用高度变化。
         final compact =
             constraints.maxHeight.isFinite && constraints.maxHeight < 54;
-        final showRoom = !compact || constraints.maxHeight >= 33;
+        final showRoom = session.room.trim().isNotEmpty;
         final padLeft = dense ? 5.0 : 8.0;
         final padRight = dense ? 4.0 : 6.0;
-        return Tooltip(
+        final card = Tooltip(
           message: '${session.name}\n${session.room} · ${session.teacher}',
           waitDuration: const Duration(milliseconds: 700),
           child: Container(
@@ -447,7 +480,7 @@ class _CourseCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 课程名整体居中；地点/教师保持居左。
+                        // 课程名：字号最大且加粗、居中；超长自然换行、完整显示。
                         SizedBox(
                           width: maxW,
                           child: Text(
@@ -457,43 +490,54 @@ class _CourseCard extends StatelessWidget {
                             overflow: TextOverflow.clip,
                             style: TextStyle(
                               color: inkColor,
-                              fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
-                              height: 1.2,
-                              fontWeight: FontWeight.w600,
+                              fontSize: dense ? 12.5 : (compact ? 11.5 : 12.5),
+                              height: 1.18,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
                         if (showRoom) ...[
-                          SizedBox(height: compact ? 1 : 3),
+                          SizedBox(height: compact ? 1 : 2),
                           Text(
                             session.room,
                             softWrap: true,
                             overflow: TextOverflow.clip,
                             style: TextStyle(
-                              color: inkColor.withValues(alpha: 0.75),
-                              fontSize: dense ? 9 : 8,
-                              height: 1.2,
+                              color: inkColor.withValues(alpha: 0.72),
+                              fontSize: dense ? 9 : 8.5,
+                              height: 1.15,
                               fontFeatures: const [FontFeature.tabularFigures()],
                             ),
                           ),
                         ],
-                        if (!compact && session.span >= 2)
-                          Text(
-                            session.teacher,
-                            softWrap: true,
-                            overflow: TextOverflow.clip,
-                            style: TextStyle(
-                              color: inkColor.withValues(alpha: 0.6),
-                              fontSize: 8,
-                              height: 1.2,
-                            ),
-                          ),
                       ],
                     ),
                   ),
                 );
               },
             ),
+          ),
+        );
+        return GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Stack(
+            children: [
+              Positioned.fill(child: card),
+              if (hasNote)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: inkColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
           ),
         );
       },
