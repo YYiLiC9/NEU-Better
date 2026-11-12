@@ -61,7 +61,7 @@ class _BrandPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 13),
                   const Text(
-                    '校园的日子，\n都装得下。',
+                    '自强不息，\n知行合一',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 34,
@@ -181,7 +181,7 @@ class _MobileHero extends StatelessWidget {
                 ),
                 SizedBox(height: compact ? 5 : 8),
                 Text(
-                  '校园的日子，\n都装得下。',
+                  '自强不息，\n知行合一',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: compact ? 18 : 28,
