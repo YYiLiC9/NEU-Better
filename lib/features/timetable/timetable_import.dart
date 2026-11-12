@@ -119,10 +119,14 @@ abstract final class YjsTimetableParser {
     final List<Map<String, dynamic>> rows;
     try {
       final decoded = jsonDecode(body);
-      // `queryMyExamArrangeMent` contains both `arranged` (scheduled, shown as
-      // cards) and `notArranged` (to be arranged, must not become cards), so
-      // prefer the exact branch and only fall back to the generic tree walk.
-      rows = _arrangedExamRows(decoded) ?? _findExamRows(decoded);
+      // 优先取已排考 `arranged`（有具体时间/地点，排成卡片）。当本次响应
+      // `arranged` 为空（例如考试改期待排）时回退到深度搜索，把 `notArranged`
+      // 里有日期、暂无时间的考试也显示出来，保证「读到课表就能读到考试信息」，
+      // 不让考试凭空消失。
+      final arranged = _arrangedExamRows(decoded);
+      rows = (arranged == null || arranged.isEmpty)
+          ? _findExamRows(decoded)
+          : arranged;
     } catch (_) {
       return const [];
     }
@@ -208,11 +212,29 @@ abstract final class YjsTimetableParser {
     final entry = datas['queryMyExamArrangeMent'];
     if (entry is! Map) return null;
     final arranged = entry['arranged'];
-    if (arranged is! List) return const [];
-    return arranged
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+    if (arranged is List) {
+      return arranged
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+    if (arranged is String && arranged.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(arranged);
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+      } catch (_) {
+        // Fall through to the generic walk below.
+      }
+    }
+    // No usable `arranged` branch: return null so the caller falls back to the
+    // generic tree walk (which can surface `notArranged` exams that still have
+    // a date) instead of silently reporting zero exams.
+    return null;
   }
 
   /// Depth-first search for the first list whose entries look like exam rows.

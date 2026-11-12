@@ -11,6 +11,7 @@ import '../../core/network/yjs_timetable_client.dart';
 import '../auth/auth_controller.dart';
 import 'timetable_import.dart';
 import 'timetable_models.dart';
+import 'timetable_sync.dart';
 
 /// Fetches the real timetable from the new graduate platform's
 /// "培养 — 学生课程表" application (`wdkbapp/xskcb`).
@@ -58,7 +59,7 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
       if (body is! String || body.trim().isEmpty) {
         throw const FormatException('研究生系统没有返回课表数据');
       }
-      final data = YjsTimetableParser.parse(
+      var data = YjsTimetableParser.parse(
         body,
         fallbackTermName: '研究生课程表',
         currentWeek: (envelope['currentWeek'] as num?)?.toInt(),
@@ -67,6 +68,25 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
           envelope['termStartDate'] as String? ?? '',
         ),
       );
+      // 考试接口偶发 404（部分后端节点未部署）。重新登录几次拿考试，
+      // 避免「课表有了但考试没有」。
+      if (data.exams.isEmpty) {
+        final auth = ref.read(authControllerProvider);
+        final recovered = await TimetableSyncService.recoverExams(
+          auth is AuthAuthenticated ? auth.session : null,
+        );
+        if (recovered.isNotEmpty) {
+          data = TimetableData(
+            termName: data.termName,
+            totalWeeks: data.totalWeeks,
+            sessions: data.sessions,
+            isSample: data.isSample,
+            currentWeek: data.currentWeek,
+            termStartDate: data.termStartDate,
+            exams: recovered,
+          );
+        }
+      }
       if (!mounted) return;
       Navigator.of(context).pop<TimetableData>(data);
     } catch (error) {

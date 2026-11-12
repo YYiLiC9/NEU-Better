@@ -194,56 +194,63 @@ class YjsTimetableClient {
     required String? appIndex,
     required String term,
   }) async {
-    final shell = StringBuffer(
-      '/gsapp/sys/wdkwapp/*default/index.do?min=1'
-      '&_yhz=${Uri.encodeQueryComponent(roleId)}',
-    );
-    if (appIndex != null && appIndex.isNotEmpty) {
-      shell.write('&gid_=${Uri.encodeQueryComponent(appIndex)}');
-    }
-    final shellUrl = shell.toString();
-    try {
-      final shellResponse = await dio.get<String>(
-        shellUrl,
-        options: Options(
-          headers: {
-            ...headers,
-            'cookie': _cookieHeader(cookies),
-            'Accept': 'text/html, */*; q=0.01',
-            'Referer': service,
-          },
-        ),
-      );
-      _captureCookies(cookies, shellResponse.headers);
-      // The browser-side module sets this cookie; the API rejects requests
-      // without it even when the CAS cookies are otherwise valid.
-      cookies.putIfAbsent('EMAP_LANG', () => 'zh');
+    // 考试接口偶发返回空 / 需要重开 shell 刷新角色会话。重试若干次，任一成功即
+    // 返回，避免「能读到课表却读不到考试」——第一次失败不再直接落空。
+    final shellUrl = _examShellUrl(roleId, appIndex);
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final shellResponse = await dio.get<String>(
+          shellUrl,
+          options: Options(
+            headers: {
+              ...headers,
+              'cookie': _cookieHeader(cookies),
+              'Accept': 'text/html, */*; q=0.01',
+              'Referer': service,
+            },
+          ),
+        );
+        _captureCookies(cookies, shellResponse.headers);
+        // The browser-side module sets this cookie; the API rejects requests
+        // without it even when the CAS cookies are otherwise valid.
+        cookies.putIfAbsent('EMAP_LANG', () => 'zh');
 
-      final response = await dio.post<String>(
-        _examApi,
-        data: 'XNXQDM=${Uri.encodeQueryComponent(term)}',
-        options: Options(
-          headers: {
-            ...headers,
-            'cookie': _cookieHeader(cookies),
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Referer': 'https://yjs.neu.edu.cn$shellUrl',
-          },
-        ),
-      );
-      _captureCookies(cookies, response.headers);
-      final body = response.data ?? '';
-      final status = response.statusCode ?? 0;
-      if (status < 400 && body.contains('queryMyExamArrangeMent')) {
-        debugPrint('[yjs] exam api ok (${body.length} bytes)');
-        return body;
+        final response = await dio.post<String>(
+          _examApi,
+          data: 'XNXQDM=${Uri.encodeQueryComponent(term)}',
+          options: Options(
+            headers: {
+              ...headers,
+              'cookie': _cookieHeader(cookies),
+              'Accept': 'application/json, text/javascript, */*; q=0.01',
+              'Content-Type':
+                  'application/x-www-form-urlencoded; charset=UTF-8',
+              'Referer': 'https://yjs.neu.edu.cn$shellUrl',
+            },
+          ),
+        );
+        _captureCookies(cookies, response.headers);
+        final body = response.data ?? '';
+        final status = response.statusCode ?? 0;
+        // Accept any well-formed exam JSON (not just the exact endpoint name):
+        // some deployments wrap the payload differently but still carry the
+        // arranged / notArranged lists we need.
+        if (status >= 200 && status < 400 && _looksLikeExamJson(body)) {
+          debugPrint(
+            '[yjs] exam api ok (attempt $attempt, ${body.length} bytes)',
+          );
+          return body;
+        }
+        debugPrint(
+          '[yjs] exam api unusable (attempt $attempt, HTTP $status, '
+          '${body.length} bytes): ${_bodyHead(body)}',
+        );
+      } catch (error) {
+        debugPrint('[yjs] exam api attempt $attempt failed: $error');
       }
-      debugPrint(
-        '[yjs] exam api unusable (HTTP $status, ${body.length} bytes)',
-      );
-    } catch (error) {
-      debugPrint('[yjs] exam api failed: $error');
+      if (attempt < 3) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
     }
 
     return _fetchLegacyExamBody(
@@ -392,6 +399,35 @@ class YjsTimetableClient {
     final words = data['welcomeWords'];
     final match = RegExp(r'第\s*(\d+)\s*周').firstMatch('${words ?? ''}');
     return int.tryParse(match?.group(1) ?? '');
+  }
+
+  /// URL of the `wdkwapp` shell page that primes the exam API session cookies.
+  String _examShellUrl(String roleId, String? appIndex) {
+    final shell = StringBuffer(
+      '/gsapp/sys/wdkwapp/*default/index.do?min=1'
+      '&_yhz=${Uri.encodeQueryComponent(roleId)}',
+    );
+    if (appIndex != null && appIndex.isNotEmpty) {
+      shell.write('&gid_=${Uri.encodeQueryComponent(appIndex)}');
+    }
+    return shell.toString();
+  }
+
+  /// A response counts as exam data when it is a JSON object carrying any of the
+  /// exam keys — regardless of the exact wrapper the server chose this time.
+  static bool _looksLikeExamJson(String body) {
+    final text = body.trim();
+    if (!text.startsWith('{')) return false;
+    return text.contains('queryMyExamArrangeMent') ||
+        text.contains('"arranged"') ||
+        text.contains('"notArranged"') ||
+        text.contains('"KSRQ"') ||
+        text.contains('"KCM"');
+  }
+
+  static String _bodyHead(String body) {
+    final text = body.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return text.length <= 160 ? text : text.substring(0, 160);
   }
 
   String _cookieHeader(Map<String, String> cookies) {

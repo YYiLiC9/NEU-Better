@@ -147,6 +147,19 @@ void main() {
       expect(YjsTimetableParser.parseExams(empty), isEmpty);
     });
 
+    test('shows notArranged exams (with date) when arranged is empty', () {
+      const body = '''
+{"datas":{"queryMyExamArrangeMent":{"arranged":[],"notArranged":[
+  {"KCM":"待排考","KSRQ":"2026-12-02"}
+]}}}
+''';
+      final exams = YjsTimetableParser.parseExams(body);
+      expect(exams, hasLength(1));
+      expect(exams.single.name, '待排考');
+      expect(exams.single.date, DateTime(2026, 12, 2));
+      expect(exams.single.startTime, isNull);
+    });
+
     test('returns empty for malformed JSON', () {
       expect(YjsTimetableParser.parseExams('<html>403</html>'), isEmpty);
     });
