@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
@@ -18,6 +19,10 @@ import '../timetable/timetable_sync.dart';
 
 part 'widgets/home_chrome.dart';
 
+/// 当前选中的页面（0 = 课表, 1 = 寝室用电, 2 = 设置）。
+/// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
+final homeTabProvider = StateProvider<int>((ref) => 0);
+
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key, required this.session});
 
@@ -31,7 +36,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   final _elecService = DormElectricityService();
 
   /// 0 = 课表, 1 = 寝室用电, 2 = 设置。
-  int _tab = 0;
+  int get _tab => ref.watch(homeTabProvider);
+
+  void _setTab(int value) => ref.read(homeTabProvider.notifier).state = value;
+
   DormPrefs? _statusPrefs;
 
   @override
@@ -63,6 +71,8 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _autoSyncTimetable() async {
     final data = await TimetableSyncService.syncWithSession(widget.session);
     if (data != null && mounted) {
+      // 同步到的最新课表（含考试）写入共享 Provider，主题切换重挂载时可直接恢复。
+      ref.read(timetableDataProvider.notifier).state = data;
       debugPrint('[timetable] auto synced ${data.sessions.length} sessions');
     }
   }
@@ -78,7 +88,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _handleOpenDorm() {
     if (!mounted) return;
     debugPrint('[notify] openDorm -> switch to tab 1 (寝室用电)');
-    setState(() => _tab = 1);
+    _setTab(1);
   }
 
   Future<void> _loadStatus() async {
@@ -105,7 +115,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       context,
       reading: reading,
       prefs: prefs,
-      onView: () => setState(() => _tab = 1),
+      onView: () => _setTab(1),
     );
   }
 
@@ -186,7 +196,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           height: 62,
           selectedIndex: _tab,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: (index) => setState(() => _tab = index),
+          onDestinationSelected: _setTab,
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined),
@@ -218,7 +228,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     final remaining = reading?.rawRemain.trim() ?? '';
     final text = remaining.isEmpty ? '--' : remaining;
     return InkWell(
-      onTap: () => setState(() => _tab = 1),
+      onTap: () => _setTab(1),
       child: Container(
         height: 28,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -272,13 +282,13 @@ class _HomePageState extends ConsumerState<HomePage> {
                 icon: Icons.calendar_month_outlined,
                 label: '课表',
                 active: _tab == 0,
-                onTap: () => setState(() => _tab = 0),
+                onTap: () => _setTab(0),
               ),
               _NavItem(
                 icon: Icons.electric_bolt_outlined,
                 label: '寝室用电',
                 active: _tab == 1,
-                onTap: () => setState(() => _tab = 1),
+                onTap: () => _setTab(1),
               ),
               const _NavItem(
                 icon: Icons.notifications_none_rounded,

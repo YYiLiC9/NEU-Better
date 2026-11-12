@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
@@ -14,6 +15,10 @@ part 'widgets/timetable_chrome.dart';
 part 'widgets/timetable_week_grid.dart';
 part 'widgets/timetable_exam_widgets.dart';
 part 'widgets/timetable_day_agenda.dart';
+
+/// 课表数据的跨重建共享缓存：主题切换会重挂载根子树，把它放在
+/// ProviderScope 层可在重建后立即恢复（含考试信息），不必再读磁盘。
+final timetableDataProvider = StateProvider<TimetableData?>((ref) => null);
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
@@ -90,7 +95,18 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   @override
   void initState() {
     super.initState();
-    _loadCachedTimetable();
+    final shared = ref.read(timetableDataProvider);
+    if (shared != null) {
+      // 从 Provider 恢复（主题重挂载后仍保留课表与考试数据）。
+      _data = shared;
+      _week = TimetableSchedule(
+        shared,
+        weekStartSetting: ref.read(appSettingsProvider).weekStart,
+      ).nowWeek();
+      _selectedDay = _selectedDay.clamp(1, 7);
+    } else {
+      _loadCachedTimetable();
+    }
     timetableChanged.addListener(_onTimetableChanged);
     // "当前时间线"是信息不是装饰：每半分钟检查一次，只在跨过整分时重建。
     _minuteTimer = Timer.periodic(const Duration(milliseconds: 15000), (_) {
@@ -118,10 +134,16 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     final cached = await const TimetableStore().read();
     if (!mounted || cached == null) return;
     if (!force && !_data.isSample) return;
+    _applyData(cached);
+  }
+
+  /// 统一落数据：写入内存 + 共享 Provider，并刷新到当前教学周。
+  void _applyData(TimetableData data) {
+    ref.read(timetableDataProvider.notifier).state = data;
     setState(() {
-      _data = cached;
+      _data = data;
       _week = TimetableSchedule(
-        cached,
+        data,
         weekStartSetting: ref.read(appSettingsProvider).weekStart,
       ).nowWeek();
       _selectedDay = _selectedDay.clamp(1, 7);
@@ -206,14 +228,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     if (imported == null || !mounted) return;
     await const TimetableStore().save(imported);
     if (!mounted) return;
-    setState(() {
-      _data = imported;
-      _week = TimetableSchedule(
-        imported,
-        weekStartSetting: ref.read(appSettingsProvider).weekStart,
-      ).nowWeek();
-      _selectedDay = _selectedDay.clamp(1, 7);
-    });
+    _applyData(imported);
   }
 
   @override

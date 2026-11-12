@@ -64,7 +64,7 @@ class _SettingsDialog extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(9),
                   ),
                   child: Icon(
-                    Icons.palette_outlined,
+                    Icons.settings_outlined,
                     size: 16,
                     color: AppColors.campusBlue,
                   ),
@@ -98,7 +98,7 @@ class _SettingsDialog extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 16),
-            const _SectionLabel(icon: Icons.palette_outlined, label: '外观'),
+            const _SectionLabel(icon: Icons.palette_outlined, label: '主题'),
             const SizedBox(height: 10),
             _ThemeModeSelector(
               value: settings.themePreference,
@@ -190,7 +190,7 @@ class MobileSettingsPage extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                Icons.palette_outlined,
+                Icons.settings_outlined,
                 size: 17,
                 color: AppColors.campusBlue,
               ),
@@ -207,7 +207,7 @@ class MobileSettingsPage extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 22),
-        const _SectionLabel(icon: Icons.palette_outlined, label: '外观'),
+        const _SectionLabel(icon: Icons.palette_outlined, label: '主题'),
         const SizedBox(height: 10),
         _ThemeModeSelector(
           value: settings.themePreference,
