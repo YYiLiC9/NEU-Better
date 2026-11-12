@@ -8,6 +8,7 @@ class _WeekGrid extends StatelessWidget {
     required this.today,
     required this.onWeekDrag,
     required this.slotHeight,
+    required this.days,
     this.gutterWidth = _timeGutterWidth,
     this.dense = false,
   });
@@ -19,6 +20,9 @@ class _WeekGrid extends StatelessWidget {
   final double slotHeight;
   final double gutterWidth;
   final bool dense;
+
+  /// 7 列的显示顺序（1=周一 … 7=周日），由「每周起始日」决定。
+  final List<int> days;
 
   /// Horizontal swipe on the grid switches weeks; the state owns the
   /// direction bookkeeping for the slide transition.
@@ -44,7 +48,7 @@ class _WeekGrid extends StatelessWidget {
               child: Row(
                 children: [
                   SizedBox(width: gutterWidth),
-                  for (var day = 1; day <= 7; day++)
+                  for (final day in days)
                     Expanded(
                       child: _DayHeader(
                         label: _weekdays[day - 1],
@@ -130,7 +134,7 @@ class _WeekGrid extends StatelessWidget {
                           ],
                         ),
                       ),
-                      for (var day = 1; day <= 7; day++)
+                      for (final day in days)
                         Expanded(
                           child: _DayColumn(
                             day: day,
@@ -401,14 +405,16 @@ class _CourseCard extends StatelessWidget {
         final compact =
             constraints.maxHeight.isFinite && constraints.maxHeight < 54;
         final showRoom = !compact || constraints.maxHeight >= 33;
+        final padLeft = dense ? 5.0 : 8.0;
+        final padRight = dense ? 4.0 : 6.0;
         return Tooltip(
           message: '${session.name}\n${session.room} · ${session.teacher}',
           waitDuration: const Duration(milliseconds: 700),
           child: Container(
             padding: EdgeInsets.fromLTRB(
-              dense ? 5 : 8,
+              padLeft,
               compact ? 3 : 6,
-              dense ? 4 : 6,
+              padRight,
               compact ? 3 : 5,
             ),
             decoration: BoxDecoration(
@@ -420,51 +426,62 @@ class _CourseCard extends StatelessWidget {
                   ? Border.all(color: inkColor.withValues(alpha: 0.18))
                   : Border(left: BorderSide(color: inkColor, width: 3)),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 课程名完整显示：不再用省略号，允许换行到多行；
-                // 用 Flexible 吸收剩余高度并 clip，避免窄卡里 RenderFlex 溢出。
-                Flexible(
-                  child: Text(
-                    session.name,
-                    maxLines: dense ? 2 : 3,
-                    softWrap: true,
-                    overflow: TextOverflow.clip,
-                    style: TextStyle(
-                      color: inkColor,
-                      fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
-                      height: 1.25,
-                      fontWeight: FontWeight.w600,
+            // 课名 / 地点 / 教师都【完整显示】：不再用省略号，允许换行；
+            // 卡片高度固定时用 FittedBox(scaleDown) 整体等比缩小兜底，
+            // 保证长课名（如「中国式现代化的理论与实践」）不被截断、也不溢出。
+            child: LayoutBuilder(
+              builder: (context, inner) {
+                final maxW = inner.maxWidth;
+                return FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: maxW,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          session.name,
+                          softWrap: true,
+                          overflow: TextOverflow.clip,
+                          style: TextStyle(
+                            color: inkColor,
+                            fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (showRoom) ...[
+                          SizedBox(height: compact ? 1 : 3),
+                          Text(
+                            session.room,
+                            softWrap: true,
+                            overflow: TextOverflow.clip,
+                            style: TextStyle(
+                              color: inkColor.withValues(alpha: 0.75),
+                              fontSize: dense ? 9 : 8,
+                              height: 1.2,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ],
+                        if (!compact && session.span >= 2)
+                          Text(
+                            session.teacher,
+                            softWrap: true,
+                            overflow: TextOverflow.clip,
+                            style: TextStyle(
+                              color: inkColor.withValues(alpha: 0.6),
+                              fontSize: 8,
+                              height: 1.2,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-                if (showRoom) ...[
-                  SizedBox(height: compact ? 1 : 3),
-                  Text(
-                    session.room,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: inkColor.withValues(alpha: 0.75),
-                      fontSize: dense ? 9 : 8,
-                      height: 1.3,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-                if (!compact && session.span >= 2)
-                  Text(
-                    session.teacher,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: inkColor.withValues(alpha: 0.6),
-                      fontSize: 8,
-                      height: 1.3,
-                    ),
-                  ),
-              ],
+                );
+              },
             ),
           ),
         );

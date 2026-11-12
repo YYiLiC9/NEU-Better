@@ -70,7 +70,6 @@ class _ExamCard extends StatelessWidget {
                                 children: [
                                   Text(
                                     exam.name,
-                                    maxLines: 4,
                                     softWrap: true,
                                     overflow: TextOverflow.clip,
                                     style: TextStyle(
@@ -133,7 +132,6 @@ class _ExamCard extends StatelessWidget {
                                     Expanded(
                                       child: Text(
                                         exam.name,
-                                        maxLines: 3,
                                         softWrap: true,
                                         overflow: TextOverflow.clip,
                                         style: TextStyle(

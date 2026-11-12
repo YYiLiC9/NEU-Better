@@ -7,6 +7,7 @@ class _DayAgenda extends StatelessWidget {
     required this.selectedDay,
     required this.sessions,
     required this.exams,
+    required this.days,
     required this.onDayChanged,
   });
 
@@ -15,6 +16,9 @@ class _DayAgenda extends StatelessWidget {
   final int selectedDay;
   final List<CourseSession> sessions;
   final List<ExamEntry> exams;
+
+  /// 7 个星期标签的显示顺序（1=周一 … 7=周日），由「每周起始日」决定。
+  final List<int> days;
   final ValueChanged<int> onDayChanged;
 
   @override
@@ -28,14 +32,14 @@ class _DayAgenda extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              for (var day = 1; day <= 7; day++) ...[
+              for (var index = 0; index < days.length; index++) ...[
                 _DayChip(
-                  label: _weekdays[day - 1],
-                  date: weekStart?.add(Duration(days: day - 1)),
-                  active: day == selectedDay,
-                  onTap: () => onDayChanged(day),
+                  label: _weekdays[days[index] - 1],
+                  date: weekStart?.add(Duration(days: days[index] - 1)),
+                  active: days[index] == selectedDay,
+                  onTap: () => onDayChanged(days[index]),
                 ),
-                if (day != 7) const SizedBox(width: 6),
+                if (index != days.length - 1) const SizedBox(width: 6),
               ],
             ],
           ),

@@ -538,5 +538,13 @@ void main() {
     expect(restored.minimizeOnClose, isFalse);
     final missing = AppSettings.fromJson(<String, dynamic>{});
     expect(missing.showTrayIcon, isTrue);
+    // 每周起始日：默认周一，序列化往返保真，缺失字段回退周一。
+    expect(defaults.weekStart, WeekStart.monday);
+    final sunday = defaults.copyWith(weekStart: WeekStart.sunday);
+    final restoredSunday = AppSettings.fromJson(
+      jsonDecode(jsonEncode(sunday.toJson())) as Map<String, dynamic>,
+    );
+    expect(restoredSunday.weekStart, WeekStart.sunday);
+    expect(missing.weekStart, WeekStart.monday);
   });
 }

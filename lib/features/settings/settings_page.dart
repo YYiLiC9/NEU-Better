@@ -104,6 +104,16 @@ class _SettingsDialog extends ConsumerWidget {
               value: settings.themePreference,
               onChanged: controller.setThemePreference,
             ),
+            const SizedBox(height: 18),
+            const _SectionLabel(
+              icon: Icons.calendar_today_outlined,
+              label: '每周起始日',
+            ),
+            const SizedBox(height: 10),
+            _WeekStartSelector(
+              value: settings.weekStart,
+              onChanged: controller.setWeekStart,
+            ),
             const SizedBox(height: 16),
             const _SectionLabel(
               icon: Icons.desktop_windows_outlined,
@@ -202,6 +212,16 @@ class MobileSettingsPage extends ConsumerWidget {
         _ThemeModeSelector(
           value: settings.themePreference,
           onChanged: controller.setThemePreference,
+        ),
+        const SizedBox(height: 20),
+        const _SectionLabel(
+          icon: Icons.calendar_today_outlined,
+          label: '每周起始日',
+        ),
+        const SizedBox(height: 10),
+        _WeekStartSelector(
+          value: settings.weekStart,
+          onChanged: controller.setWeekStart,
         ),
         const SizedBox(height: 24),
         const _Footnote(),

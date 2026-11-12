@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/settings/app_settings.dart';
 import 'timetable_models.dart';
 import 'timetable_schedule.dart';
 import 'timetable_store.dart';
@@ -14,6 +16,14 @@ part 'widgets/timetable_exam_widgets.dart';
 part 'widgets/timetable_day_agenda.dart';
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+/// 按「每周起始日」返回 7 列的显示顺序（元素是 1=周一 … 7=周日）。
+/// 只调整显示顺序，数据里 [CourseSession.day] 的语义不变。
+List<int> _orderedDaysFor(WeekStart weekStart) {
+  return weekStart == WeekStart.sunday
+      ? const [7, 1, 2, 3, 4, 5, 6]
+      : const [1, 2, 3, 4, 5, 6, 7];
+}
 const _headerHeight = 40.0;
 const _timeGutterWidth = 64.0;
 const _minSlotHeight = 34.0;
@@ -51,7 +61,7 @@ String _examTimeLabel(ExamEntry exam) {
   return '$start–$end';
 }
 
-class TimetablePage extends StatefulWidget {
+class TimetablePage extends ConsumerStatefulWidget {
   const TimetablePage({
     super.key,
     this.compact = false,
@@ -64,10 +74,10 @@ class TimetablePage extends StatefulWidget {
   final bool mobile;
 
   @override
-  State<TimetablePage> createState() => _TimetablePageState();
+  ConsumerState<TimetablePage> createState() => _TimetablePageState();
 }
 
-class _TimetablePageState extends State<TimetablePage> {
+class _TimetablePageState extends ConsumerState<TimetablePage> {
   TimetableData _data = SampleTimetable.data;
   int _week = SampleTimetable.data.weekFor(DateTime.now());
   int _selectedDay = DateTime.now().weekday.clamp(1, 7);
@@ -170,21 +180,17 @@ class _TimetablePageState extends State<TimetablePage> {
     }
   }
 
-  /// 日视图水平滑动切换相邻星期；周一再往前、周日再往后不越界（保持不动）。
+  /// 日视图水平滑动切换相邻星期；按当前「每周起始日」的显示顺序前进/后退，
+  /// 到显示序列两端不越界（保持不动）。
   void _onDayDrag(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
-    if (velocity < -400) {
-      _shiftSelectedDay(1);
-    } else if (velocity > 400) {
-      _shiftSelectedDay(-1);
-    }
-  }
-
-  void _shiftSelectedDay(int delta) {
-    final next = _selectedDay + delta;
-    if (next < 1 || next > 7) return;
-    if (next == _selectedDay) return;
-    setState(() => _selectedDay = next);
+    if (velocity.abs() <= 400) return;
+    final days = _orderedDaysFor(ref.read(appSettingsProvider).weekStart);
+    final index = days.indexOf(_selectedDay);
+    if (index < 0) return;
+    final nextIndex = velocity < 0 ? index + 1 : index - 1;
+    if (nextIndex < 0 || nextIndex >= days.length) return;
+    setState(() => _selectedDay = days[nextIndex]);
   }
 
   Future<void> _syncTimetable() async {
@@ -203,9 +209,10 @@ class _TimetablePageState extends State<TimetablePage> {
 
   @override
   Widget build(BuildContext context) {
+    final days = _orderedDaysFor(ref.watch(appSettingsProvider).weekStart);
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (widget.mobile) return _buildMobile(context);
+        if (widget.mobile) return _buildMobile(context, days);
         final viewportHeight =
             constraints.maxHeight.isFinite && constraints.maxHeight > 0
             ? constraints.maxHeight
@@ -248,9 +255,9 @@ class _TimetablePageState extends State<TimetablePage> {
                     _buildSummary(),
                     SizedBox(height: widget.compact ? 16 : 12),
                     if (_weekView)
-                      _buildWeekView(slotHeight)
+                      _buildWeekView(slotHeight, days: days)
                     else
-                      _buildDayAgenda(),
+                      _buildDayAgenda(days: days),
                     if (!widget.compact && _weekView) ...[
                       const SizedBox(height: 8),
                       _ExamScheduleSection(exams: _allExams),
@@ -268,7 +275,7 @@ class _TimetablePageState extends State<TimetablePage> {
 
   /// 手机端满屏布局：头部固定（仅学期+同步、周切换/今天/视图切换一行），
   /// 周视图独占剩余高度并精确换算节高，让 7 天 × 12 节一次性完整显示。
-  Widget _buildMobile(BuildContext context) {
+  Widget _buildMobile(BuildContext context, List<int> days) {
     final header = Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: _buildHeader(context),
@@ -287,7 +294,7 @@ class _TimetablePageState extends State<TimetablePage> {
               onHorizontalDragEnd: _onDayDrag,
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                child: _buildDayAgenda(),
+                child: _buildDayAgenda(days: days),
               ),
             ),
           ),
@@ -314,6 +321,7 @@ class _TimetablePageState extends State<TimetablePage> {
                       fitWidth: true,
                       gutterWidth: 34,
                       dense: true,
+                      days: days,
                     ),
                   );
                 }
@@ -322,6 +330,7 @@ class _TimetablePageState extends State<TimetablePage> {
                   fitWidth: true,
                   gutterWidth: 34,
                   dense: true,
+                  days: days,
                 );
               },
             ),
@@ -345,6 +354,7 @@ class _TimetablePageState extends State<TimetablePage> {
     bool fitWidth = false,
     double gutterWidth = _timeGutterWidth,
     bool dense = false,
+    required List<int> days,
   }) {
     final pager = _WeekPager(
       week: _week,
@@ -358,6 +368,7 @@ class _TimetablePageState extends State<TimetablePage> {
         slotHeight: slotHeight,
         gutterWidth: gutterWidth,
         dense: dense,
+        days: days,
       ),
     );
     if (!widget.compact || fitWidth) return pager;
@@ -374,7 +385,7 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
-  Widget _buildDayAgenda() {
+  Widget _buildDayAgenda({required List<int> days}) {
     return Align(
       alignment: Alignment.topCenter,
       child: SizedBox(
@@ -385,6 +396,7 @@ class _TimetablePageState extends State<TimetablePage> {
           selectedDay: _selectedDay,
           sessions: _daySessions,
           exams: _dayExams,
+          days: days,
           onDayChanged: (day) => setState(() => _selectedDay = day),
         ),
       ),

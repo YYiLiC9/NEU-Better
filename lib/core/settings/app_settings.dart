@@ -9,6 +9,12 @@ import 'package:flutter_riverpod/legacy.dart';
 /// 主题偏好：跟随系统 / 固定浅色 / 固定深色。
 enum ThemePreference { system, light, dark }
 
+/// 每周起始日：周一 / 周日。
+///
+/// 仅影响课表“显示顺序”和“今天高亮”的排布；底层数据里 [CourseSession.day]
+/// 的语义恒为 1=周一 … 7=周日，不随此设置改变。
+enum WeekStart { monday, sunday }
+
 /// 应用设置模型。所有字段都有安全的默认值，读取损坏的 JSON 时逐字段回退。
 @immutable
 class AppSettings {
@@ -19,6 +25,7 @@ class AppSettings {
     this.lightStart = const TimeOfDay(hour: 7, minute: 0),
     this.minimizeOnClose = true,
     this.showTrayIcon = true,
+    this.weekStart = WeekStart.monday,
   });
 
   final ThemePreference themePreference;
@@ -27,6 +34,7 @@ class AppSettings {
   final TimeOfDay lightStart;
   final bool minimizeOnClose;
   final bool showTrayIcon;
+  final WeekStart weekStart;
 
   AppSettings copyWith({
     ThemePreference? themePreference,
@@ -35,6 +43,7 @@ class AppSettings {
     TimeOfDay? lightStart,
     bool? minimizeOnClose,
     bool? showTrayIcon,
+    WeekStart? weekStart,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -43,6 +52,7 @@ class AppSettings {
       lightStart: lightStart ?? this.lightStart,
       minimizeOnClose: minimizeOnClose ?? this.minimizeOnClose,
       showTrayIcon: showTrayIcon ?? this.showTrayIcon,
+      weekStart: weekStart ?? this.weekStart,
     );
   }
 
@@ -54,6 +64,7 @@ class AppSettings {
       'lightStart': _timeToJson(lightStart),
       'minimizeOnClose': minimizeOnClose,
       'showTrayIcon': showTrayIcon,
+      'weekStart': weekStart.name,
     };
   }
 
@@ -73,7 +84,17 @@ class AppSettings {
         defaults.minimizeOnClose,
       ),
       showTrayIcon: _parseBool(json['showTrayIcon'], defaults.showTrayIcon),
+      weekStart: _parseWeekStart(json['weekStart']),
     );
+  }
+
+  static WeekStart _parseWeekStart(Object? value) {
+    if (value is String) {
+      for (final weekStart in WeekStart.values) {
+        if (weekStart.name == value) return weekStart;
+      }
+    }
+    return WeekStart.monday;
   }
 
   static ThemePreference _parseThemePreference(Object? value) {
@@ -218,6 +239,7 @@ class AppSettingsController extends ChangeNotifier {
   TimeOfDay get lightStart => _settings.lightStart;
   bool get minimizeOnClose => _settings.minimizeOnClose;
   bool get showTrayIcon => _settings.showTrayIcon;
+  WeekStart get weekStart => _settings.weekStart;
   Brightness get platformBrightness => _platformBrightness;
 
   /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
@@ -274,6 +296,12 @@ class AppSettingsController extends ChangeNotifier {
   void setShowTrayIcon(bool value) {
     if (_settings.showTrayIcon == value) return;
     _settings = _settings.copyWith(showTrayIcon: value);
+    _commit();
+  }
+
+  void setWeekStart(WeekStart value) {
+    if (_settings.weekStart == value) return;
+    _settings = _settings.copyWith(weekStart: value);
     _commit();
   }
 

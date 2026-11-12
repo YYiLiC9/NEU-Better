@@ -182,6 +182,63 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
+class _WeekStartSelector extends StatelessWidget {
+  const _WeekStartSelector({required this.value, required this.onChanged});
+
+  final WeekStart value;
+  final ValueChanged<WeekStart> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const options = <(WeekStart, String)>[
+      (WeekStart.monday, '周一'),
+      (WeekStart.sunday, '周日'),
+    ];
+    final accent = AppColors.campusBlue;
+    return Row(
+      children: [
+        for (var index = 0; index < options.length; index++) ...[
+          if (index > 0) const SizedBox(width: 10),
+          Expanded(
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => onChanged(options[index].$1),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: BoxDecoration(
+                    color: value == options[index].$1
+                        ? accent.withValues(alpha: AppColors.isDark ? 0.18 : 0.08)
+                        : AppColors.canvas,
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(
+                      color: value == options[index].$1 ? accent : AppColors.line,
+                      width: 1.4,
+                    ),
+                  ),
+                  child: Text(
+                    options[index].$2,
+                    style: TextStyle(
+                      color: value == options[index].$1
+                          ? AppColors.ink
+                          : AppColors.muted,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _Footnote extends StatelessWidget {
   const _Footnote();
 

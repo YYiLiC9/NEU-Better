@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:local_notifier/local_notifier.dart';
 
 import '../../app/theme/app_theme.dart';
@@ -53,6 +54,43 @@ class WindowsToastChannel implements ElectricityAlertChannel {
   }
 }
 
+/// Android 系统悬浮通知（heads-up）渠道。
+///
+/// 通过原生 MethodChannel 桥 `neu_better/notifications` 调用 [MainActivity] 里的
+/// `showElectricityAlert(title, body)`：原生侧用 IMPORTANCE_HIGH 的通知渠道 +
+/// NotificationCompat(PRIORITY_HIGH / DEFAULT_ALL) 发出横幅悬浮通知。Android 13+
+/// 的 POST_NOTIFICATIONS 运行时权限由原生侧在 onCreate 申请，Dart 侧无需处理。
+class AndroidHeadsUpChannel implements ElectricityAlertChannel {
+  const AndroidHeadsUpChannel();
+
+  /// 与 [MainActivity] 中注册的 MethodChannel 名称保持一致。
+  static const MethodChannel channel =
+      MethodChannel('neu_better/notifications');
+
+  @override
+  Future<void> show({
+    required ElectricityReading reading,
+    required DormPrefs prefs,
+    VoidCallback? onView,
+  }) async {
+    try {
+      await channel.invokeMethod<bool>('showElectricityAlert', <String, String>{
+        'title': '寝室电量不足',
+        'body':
+            '${reading.roomInfo}：剩余 ${reading.rawRemain}'
+            '（低于提醒线 ${prefs.alertThreshold.truncate()} 度）',
+      });
+    } on MissingPluginException catch (error) {
+      // 非 Android 引擎（如单测/桌面）没有该原生实现，忽略即可。
+      debugPrint('[elec] android heads-up channel unavailable: $error');
+    } on PlatformException catch (error) {
+      debugPrint('[elec] android heads-up channel failed: $error');
+    } catch (error) {
+      debugPrint('[elec] android heads-up channel failed: $error');
+    }
+  }
+}
+
 /// 预留：桌面右下角应用内弹窗渠道（当前为占位实现，no-op + 记日志）。
 ///
 /// 设计意图：在不依赖系统通知中心、或以应用内浮层为主的场景下，由 Flutter
@@ -88,8 +126,9 @@ class DesktopCornerPopupChannel implements ElectricityAlertChannel {
 /// 每日检查和“测试通知”按钮都走这里，保证两条路径完全一致。
 abstract final class DormAlertPresenter {
   /// 可选的通知渠道覆盖。为空时按平台自动选择：
-  /// Windows 用 [WindowsToastChannel]，其余平台用占位的
-  /// [DesktopCornerPopupChannel]。预留给未来“设置里切换通知方式”等配置。
+  /// Windows 用 [WindowsToastChannel]，Android 用 [AndroidHeadsUpChannel]，
+  /// 其余平台用占位的 [DesktopCornerPopupChannel]。预留给未来“设置里切换通知
+  /// 方式”等配置。
   static ElectricityAlertChannel? channelOverride;
 
   /// 依据平台 / 配置选择通知渠道。
@@ -100,6 +139,9 @@ abstract final class DormAlertPresenter {
     }
     if (Platform.isWindows) {
       return const WindowsToastChannel();
+    }
+    if (Platform.isAndroid) {
+      return const AndroidHeadsUpChannel();
     }
     return const DesktopCornerPopupChannel();
   }
