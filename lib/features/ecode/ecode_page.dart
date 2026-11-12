@@ -152,7 +152,6 @@ class EcodePage extends StatefulWidget {
 
 class _EcodePageState extends State<EcodePage> {
   WebViewController? _controller;
-  bool _interactive = false;
   bool _ready = false;
   String? _error;
 
@@ -298,19 +297,18 @@ class _EcodePageState extends State<EcodePage> {
     }
     return Stack(
       children: [
-        // 默认「轻点刷新」：忽略 webview 交互，点任意处（含二维码）即刷新。
+        // 轻点任意处（含二维码）即刷新：webview 不接收交互，用透明层接管点击。
         IgnorePointer(
-          ignoring: !_interactive,
+          ignoring: true,
           child: WebViewWidget(controller: controller),
         ),
-        if (!_interactive)
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _reload,
-              child: const SizedBox.expand(),
-            ),
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _reload,
+            child: const SizedBox.expand(),
           ),
+        ),
         // 加载/清洗完成前用底色盖住，避免官方页面内容一闪而过。
         if (!_ready && _error == null)
           const Positioned.fill(
@@ -340,25 +338,6 @@ class _EcodePageState extends State<EcodePage> {
               ),
             ),
           ),
-        Positioned(
-          right: 10,
-          bottom: 10,
-          child: Material(
-            color: AppColors.surface.withValues(alpha: 0.9),
-            shape: const CircleBorder(
-              side: BorderSide(color: Color(0x22000000)),
-            ),
-            child: IconButton(
-              tooltip: _interactive ? '切换到轻点刷新' : '切换到可交互（登录/滚动）',
-              onPressed: () => setState(() => _interactive = !_interactive),
-              icon: Icon(
-                _interactive ? Icons.touch_app_rounded : Icons.lock_open_rounded,
-                size: 18,
-                color: AppColors.muted,
-              ),
-            ),
-          ),
-        ),
       ],
     );
   }
