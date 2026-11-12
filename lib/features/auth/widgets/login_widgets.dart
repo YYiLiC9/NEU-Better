@@ -190,14 +190,6 @@ class _MobileHero extends StatelessWidget {
                     letterSpacing: -0.4,
                   ),
                 ),
-                SizedBox(height: compact ? 3 : 7),
-                Text(
-                  '少一点翻找，多一点从容。',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.68),
-                    fontSize: compact ? 9 : 10,
-                  ),
-                ),
               ],
             ),
           ),

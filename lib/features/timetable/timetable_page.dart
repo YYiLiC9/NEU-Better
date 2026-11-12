@@ -20,6 +20,20 @@ part 'widgets/timetable_day_agenda.dart';
 /// ProviderScope 层可在重建后立即恢复（含考试信息），不必再读磁盘。
 final timetableDataProvider = StateProvider<TimetableData?>((ref) => null);
 
+/// 课表视图状态（当前周 / 选中星期 / 周或日视图）的跨重建缓存：
+/// 主题切换会重挂载根子树，恢复这些状态避免跳回当前周/日视图，
+/// 从而避免「切主题后原本查看那周的考试标签消失」。
+class _TimetableViewState {
+  const _TimetableViewState({this.week, this.day, this.weekView = true});
+
+  final int? week;
+  final int? day;
+  final bool weekView;
+}
+
+final timetableViewProvider =
+    StateProvider<_TimetableViewState>((ref) => const _TimetableViewState());
+
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 /// 按「每周起始日」返回 7 列的显示顺序（元素是 1=周一 … 7=周日）。
@@ -96,15 +110,22 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   void initState() {
     super.initState();
     final shared = ref.read(timetableDataProvider);
+    final savedView = ref.read(timetableViewProvider);
+    _weekView = savedView.weekView;
     if (shared != null) {
-      // 从 Provider 恢复（主题重挂载后仍保留课表与考试数据）。
+      // 从 Provider 恢复（主题重挂载后仍保留课表、考试数据与正在查看的周）。
       _data = shared;
-      _week = TimetableSchedule(
-        shared,
-        weekStartSetting: ref.read(appSettingsProvider).weekStart,
-      ).nowWeek();
-      _selectedDay = _selectedDay.clamp(1, 7);
+      _week =
+          savedView.week ??
+          TimetableSchedule(
+            shared,
+            weekStartSetting: ref.read(appSettingsProvider).weekStart,
+          ).nowWeek();
+      _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
     } else {
+      if (savedView.day != null) {
+        _selectedDay = savedView.day!.clamp(1, 7);
+      }
       _loadCachedTimetable();
     }
     timetableChanged.addListener(_onTimetableChanged);
@@ -140,14 +161,26 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   /// 统一落数据：写入内存 + 共享 Provider，并刷新到当前教学周。
   void _applyData(TimetableData data) {
     ref.read(timetableDataProvider.notifier).state = data;
+    final savedView = ref.read(timetableViewProvider);
     setState(() {
       _data = data;
-      _week = TimetableSchedule(
-        data,
-        weekStartSetting: ref.read(appSettingsProvider).weekStart,
-      ).nowWeek();
-      _selectedDay = _selectedDay.clamp(1, 7);
+      _week =
+          savedView.week ??
+          TimetableSchedule(
+            data,
+            weekStartSetting: ref.read(appSettingsProvider).weekStart,
+          ).nowWeek();
+      _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
     });
+  }
+
+  /// 记录当前视图状态，供主题重挂载后恢复。
+  void _persistView() {
+    ref.read(timetableViewProvider.notifier).state = _TimetableViewState(
+      week: _week,
+      day: _selectedDay,
+      weekView: _weekView,
+    );
   }
 
   TimetableSchedule get _schedule => TimetableSchedule(
@@ -184,6 +217,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       _direction = next > _week ? 1 : -1;
       _week = next;
     });
+    _persistView();
   }
 
   /// 回到今天：周视图回到当前教学周；日视图还要把选中的星期切回今天。
@@ -196,6 +230,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       }
       _selectedDay = DateTime.now().weekday.clamp(1, 7);
     });
+    _persistView();
   }
 
   void _onWeekDrag(DragEndDetails details) {
@@ -208,8 +243,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     }
   }
 
-  /// 日视图水平滑动切换相邻星期；按当前「每周起始日」的显示顺序前进/后退，
-  /// 到显示序列两端不越界（保持不动）。
+  /// 日视图水平滑动切换星期；按「每周起始日」的显示顺序前进/后退，
+  /// 到序列两端时跨周：最后一天左滑进入下一周第一天，第一天右滑进入
+  /// 上一周最后一天，顶部 7 个日期标签随 _week / _selectedDay 自动更新。
   void _onDayDrag(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
     if (velocity.abs() <= 400) return;
@@ -217,8 +253,22 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     final index = days.indexOf(_selectedDay);
     if (index < 0) return;
     final nextIndex = velocity < 0 ? index + 1 : index - 1;
-    if (nextIndex < 0 || nextIndex >= days.length) return;
-    setState(() => _selectedDay = days[nextIndex]);
+    if (nextIndex >= 0 && nextIndex < days.length) {
+      setState(() => _selectedDay = days[nextIndex]);
+    } else if (velocity < 0) {
+      if (_week >= _data.totalWeeks) return;
+      setState(() {
+        _week += 1;
+        _selectedDay = days.first;
+      });
+    } else {
+      if (_week <= 1) return;
+      setState(() {
+        _week -= 1;
+        _selectedDay = days.last;
+      });
+    }
+    _persistView();
   }
 
   Future<void> _syncTimetable() async {
@@ -421,7 +471,10 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           sessions: _daySessions,
           exams: _dayExams,
           days: days,
-          onDayChanged: (day) => setState(() => _selectedDay = day),
+          onDayChanged: (day) {
+            setState(() => _selectedDay = day);
+            _persistView();
+          },
         ),
       ),
     );
@@ -493,7 +546,10 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         ),
         _ViewToggle(
           weekView: _weekView,
-          onChanged: (value) => setState(() => _weekView = value),
+          onChanged: (value) {
+            setState(() => _weekView = value);
+            _persistView();
+          },
         ),
         FilledButton.icon(
           onPressed: _syncTimetable,
@@ -593,7 +649,10 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
             const Spacer(),
             _ViewToggle(
               weekView: _weekView,
-              onChanged: (value) => setState(() => _weekView = value),
+              onChanged: (value) {
+            setState(() => _weekView = value);
+            _persistView();
+          },
               dense: true,
             ),
           ],

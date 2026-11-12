@@ -438,7 +438,9 @@ class _CourseCard extends StatelessWidget {
                 final maxW = inner.maxWidth;
                 return FittedBox(
                   fit: BoxFit.scaleDown,
-                  alignment: Alignment.topLeft,
+                  // 水平居中：长课名被整体等比缩小后，内容仍对准卡片中线，
+                  // 而不是缩到左上角显得左偏（课程/考试名称要求左右居中）。
+                  alignment: Alignment.topCenter,
                   child: SizedBox(
                     width: maxW,
                     child: Column(
