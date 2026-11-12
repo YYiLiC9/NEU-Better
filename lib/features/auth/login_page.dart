@@ -141,47 +141,64 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 );
               }
 
-              // 窄屏/手机：固定成一屏，不出现滚动条。
-              // 压缩版 hero + 居中卡片（FittedBox 兜底缩放，保证不溢出）
-              // + 页脚。卡片纵向居中，让学号输入框大体落在屏幕中部。
-              final heroHeight = math.min(152.0, constraints.maxHeight * 0.26);
+              // 窄屏/手机：固定成一屏，不出现滚动条。深色 hero 加高，
+              // 登录卡片上沿叠压到 hero 底部一点，形成层次。
+              final heroHeight = math.min(360.0, constraints.maxHeight * 0.50);
               final cardWidth = math.min(
                 460.0,
                 math.max(280.0, constraints.maxWidth - 36),
               );
               return Column(
                 children: [
-                  SizedBox(
-                    height: heroHeight,
-                    width: double.infinity,
-                    child: const _MobileHero(compact: true),
-                  ),
                   Expanded(
-                    child: Center(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: SizedBox(
-                          width: cardWidth,
-                          child: _buildCard(
-                            context,
-                            compact: true,
-                            showTabs: false,
-                            busy: busy,
-                            message: message,
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          top: 0,
+                          height: heroHeight,
+                          child: const _MobileHero(compact: true),
+                        ),
+                        Positioned.fill(
+                          child: Column(
+                            children: [
+                              SizedBox(height: heroHeight - 30),
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.topCenter,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: SizedBox(
+                                      width: cardWidth,
+                                      child: _buildCard(
+                                        context,
+                                        compact: true,
+                                        busy: busy,
+                                        message: message,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 2,
+                                  bottom: 14,
+                                ),
+                                child: Text(
+                                  '非官方 · 开源 · AGPL-3.0',
+                                  style: TextStyle(
+                                    color: AppColors.faint,
+                                    fontSize: 10,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2, bottom: 14),
-                    child: Text(
-                      '非官方 · 开源 · AGPL-3.0',
-                      style: TextStyle(
-                        color: AppColors.faint,
-                        fontSize: 10,
-                        letterSpacing: 0.4,
-                      ),
+                      ],
                     ),
                   ),
                 ],
@@ -198,7 +215,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     required bool compact,
     required bool busy,
     required String? message,
-    bool showTabs = true,
   }) {
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -256,10 +272,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ?.copyWith(fontSize: compact ? 12 : 13),
             ),
             SizedBox(height: compact ? 20 : 24),
-            if (showTabs) ...[
-              const _LoginTabs(),
-              SizedBox(height: compact ? 18 : 22),
-            ],
             _FieldLabel(label: '学号'),
             const SizedBox(height: 7),
             TextFormField(

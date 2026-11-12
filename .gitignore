@@ -46,3 +46,6 @@ dist/
 
 # Local test account (never commit)
 璐﹀彿.txt
+
+# 本地临时构建/截图
+/.tmp/

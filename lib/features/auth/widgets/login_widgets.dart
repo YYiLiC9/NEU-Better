@@ -61,10 +61,10 @@ class _BrandPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 13),
                   const Text(
-                    '你的校园，\n清楚一点。',
+                    '把琐碎留在这里，\n把时间还给自己。',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 36,
+                      fontSize: 34,
                       height: 1.45,
                       fontWeight: FontWeight.w600,
                       letterSpacing: -0.6,
@@ -95,13 +95,13 @@ class _BrandPanel extends StatelessWidget {
                         _BrandPoint(
                           icon: Icons.calendar_month_outlined,
                           title: '课表',
-                          description: '周视图 · 单双周 · 本地缓存',
+                          description: '一周安排，打开就看',
                         ),
                         SizedBox(height: 12),
                         _BrandPoint(
                           icon: Icons.lock_outline_rounded,
                           title: '一号通',
-                          description: '原生登录 · 快捷同步',
+                          description: '学校账号，直接登录',
                         ),
                       ],
                     ),
@@ -181,18 +181,18 @@ class _MobileHero extends StatelessWidget {
                 ),
                 SizedBox(height: compact ? 5 : 8),
                 Text(
-                  '你的校园，清楚一点。',
+                  '把琐碎留在这里，\n把时间还给自己。',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: compact ? 19 : 28,
-                    height: 1.3,
+                    fontSize: compact ? 18 : 28,
+                    height: 1.28,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.4,
                   ),
                 ),
                 SizedBox(height: compact ? 3 : 7),
                 Text(
-                  '课表、通知与校园服务，慢慢装进一个地方。',
+                  '少一点翻找，多一点从容。',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.68),
                     fontSize: compact ? 9 : 10,
@@ -203,54 +203,6 @@ class _MobileHero extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LoginTabs extends StatelessWidget {
-  const _LoginTabs();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          decoration: BoxDecoration(
-            color: AppColors.campusBlue.withValues(alpha: 0.09),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            '研究生',
-            style: TextStyle(
-              color: AppColors.campusBlue,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.line),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            '本科生 · 后续支持',
-            style: TextStyle(
-              color: AppColors.faint,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
