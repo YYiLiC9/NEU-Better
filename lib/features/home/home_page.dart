@@ -39,9 +39,17 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 0 = 课表, 1 = 寝室用电, 2 = e码通, 3 = 设置。
   int get _tab => ref.watch(homeTabProvider);
 
-  void _setTab(int value) => ref.read(homeTabProvider.notifier).state = value;
+  void _setTab(int value) {
+    if (value == 2 && !_ecodeVisited) {
+      setState(() => _ecodeVisited = true);
+    }
+    ref.read(homeTabProvider.notifier).state = value;
+  }
 
   DormPrefs? _statusPrefs;
+
+  /// e码通页首次进入后常驻（保留 WebView 状态），避免来回切换时重建/闪烁。
+  bool _ecodeVisited = false;
 
   @override
   void initState() {
@@ -161,8 +169,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       children: [
         TimetablePage(compact: true, mobile: true),
         DormPowerPage(),
-        // e码通懒加载：只有切到该页时才创建 WebView，避免启动即联网。
-        _tab == 2
+        // e码通首次进入后常驻，避免来回切换重建闪烁。
+        (_ecodeVisited || _tab == 2)
             ? EcodePage(session: widget.session)
             : const SizedBox.shrink(),
         MobileSettingsPage(onLogout: _logout),
@@ -328,7 +336,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             children: [
               TimetablePage(),
               DormPowerPage(),
-              _tab == 2
+              (_ecodeVisited || _tab == 2)
                   ? EcodePage(session: widget.session)
                   : const SizedBox.shrink(),
               const SizedBox.shrink(),

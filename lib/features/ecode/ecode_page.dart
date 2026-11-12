@@ -6,11 +6,68 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
 
-/// 官方 e码通（校园动态凭证）H5 页面。
-/// 官方 App 本身就是用远端 H5 承载 e码通（见 NEUReverse 报告），这里沿用
-/// 同一套做法：内嵌 webview 打开官方页面，并把 CAS 登录态（CASTGC）注入
-/// pass/webvpn 域，使页面自动完成 SSO，从而显示可刷新的校园二维码。
+/// 官方 e码通（校园动态凭证）H5。
+/// 官方 App 本身即用远端 H5 承载 e码通（见 NEUReverse 报告），这里沿用同一
+/// 做法：内嵌 webview 打开官方页面并注入 CAS 登录态自动 SSO，同时用注入的
+/// JS 把官方页面「除了二维码以外的所有内容」隐藏，只保留一个干净的二维码，
+/// 由本 App 自己的界面承载标题与刷新。
 const String _ecodeUrl = 'https://ecode.neu.edu.cn/ecode/#/';
+
+/// 只保留页面中的二维码：隐藏其余内容并把二维码居中放大。
+/// 脚本会自我轮询（页面/JS 渲染后二维码才出现）并监听 DOM 变化，重复应用。
+const String _cleanScript = r"""
+(function(){
+  function square(r){
+    if(r.width<120||r.height<120) return false;
+    var d=Math.abs(r.width-r.height);
+    return d < Math.max(r.width,r.height)*0.28;
+  }
+  function pick(){
+    var els=[].slice.call(document.querySelectorAll('img,canvas'));
+    var best=null,area=0;
+    els.forEach(function(el){
+      if(el.tagName==='IMG' && (el.naturalWidth&&el.naturalWidth<60)) return;
+      var r=el.getBoundingClientRect();
+      if(square(r)){var a=r.width*r.height; if(a>area){area=a;best=el;}}
+    });
+    if(!best){
+      var c=[].slice.call(document.querySelectorAll('canvas,img')).filter(function(e){var r=e.getBoundingClientRect();return r.width>80&&r.height>80;});
+      if(c.length){c.sort(function(a,b){return b.getBoundingClientRect().width-a.getBoundingClientRect().width;});best=c[0];}
+    }
+    return best;
+  }
+  function apply(){
+    try{
+      var t=pick();
+      if(!t) return false;
+      var chain=[],n=t;
+      while(n&&n!==document.body){chain.push(n);n=n.parentElement;}
+      chain.reverse();
+      chain.forEach(function(el){
+        if(el.parentElement){
+          [].slice.call(el.parentElement.children).forEach(function(s){ if(s!==el) s.style.display='none'; });
+        }
+        el.style.background='transparent'; el.style.boxShadow='none'; el.style.border='0';
+      });
+      document.documentElement.style.background='#F6F8FB';
+      document.body.style.margin='0';
+      document.body.style.background='#F6F8FB';
+      var m=Math.min(window.innerWidth,window.innerHeight)*0.62;
+      t.style.position='fixed'; t.style.left='50%'; t.style.top='50%';
+      t.style.transform='translate(-50%,-50%)';
+      t.style.width=m+'px'; t.style.height=m+'px';
+      t.style.maxWidth='92vw'; t.style.maxHeight='92vw';
+      t.style.zIndex='2147483647'; t.style.display='block';
+      if(window.EcodeBridge){ window.EcodeBridge.postMessage('ready'); }
+      return true;
+    }catch(e){ return false; }
+  }
+  if(apply()){ return 'first'; }
+  var n=0, iv=setInterval(function(){ n++; if(apply()||n>50){ clearInterval(iv); } }, 150);
+  try{ var mo=new MutationObserver(function(){ apply(); }); mo.observe(document.body,{childList:true,subtree:true,attributes:true}); setTimeout(function(){ mo.disconnect(); },12000); }catch(e){}
+  return 'poll';
+})();
+""";
 
 class EcodePage extends StatefulWidget {
   const EcodePage({super.key, required this.session});
@@ -24,7 +81,7 @@ class EcodePage extends StatefulWidget {
 class _EcodePageState extends State<EcodePage> {
   WebViewController? _controller;
   bool _interactive = false;
-  bool _loading = true;
+  bool _ready = false;
   String? _error;
 
   @override
@@ -36,24 +93,29 @@ class _EcodePageState extends State<EcodePage> {
   }
 
   Future<void> _bootstrap() async {
-    final controller = WebViewController()
+    final controller = WebViewController();
+    controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(AppColors.surface)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (_) {
-            if (mounted) setState(() => _loading = true);
-          },
-          onPageFinished: (_) {
-            if (mounted) setState(() => _loading = false);
-          },
-          onWebResourceError: (error) {
-            if (mounted && error.isForMainFrame == true) {
-              setState(() => _error = error.description);
-            }
-          },
-        ),
+      ..setBackgroundColor(const Color(0xFFF6F8FB))
+      ..addJavaScriptChannel(
+        'EcodeBridge',
+        onMessageReceived: (message) {
+          if (!mounted) return;
+          if (message.message == 'ready' && !_ready) {
+            setState(() => _ready = true);
+          }
+        },
       );
+    controller.setNavigationDelegate(
+      NavigationDelegate(
+        onPageFinished: (_) => controller.runJavaScript(_cleanScript),
+        onWebResourceError: (error) {
+          if (mounted && error.isForMainFrame == true) {
+            setState(() => _error = error.description);
+          }
+        },
+      ),
+    );
     await _injectCookies();
     await controller.loadRequest(Uri.parse(_ecodeUrl));
     if (mounted) setState(() => _controller = controller);
@@ -78,7 +140,7 @@ class _EcodePageState extends State<EcodePage> {
             WebViewCookie(name: name, value: value, domain: host, path: '/'),
           );
         } catch (_) {
-          // 某些平台不支持设置 Cookie，忽略即可（SSO 会退回交互登录）。
+          // 某些平台不支持设置 Cookie，忽略（SSO 会退回交互登录）。
         }
       }
     }
@@ -87,7 +149,7 @@ class _EcodePageState extends State<EcodePage> {
   Future<void> _reload() async {
     setState(() {
       _error = null;
-      _loading = true;
+      _ready = false;
     });
     await _controller?.reload();
   }
@@ -133,7 +195,11 @@ class _EcodePageState extends State<EcodePage> {
           IconButton(
             tooltip: '刷新二维码',
             onPressed: _controller == null ? null : _reload,
-            icon: Icon(Icons.refresh_rounded, size: 20, color: AppColors.campusBlue),
+            icon: Icon(
+              Icons.refresh_rounded,
+              size: 20,
+              color: AppColors.campusBlue,
+            ),
           ),
         ],
       ),
@@ -150,8 +216,7 @@ class _EcodePageState extends State<EcodePage> {
     }
     return Stack(
       children: [
-        // 默认「轻点刷新」模式：忽略 webview 交互，任何点击都触发刷新，
-        // 这样点中间的二维码即可刷新；点右上角切换按钮可进入交互模式（登录）。
+        // 默认「轻点刷新」：忽略 webview 交互，点任意处（含二维码）即刷新。
         IgnorePointer(
           ignoring: !_interactive,
           child: WebViewWidget(controller: controller),
@@ -164,10 +229,11 @@ class _EcodePageState extends State<EcodePage> {
               child: const SizedBox.expand(),
             ),
           ),
-        if (_loading)
+        // 加载/清洗完成前用底色盖住，避免官方页面内容一闪而过。
+        if (!_ready && _error == null)
           Positioned.fill(
             child: Container(
-              color: AppColors.surface.withValues(alpha: 0.82),
+              color: const Color(0xFFF6F8FB),
               child: const Center(child: CircularProgressIndicator()),
             ),
           ),
@@ -198,7 +264,7 @@ class _EcodePageState extends State<EcodePage> {
           child: Material(
             color: AppColors.surface.withValues(alpha: 0.9),
             shape: const CircleBorder(
-              side: BorderSide(color: Color(0x33000000)),
+              side: BorderSide(color: Color(0x22000000)),
             ),
             child: IconButton(
               tooltip: _interactive ? '切换到轻点刷新' : '切换到可交互（登录/滚动）',
