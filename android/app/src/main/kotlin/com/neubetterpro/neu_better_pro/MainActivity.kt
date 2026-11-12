@@ -14,6 +14,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import java.io.File
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -62,6 +64,46 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // 自动更新：把下载好的 apk 交给系统安装器。
+        val updaterChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "neu_better/updater",
+        )
+        updaterChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "installApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrEmpty()) {
+                        result.error("bad_args", "path is null", null)
+                    } else {
+                        try {
+                            installApk(path)
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("install_failed", error.message, null)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    /** 用 FileProvider 授权的 content:// 触发系统安装未知来源应用。 */
+    private fun installApk(path: String) {
+        val file = File(path)
+        require(file.exists()) { "apk not found: $path" }
+        val uri = FileProvider.getUriForFile(
+            this,
+            "$packageName.fileprovider",
+            file,
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     override fun onNewIntent(intent: Intent) {

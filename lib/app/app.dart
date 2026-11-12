@@ -5,8 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/windows_window.dart';
 import '../core/settings/app_settings.dart';
+import '../core/update/update_flow.dart';
 import '../features/auth/auth_gate.dart';
 import 'theme/app_theme.dart';
+
+/// 根导航 key：供启动时的自动更新检查在没有 BuildContext 的情况下弹窗。
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class NeuBetterApp extends ConsumerStatefulWidget {
   const NeuBetterApp({super.key});
@@ -26,6 +30,12 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
     );
     _applyWindowSettings(ref.read(appSettingsProvider));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!ref.read(appSettingsProvider).autoUpdate) return;
+      final ctx = _rootNavigatorKey.currentContext;
+      if (ctx != null) unawaited(checkForUpdates(ctx));
+    });
   }
 
   void _applyWindowSettings(AppSettingsController settings) {
@@ -64,6 +74,7 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     );
 
     return MaterialApp(
+      navigatorKey: _rootNavigatorKey,
       title: 'NEU Better',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,

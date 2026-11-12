@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
+import '../../core/update/update_flow.dart';
 
 part 'widgets/settings_widgets.dart';
 
@@ -116,6 +117,42 @@ class _SettingsDialog extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             const _SectionLabel(
+              icon: Icons.system_update_alt_rounded,
+              label: '更新',
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.canvas,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: Column(
+                children: [
+                  _SwitchRow(
+                    icon: Icons.autorenew_rounded,
+                    title: '自动检查更新（来源 GitHub）',
+                    value: settings.autoUpdate,
+                    onChanged: controller.setAutoUpdate,
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => checkForUpdates(context, manual: true),
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('检查更新'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.campusBlue,
+                        textStyle: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const _SectionLabel(
               icon: Icons.desktop_windows_outlined,
               label: '窗口',
             ),
@@ -222,6 +259,42 @@ class MobileSettingsPage extends ConsumerWidget {
         _WeekStartSelector(
           value: settings.weekStart,
           onChanged: controller.setWeekStart,
+        ),
+        const SizedBox(height: 20),
+        const _SectionLabel(
+          icon: Icons.system_update_alt_rounded,
+          label: '更新',
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.canvas,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: AppColors.line),
+          ),
+          child: Column(
+            children: [
+              _SwitchRow(
+                icon: Icons.autorenew_rounded,
+                title: '自动检查更新（来源 GitHub）',
+                value: settings.autoUpdate,
+                onChanged: controller.setAutoUpdate,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => checkForUpdates(context, manual: true),
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('检查更新'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.campusBlue,
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 24),
         const _Footnote(),

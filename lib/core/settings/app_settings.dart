@@ -27,6 +27,7 @@ class AppSettings {
     this.showTrayIcon = true,
     this.weekStart = WeekStart.monday,
     this.timetableWeekView = true,
+    this.autoUpdate = true,
   });
 
   final ThemePreference themePreference;
@@ -38,6 +39,9 @@ class AppSettings {
   final WeekStart weekStart;
   final bool timetableWeekView;
 
+  /// 是否自动检查并从 GitHub 更新。
+  final bool autoUpdate;
+
   AppSettings copyWith({
     ThemePreference? themePreference,
     bool? scheduledTheme,
@@ -47,6 +51,7 @@ class AppSettings {
     bool? showTrayIcon,
     WeekStart? weekStart,
     bool? timetableWeekView,
+    bool? autoUpdate,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -57,6 +62,7 @@ class AppSettings {
       showTrayIcon: showTrayIcon ?? this.showTrayIcon,
       weekStart: weekStart ?? this.weekStart,
       timetableWeekView: timetableWeekView ?? this.timetableWeekView,
+      autoUpdate: autoUpdate ?? this.autoUpdate,
     );
   }
 
@@ -70,6 +76,7 @@ class AppSettings {
       'showTrayIcon': showTrayIcon,
       'weekStart': weekStart.name,
       'timetableWeekView': timetableWeekView,
+      'autoUpdate': autoUpdate,
     };
   }
 
@@ -94,6 +101,7 @@ class AppSettings {
         json['timetableWeekView'],
         defaults.timetableWeekView,
       ),
+      autoUpdate: _parseBool(json['autoUpdate'], defaults.autoUpdate),
     );
   }
 
@@ -250,6 +258,7 @@ class AppSettingsController extends ChangeNotifier {
   bool get showTrayIcon => _settings.showTrayIcon;
   WeekStart get weekStart => _settings.weekStart;
   bool get timetableWeekView => _settings.timetableWeekView;
+  bool get autoUpdate => _settings.autoUpdate;
   Brightness get platformBrightness => _platformBrightness;
 
   /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
@@ -318,6 +327,12 @@ class AppSettingsController extends ChangeNotifier {
   void setTimetableWeekView(bool value) {
     if (_settings.timetableWeekView == value) return;
     _settings = _settings.copyWith(timetableWeekView: value);
+    _commit();
+  }
+
+  void setAutoUpdate(bool value) {
+    if (_settings.autoUpdate == value) return;
+    _settings = _settings.copyWith(autoUpdate: value);
     _commit();
   }
 
