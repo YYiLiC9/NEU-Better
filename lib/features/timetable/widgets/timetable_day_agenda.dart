@@ -35,7 +35,7 @@ class _DayAgenda extends StatelessWidget {
               for (var index = 0; index < days.length; index++) ...[
                 _DayChip(
                   label: _weekdays[days[index] - 1],
-                  date: weekStart?.add(Duration(days: days[index] - 1)),
+                  date: weekStart?.add(Duration(days: index)),
                   active: days[index] == selectedDay,
                   onTap: () => onDayChanged(days[index]),
                 ),
@@ -79,7 +79,7 @@ class _DayAgenda extends StatelessWidget {
           ],
         const SizedBox(height: 4),
         Text(
-          '第 $week 周 · ${_weekdays[selectedDay - 1]}',
+          '第 $week 周',
           style: TextStyle(color: AppColors.faint, fontSize: 9),
         ),
       ],

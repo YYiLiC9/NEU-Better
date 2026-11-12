@@ -52,7 +52,9 @@ class _WeekGrid extends StatelessWidget {
                     Expanded(
                       child: _DayHeader(
                         label: _weekdays[day - 1],
-                        date: weekStart?.add(Duration(days: day - 1)),
+                        date: weekStart?.add(
+                          Duration(days: days.indexOf(day)),
+                        ),
                         isToday: today && day == now.weekday,
                       ),
                     ),
@@ -147,7 +149,9 @@ class _WeekGrid extends StatelessWidget {
                                       weekStart != null &&
                                       _sameDay(
                                         e.date,
-                                        weekStart!.add(Duration(days: day - 1)),
+                                        weekStart!.add(
+                                          Duration(days: days.indexOf(day)),
+                                        ),
                                       ),
                                 )
                                 .toList(),
@@ -441,15 +445,20 @@ class _CourseCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          session.name,
-                          softWrap: true,
-                          overflow: TextOverflow.clip,
-                          style: TextStyle(
-                            color: inkColor,
-                            fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
-                            height: 1.2,
-                            fontWeight: FontWeight.w600,
+                        // 课程名整体居中；地点/教师保持居左。
+                        SizedBox(
+                          width: maxW,
+                          child: Text(
+                            session.name,
+                            textAlign: TextAlign.center,
+                            softWrap: true,
+                            overflow: TextOverflow.clip,
+                            style: TextStyle(
+                              color: inkColor,
+                              fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
+                              height: 1.2,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         if (showRoom) ...[

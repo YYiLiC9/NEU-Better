@@ -3,10 +3,13 @@ package com.neubetterpro.neu_better_pro
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -18,6 +21,12 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val notificationPermissionRequestCode = 4201
 
+    /** Flutter 就绪后建立的通道；点击通知时用它向 Dart 回调 openDorm。 */
+    private var notificationChannel: MethodChannel? = null
+
+    /** 冷启动时应用尚未开始监听，先把「待打开寝室用电」记下来等 Dart 来取。 */
+    private var pendingOpenDorm = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ensureElectricityAlertChannel()
@@ -26,22 +35,61 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "showElectricityAlert" -> {
-                        val title = call.argument<String>("title") ?: "寝室电量不足"
-                        val body = call.argument<String>("body") ?: ""
-                        try {
-                            showElectricityAlert(title, body)
-                            result.success(true)
-                        } catch (error: Exception) {
-                            result.error("show_failed", error.message, null)
-                        }
+        // 冷启动：若 Activity 由「点击用电提醒通知」拉起，先记下待处理请求，
+        // 等 Dart 侧 HomePage 就绪后通过 getPendingOpenDorm 取走。
+        handleLaunchIntent(intent)
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
+        notificationChannel = channel
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "showElectricityAlert" -> {
+                    val title = call.argument<String>("title") ?: "寝室电量不足"
+                    val body = call.argument<String>("body") ?: ""
+                    try {
+                        showElectricityAlert(title, body)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("show_failed", error.message, null)
                     }
-                    else -> result.notImplemented()
                 }
+                // 冷启动兜底：取走待处理请求并复位，避免重复跳转。
+                "getPendingOpenDorm" -> {
+                    val pending = pendingOpenDorm
+                    pendingOpenDorm = false
+                    Log.d(LOG_TAG, "getPendingOpenDorm -> $pending")
+                    result.success(pending)
+                }
+                else -> result.notImplemented()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 复用已有 Activity（singleTop）时更新当前 intent，再处理跳转。
+        setIntent(intent)
+        val wantsOpenDorm = intent.getBooleanExtra(EXTRA_OPEN_DORM, false)
+        if (!wantsOpenDorm) return
+        intent.removeExtra(EXTRA_OPEN_DORM)
+        val channel = notificationChannel
+        if (channel != null) {
+            // 应用已在运行：直接回调 Dart 切到寝室用电页。
+            Log.d(LOG_TAG, "onNewIntent openDorm -> invoke Dart openDorm")
+            channel.invokeMethod("openDorm", null)
+        } else {
+            Log.d(LOG_TAG, "onNewIntent openDorm -> channel not ready, mark pending")
+            pendingOpenDorm = true
+        }
+    }
+
+    /** 处理启动 intent：若带 openDorm extra，记为待处理并清掉 extra 防重复触发。 */
+    private fun handleLaunchIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.getBooleanExtra(EXTRA_OPEN_DORM, false)) {
+            pendingOpenDorm = true
+            intent.removeExtra(EXTRA_OPEN_DORM)
+            Log.d(LOG_TAG, "handleLaunchIntent openDorm -> mark pending (cold start)")
+        }
     }
 
     /** 创建 IMPORTANCE_HIGH 的用电提醒渠道：允许横幅（heads-up）、声音与震动。 */
@@ -78,7 +126,22 @@ class MainActivity : FlutterActivity() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
+            .setContentIntent(buildOpenDormPendingIntent())
         NotificationManagerCompat.from(this).notify(ALERT_NOTIFICATION_ID, builder.build())
+    }
+
+    /** 点击通知 → 复用/拉起 MainActivity 并带上 openDorm extra。 */
+    private fun buildOpenDormPendingIntent(): PendingIntent {
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_DORM, true)
+        }
+        return PendingIntent.getActivity(
+            this,
+            REQUEST_CODE_OPEN_DORM,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     private fun hasNotificationPermission(): Boolean {
@@ -105,5 +168,8 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL_NAME = "neu_better/notifications"
         private const val ALERT_CHANNEL_ID = "electricity_alert"
         private const val ALERT_NOTIFICATION_ID = 0xE1EC
+        private const val EXTRA_OPEN_DORM = "openDorm"
+        private const val REQUEST_CODE_OPEN_DORM = 0x0D0E
+        private const val LOG_TAG = "NEUNotify"
     }
 }

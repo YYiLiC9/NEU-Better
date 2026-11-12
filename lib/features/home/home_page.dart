@@ -37,6 +37,11 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   void initState() {
     super.initState();
+    // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
+    // 再查询冷启动时原生是否已有待处理请求。
+    NotificationRouter.ensureHandlerInstalled();
+    NotificationRouter.openDormSignal.addListener(_handleOpenDorm);
+    unawaited(NotificationRouter.consumePending());
     _loadStatus();
     dormPrefsChanged.addListener(_loadStatus);
     final settings = ref.read(appSettingsProvider);
@@ -64,8 +69,16 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   void dispose() {
+    NotificationRouter.openDormSignal.removeListener(_handleOpenDorm);
     dormPrefsChanged.removeListener(_loadStatus);
     super.dispose();
+  }
+
+  /// 收到通知点击请求：切到「寝室用电」页（tab 1）。
+  void _handleOpenDorm() {
+    if (!mounted) return;
+    debugPrint('[notify] openDorm -> switch to tab 1 (寝室用电)');
+    setState(() => _tab = 1);
   }
 
   Future<void> _loadStatus() async {

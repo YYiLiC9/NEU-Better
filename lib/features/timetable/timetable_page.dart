@@ -120,12 +120,18 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     if (!force && !_data.isSample) return;
     setState(() {
       _data = cached;
-      _week = cached.weekFor(DateTime.now());
+      _week = TimetableSchedule(
+        cached,
+        weekStartSetting: ref.read(appSettingsProvider).weekStart,
+      ).nowWeek();
       _selectedDay = _selectedDay.clamp(1, 7);
     });
   }
 
-  TimetableSchedule get _schedule => TimetableSchedule(_data);
+  TimetableSchedule get _schedule => TimetableSchedule(
+    _data,
+    weekStartSetting: ref.read(appSettingsProvider).weekStart,
+  );
 
   int get _nowWeek => _schedule.nowWeek();
 
@@ -171,11 +177,11 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   }
 
   void _onWeekDrag(DragEndDetails details) {
-    // 阈值从 ±120 提到 ±400（px/s）：轻扫不再误翻周，需要明显的一次滑动。
+    // 阻尼加大：阈值从 ±400 提到 ±900（px/s），需要明显、快速的一次滑动才翻周。
     final velocity = details.primaryVelocity ?? 0;
-    if (velocity < -400) {
+    if (velocity < -900) {
       _changeWeek(_week + 1);
-    } else if (velocity > 400) {
+    } else if (velocity > 900) {
       _changeWeek(_week - 1);
     }
   }
@@ -202,7 +208,10 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     if (!mounted) return;
     setState(() {
       _data = imported;
-      _week = imported.weekFor(DateTime.now());
+      _week = TimetableSchedule(
+        imported,
+        weekStartSetting: ref.read(appSettingsProvider).weekStart,
+      ).nowWeek();
       _selectedDay = _selectedDay.clamp(1, 7);
     });
   }

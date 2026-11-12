@@ -19,12 +19,13 @@ class _ExamCard extends StatelessWidget {
   final ExamEntry exam;
   final bool compact;
 
-  String get _timeLabel {
-    if (exam.startTime == null) return '';
-    return exam.endTime == null
-        ? exam.startTime!
-        : '${exam.startTime}–${exam.endTime}';
-  }
+  TextStyle _timeStyle(double size) => TextStyle(
+    color: _ExamColors.accent,
+    fontSize: size,
+    height: 1.2,
+    fontWeight: FontWeight.w500,
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -68,34 +69,39 @@ class _ExamCard extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    exam.name,
-                                    softWrap: true,
-                                    overflow: TextOverflow.clip,
-                                    style: TextStyle(
-                                      color: _ExamColors.accent,
-                                      fontSize: 10,
-                                      height: 1.15,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  if (_timeLabel.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _timeLabel,
-                                      maxLines: 1,
-                                      softWrap: false,
+                                  SizedBox(
+                                    width: constraints.maxWidth,
+                                    child: Text(
+                                      exam.name,
+                                      textAlign: TextAlign.center,
+                                      softWrap: true,
                                       overflow: TextOverflow.clip,
                                       style: TextStyle(
                                         color: _ExamColors.accent,
-                                        fontSize: 8,
-                                        height: 1.2,
-                                        fontWeight: FontWeight.w500,
-                                        fontFeatures: const [
-                                          FontFeature.tabularFigures(),
-                                        ],
+                                        fontSize: 10,
+                                        height: 1.15,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
+                                  ),
+                                  if (exam.startTime != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      exam.startTime!,
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.clip,
+                                      style: _timeStyle(8),
+                                    ),
+                                    if (exam.endTime != null &&
+                                        exam.endTime!.isNotEmpty)
+                                      Text(
+                                        exam.endTime!,
+                                        maxLines: 1,
+                                        softWrap: false,
+                                        overflow: TextOverflow.clip,
+                                        style: _timeStyle(8),
+                                      ),
                                   ],
                                   if (detail.isNotEmpty) ...[
                                     const SizedBox(height: 1),
@@ -164,20 +170,12 @@ class _ExamCard extends StatelessWidget {
                                     ),
                                   ],
                                 ),
-                                if (_timeLabel.isNotEmpty) ...[
+                                if (exam.startTime != null) ...[
                                   const SizedBox(height: 3),
-                                  Text(
-                                    _timeLabel,
-                                    style: TextStyle(
-                                      color: _ExamColors.accent,
-                                      fontSize: 10,
-                                      height: 1.3,
-                                      fontWeight: FontWeight.w500,
-                                      fontFeatures: [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
-                                  ),
+                                  Text(exam.startTime!, style: _timeStyle(10)),
+                                  if (exam.endTime != null &&
+                                      exam.endTime!.isNotEmpty)
+                                    Text(exam.endTime!, style: _timeStyle(10)),
                                 ],
                                 if (detail.isNotEmpty) ...[
                                   const SizedBox(height: 2),

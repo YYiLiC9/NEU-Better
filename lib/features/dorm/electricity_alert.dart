@@ -91,6 +91,47 @@ class AndroidHeadsUpChannel implements ElectricityAlertChannel {
   }
 }
 
+/// 通知点击路由：用户点击系统「用电提醒」通知后，把应用带到「寝室用电」页。
+///
+/// 原生 [MainActivity] 在通知上挂了 PendingIntent（extra `openDorm=true`），点击后
+/// 复用 MainActivity，并通过同一 MethodChannel `neu_better/notifications` 回调
+/// `openDorm`。此处集中注册唯一的 MethodCallHandler（与 [AndroidHeadsUpChannel]
+/// 共用同一通道名，避免重复设置 handler 互相覆盖），用 [openDormSignal] 通知界面。
+class NotificationRouter {
+  NotificationRouter._();
+
+  /// 每次收到「打开寝室用电」请求时自增，界面侧监听即可切 tab。
+  static final ValueNotifier<int> openDormSignal = ValueNotifier<int>(0);
+
+  static bool _handlerInstalled = false;
+
+  /// 安装 MethodChannel 回调（幂等，只装一次）。
+  static void ensureHandlerInstalled() {
+    if (_handlerInstalled) return;
+    _handlerInstalled = true;
+    AndroidHeadsUpChannel.channel.setMethodCallHandler((call) async {
+      if (call.method == 'openDorm') {
+        openDormSignal.value++;
+      }
+      return null;
+    });
+  }
+
+  /// 冷启动兜底：应用因点击通知而被拉起时，`openDorm` 回调可能早于界面监听，
+  /// 主动向原生查询是否有待处理的请求；有则触发一次路由信号。
+  static Future<void> consumePending() async {
+    try {
+      final pending = await AndroidHeadsUpChannel.channel
+          .invokeMethod<bool>('getPendingOpenDorm');
+      if (pending == true) {
+        openDormSignal.value++;
+      }
+    } catch (_) {
+      // 非 Android 引擎无此实现（MissingPluginException 等），忽略。
+    }
+  }
+}
+
 /// 预留：桌面右下角应用内弹窗渠道（当前为占位实现，no-op + 记日志）。
 ///
 /// 设计意图：在不依赖系统通知中心、或以应用内浮层为主的场景下，由 Flutter
