@@ -27,6 +27,19 @@ class _ExamCard extends StatelessWidget {
     fontFeatures: const [FontFeature.tabularFigures()],
   );
 
+  /// 长考试名在窄卡片里逐字竖排很难看；按每 3 个字符一行折行，
+  /// 读起来更自然（短名不超过 3 字则原样返回）。
+  String _wrapThreePerLine(String name) {
+    final runes = name.runes.toList();
+    if (runes.length <= 3) return name;
+    final buffer = StringBuffer();
+    for (var i = 0; i < runes.length; i++) {
+      if (i > 0 && i % 3 == 0) buffer.write('\n');
+      buffer.writeCharCode(runes[i]);
+    }
+    return buffer.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = exam.room.trim();
@@ -60,6 +73,10 @@ class _ExamCard extends StatelessWidget {
                         builder: (context, constraints) {
                           // 考试卡高度固定（1 格或 2 格），用 FittedBox 保证科目、时间、
                           // 地点/考号在有限高度内始终完整可见，不因卡片矮而丢字段。
+                          // 名字按每行 3 字折行；字号按卡片宽度自适应，保证 3 个字一定
+                          // 放得下（不会退化成每行 1 字的竖排）。
+                          final nameFont =
+                              (constraints.maxWidth / 3.2).clamp(7.0, 11.0);
                           return FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.topLeft,
@@ -72,13 +89,14 @@ class _ExamCard extends StatelessWidget {
                                   SizedBox(
                                     width: constraints.maxWidth,
                                     child: Text(
-                                      exam.name,
+                                      _wrapThreePerLine(exam.name),
                                       textAlign: TextAlign.center,
-                                      softWrap: true,
+                                      softWrap: false,
+                                      maxLines: null,
                                       overflow: TextOverflow.clip,
                                       style: TextStyle(
                                         color: _ExamColors.accent,
-                                        fontSize: 10,
+                                        fontSize: nameFont,
                                         height: 1.15,
                                         fontWeight: FontWeight.w700,
                                       ),

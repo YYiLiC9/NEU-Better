@@ -26,6 +26,7 @@ class AppSettings {
     this.minimizeOnClose = true,
     this.showTrayIcon = true,
     this.weekStart = WeekStart.monday,
+    this.timetableWeekView = true,
   });
 
   final ThemePreference themePreference;
@@ -35,6 +36,7 @@ class AppSettings {
   final bool minimizeOnClose;
   final bool showTrayIcon;
   final WeekStart weekStart;
+  final bool timetableWeekView;
 
   AppSettings copyWith({
     ThemePreference? themePreference,
@@ -44,6 +46,7 @@ class AppSettings {
     bool? minimizeOnClose,
     bool? showTrayIcon,
     WeekStart? weekStart,
+    bool? timetableWeekView,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -53,6 +56,7 @@ class AppSettings {
       minimizeOnClose: minimizeOnClose ?? this.minimizeOnClose,
       showTrayIcon: showTrayIcon ?? this.showTrayIcon,
       weekStart: weekStart ?? this.weekStart,
+      timetableWeekView: timetableWeekView ?? this.timetableWeekView,
     );
   }
 
@@ -65,6 +69,7 @@ class AppSettings {
       'minimizeOnClose': minimizeOnClose,
       'showTrayIcon': showTrayIcon,
       'weekStart': weekStart.name,
+      'timetableWeekView': timetableWeekView,
     };
   }
 
@@ -85,6 +90,10 @@ class AppSettings {
       ),
       showTrayIcon: _parseBool(json['showTrayIcon'], defaults.showTrayIcon),
       weekStart: _parseWeekStart(json['weekStart']),
+      timetableWeekView: _parseBool(
+        json['timetableWeekView'],
+        defaults.timetableWeekView,
+      ),
     );
   }
 
@@ -240,6 +249,7 @@ class AppSettingsController extends ChangeNotifier {
   bool get minimizeOnClose => _settings.minimizeOnClose;
   bool get showTrayIcon => _settings.showTrayIcon;
   WeekStart get weekStart => _settings.weekStart;
+  bool get timetableWeekView => _settings.timetableWeekView;
   Brightness get platformBrightness => _platformBrightness;
 
   /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
@@ -302,6 +312,12 @@ class AppSettingsController extends ChangeNotifier {
   void setWeekStart(WeekStart value) {
     if (_settings.weekStart == value) return;
     _settings = _settings.copyWith(weekStart: value);
+    _commit();
+  }
+
+  void setTimetableWeekView(bool value) {
+    if (_settings.timetableWeekView == value) return;
+    _settings = _settings.copyWith(timetableWeekView: value);
     _commit();
   }
 

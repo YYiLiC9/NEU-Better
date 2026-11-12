@@ -111,7 +111,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     super.initState();
     final shared = ref.read(timetableDataProvider);
     final savedView = ref.read(timetableViewProvider);
-    _weekView = savedView.weekView;
+    // 周/日视图选择持久化在 settings.json；冷启动与主题重挂载都从设置读取。
+    _weekView = ref.read(appSettingsProvider).timetableWeekView;
     if (shared != null) {
       // 从 Provider 恢复（主题重挂载后仍保留课表、考试数据与正在查看的周）。
       _data = shared;
@@ -561,6 +562,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           weekView: _weekView,
           onChanged: (value) {
             setState(() => _weekView = value);
+            ref
+                .read(appSettingsProvider.notifier)
+                .setTimetableWeekView(value);
             _persistView();
           },
         ),
@@ -664,6 +668,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
               weekView: _weekView,
               onChanged: (value) {
             setState(() => _weekView = value);
+            ref
+                .read(appSettingsProvider.notifier)
+                .setTimetableWeekView(value);
             _persistView();
           },
               dense: true,
