@@ -13,13 +13,14 @@ import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import '../dorm/electricity_service.dart';
+import '../ecode/ecode_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
 import '../timetable/timetable_sync.dart';
 
 part 'widgets/home_chrome.dart';
 
-/// 当前选中的页面（0 = 课表, 1 = 寝室用电, 2 = 设置）。
+/// 当前选中的页面（0 = 课表, 1 = 寝室用电, 2 = e码通, 3 = 设置）。
 /// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
 final homeTabProvider = StateProvider<int>((ref) => 0);
 
@@ -35,7 +36,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   final _elecService = DormElectricityService();
 
-  /// 0 = 课表, 1 = 寝室用电, 2 = 设置。
+  /// 0 = 课表, 1 = 寝室用电, 2 = e码通, 3 = 设置。
   int get _tab => ref.watch(homeTabProvider);
 
   void _setTab(int value) => ref.read(homeTabProvider.notifier).state = value;
@@ -160,6 +161,10 @@ class _HomePageState extends ConsumerState<HomePage> {
       children: [
         TimetablePage(compact: true, mobile: true),
         DormPowerPage(),
+        // e码通懒加载：只有切到该页时才创建 WebView，避免启动即联网。
+        _tab == 2
+            ? EcodePage(session: widget.session)
+            : const SizedBox.shrink(),
         MobileSettingsPage(onLogout: _logout),
       ],
     );
@@ -207,6 +212,11 @@ class _HomePageState extends ConsumerState<HomePage> {
               icon: Icon(Icons.electric_bolt_outlined),
               selectedIcon: Icon(Icons.electric_bolt),
               label: '寝室用电',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.qr_code_2_outlined),
+              selectedIcon: Icon(Icons.qr_code_2),
+              label: 'e码通',
             ),
             NavigationDestination(
               icon: Icon(Icons.settings_outlined),
@@ -315,7 +325,14 @@ class _HomePageState extends ConsumerState<HomePage> {
         Expanded(
           child: IndexedStack(
             index: _tab,
-            children: [TimetablePage(), DormPowerPage()],
+            children: [
+              TimetablePage(),
+              DormPowerPage(),
+              _tab == 2
+                  ? EcodePage(session: widget.session)
+                  : const SizedBox.shrink(),
+              const SizedBox.shrink(),
+            ],
           ),
         ),
       ],
