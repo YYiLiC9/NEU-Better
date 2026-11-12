@@ -90,17 +90,34 @@ class _WeekGrid extends StatelessWidget {
                                           ),
                                         ),
                                         const SizedBox(height: 2),
-                                        Text(
-                                          '${PeriodTimes.startLabel(period)}'
-                                          '–${PeriodTimes.endLabel(period)}',
-                                          style: TextStyle(
-                                            color: AppColors.faint,
-                                            fontSize: 8,
-                                            height: 1.15,
-                                            fontFeatures: [
-                                              FontFeature.tabularFigures(),
-                                            ],
-                                          ),
+                                        // 开始/结束时间分两行，去掉中间的横杠，
+                                        // 窄的窄条里更好读、不折行。
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              PeriodTimes.startLabel(period),
+                                              style: TextStyle(
+                                                color: AppColors.faint,
+                                                fontSize: 8,
+                                                height: 1.1,
+                                                fontFeatures: [
+                                                  FontFeature.tabularFigures(),
+                                                ],
+                                              ),
+                                            ),
+                                            Text(
+                                              PeriodTimes.endLabel(period),
+                                              style: TextStyle(
+                                                color: AppColors.faint,
+                                                fontSize: 8,
+                                                height: 1.1,
+                                                fontFeatures: [
+                                                  FontFeature.tabularFigures(),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -406,15 +423,20 @@ class _CourseCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  session.name,
-                  maxLines: compact ? 1 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: inkColor,
-                    fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
-                    height: 1.25,
-                    fontWeight: FontWeight.w600,
+                // 课程名完整显示：不再用省略号，允许换行到多行；
+                // 用 Flexible 吸收剩余高度并 clip，避免窄卡里 RenderFlex 溢出。
+                Flexible(
+                  child: Text(
+                    session.name,
+                    maxLines: dense ? 2 : 3,
+                    softWrap: true,
+                    overflow: TextOverflow.clip,
+                    style: TextStyle(
+                      color: inkColor,
+                      fontSize: dense ? 11.5 : (compact ? 10.5 : 11),
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 if (showRoom) ...[

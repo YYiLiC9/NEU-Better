@@ -34,6 +34,11 @@ HICON LoadAppIcon(int width, int height) {
   if (icon == nullptr) {
     icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON));
   }
+  if (icon == nullptr) {
+    // Never hand the shell a null HICON: fall back to the stock application
+    // icon so the tray entry is always created with a real icon.
+    icon = LoadIconW(nullptr, IDI_APPLICATION);
+  }
   return icon;
 }
 
@@ -54,6 +59,80 @@ std::wstring Utf8ToWide(const std::string& utf8) {
   MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
                       wide.data(), size);
   return wide;
+}
+
+// Timer used to retry promoting the tray icon until the shell has created the
+// per-app NotifyIconSettings entry.
+constexpr UINT_PTR kPromoteTimerId = 0xBEEF;
+
+// Returns the full path of the running executable.
+std::wstring CurrentExecutablePathW() {
+  wchar_t buffer[MAX_PATH] = {0};
+  const DWORD len = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) {
+    return std::wstring();
+  }
+  return std::wstring(buffer, len);
+}
+
+// Windows 11 files every new notification-area icon into the "hidden icons"
+// overflow by default, so a correctly registered icon can still look missing
+// from the taskbar tray. The shell records each icon's visibility under
+// HKCU\Control Panel\NotifyIconSettings\<appid-hash> as a DWORD "IsPromoted";
+// setting it to 1 is exactly what the Settings > Taskbar > "Other system tray
+// icons" toggle does. Promote our own entry so the app icon is shown directly
+// in the notification area without any manual step.
+bool PromoteSelfInNotifyIconSettings() {
+  const std::wstring exe = CurrentExecutablePathW();
+  if (exe.empty()) {
+    return false;
+  }
+  HKEY root = nullptr;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\NotifyIconSettings", 0,
+                    KEY_READ | KEY_WRITE, &root) != ERROR_SUCCESS) {
+    return false;
+  }
+  bool promoted = false;
+  DWORD index = 0;
+  wchar_t subkey[256];
+  while (true) {
+    DWORD name_len =
+        static_cast<DWORD>(sizeof(subkey) / sizeof(subkey[0]));
+    const LONG enum_ret =
+        RegEnumKeyExW(root, index, subkey, &name_len, nullptr, nullptr, nullptr,
+                      nullptr);
+    if (enum_ret == ERROR_NO_MORE_ITEMS) {
+      break;
+    }
+    if (enum_ret != ERROR_SUCCESS) {
+      ++index;
+      continue;
+    }
+    const std::wstring child_path =
+        std::wstring(L"Control Panel\\NotifyIconSettings\\") + subkey;
+    HKEY child = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, child_path.c_str(), 0,
+                      KEY_READ | KEY_WRITE, &child) == ERROR_SUCCESS) {
+      wchar_t value[MAX_PATH] = {0};
+      DWORD value_size = sizeof(value);
+      DWORD value_type = 0;
+      if (RegQueryValueExW(child, L"ExecutablePath", nullptr, &value_type,
+                           reinterpret_cast<LPBYTE>(value), &value_size) ==
+              ERROR_SUCCESS &&
+          value_type == REG_SZ && _wcsicmp(value, exe.c_str()) == 0) {
+        const DWORD one = 1;
+        if (RegSetValueExW(child, L"IsPromoted", 0, REG_DWORD,
+                           reinterpret_cast<const BYTE*>(&one),
+                           sizeof(one)) == ERROR_SUCCESS) {
+          promoted = true;
+        }
+      }
+      RegCloseKey(child);
+    }
+    ++index;
+  }
+  RegCloseKey(root);
+  return promoted;
 }
 
 }  // namespace
@@ -178,10 +257,23 @@ void FlutterWindow::AddTrayIcon() {
   // Short, stable tooltip; Dart replaces it with a concise electricity hint
   // (e.g. "dorm power 49 kWh") once the prefs are loaded.
   wcsncpy_s(tray_icon_data_.szTip, 128, L"NEU Better", _TRUNCATE);
+  // Promote our NotifyIconSettings entry *before* re-adding: explorer reads the
+  // IsPromoted flag when it creates the icon, so doing it first is what makes
+  // the icon land directly in the visible notification area (not the overflow).
+  const bool promoted_before = PromoteSelfInNotifyIconSettings();
   // Clear any phantom entry left by a force-killed instance or a failed
   // add before registering; NIM_DELETE on a missing entry is a no-op.
   Shell_NotifyIconW(NIM_DELETE, &tray_icon_data_);
   tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_data_) != FALSE;
+
+  // First ever run has no NotifyIconSettings record until the shell writes one
+  // on NIM_ADD; promote again now and retry from a timer if it is still absent.
+  promote_retries_ = 0;
+  if (tray_icon_added_ && !promoted_before) {
+    if (!PromoteSelfInNotifyIconSettings()) {
+      SetTimer(GetHandle(), kPromoteTimerId, 800, nullptr);
+    }
+  }
 }
 
 void FlutterWindow::RemoveTrayIcon() {
@@ -256,6 +348,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     }
     AddTrayIcon();
     // Fall through so Flutter plugins can react to the message too.
+  }
+
+  // Retry promoting the notification-area icon until the shell has written the
+  // per-app NotifyIconSettings record (it can lag behind NIM_ADD).
+  if (message == WM_TIMER && wparam == kPromoteTimerId) {
+    ++promote_retries_;
+    if (PromoteSelfInNotifyIconSettings() || promote_retries_ >= 6) {
+      KillTimer(hwnd, kPromoteTimerId);
+    }
+    return 0;
   }
 
   // Clicking the notification-area icon restores the main window; right-click

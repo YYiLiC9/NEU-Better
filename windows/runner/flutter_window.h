@@ -55,6 +55,9 @@ class FlutterWindow : public Win32Window {
   // Notification-area icon state.
   NOTIFYICONDATAW tray_icon_data_{};
   bool tray_icon_added_ = false;
+
+  // Number of times the tray-icon promotion has been retried from a timer.
+  int promote_retries_ = 0;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

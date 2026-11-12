@@ -68,34 +68,17 @@ class _ExamCard extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 1),
-                                        child: Icon(
-                                          Icons.event_note_rounded,
-                                          size: 10,
-                                          color: _ExamColors.accent,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Expanded(
-                                        child: Text(
-                                          exam.name,
-                                          maxLines: 3,
-                                          softWrap: true,
-                                          overflow: TextOverflow.clip,
-                                          style: TextStyle(
-                                            color: _ExamColors.accent,
-                                            fontSize: 10,
-                                            height: 1.15,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    exam.name,
+                                    maxLines: 4,
+                                    softWrap: true,
+                                    overflow: TextOverflow.clip,
+                                    style: TextStyle(
+                                      color: _ExamColors.accent,
+                                      fontSize: 10,
+                                      height: 1.15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                   if (_timeLabel.isNotEmpty) ...[
                                     const SizedBox(height: 2),
@@ -140,15 +123,6 @@ class _ExamCard extends StatelessWidget {
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Icon(
-                              Icons.event_note_rounded,
-                              size: 15,
-                              color: _ExamColors.accent,
-                            ),
-                          ),
-                          const SizedBox(width: 7),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,

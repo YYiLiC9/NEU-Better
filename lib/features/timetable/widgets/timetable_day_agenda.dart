@@ -160,11 +160,19 @@ class _AgendaCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 开始 / 结束时间分两行，去掉中间的横杠，避免 78 宽里
+                // 折成「08:30-」/「09:15」的难读断行。
                 Text(
-                  PeriodTimes.rangeLabel(
-                    session.startPeriod,
-                    session.endPeriod,
+                  PeriodTimes.startLabel(session.startPeriod),
+                  style: TextStyle(
+                    color: inkColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
+                ),
+                Text(
+                  PeriodTimes.endLabel(session.endPeriod),
                   style: TextStyle(
                     color: inkColor,
                     fontSize: 12,

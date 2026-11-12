@@ -161,12 +161,30 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   void _onWeekDrag(DragEndDetails details) {
+    // 阈值从 ±120 提到 ±400（px/s）：轻扫不再误翻周，需要明显的一次滑动。
     final velocity = details.primaryVelocity ?? 0;
-    if (velocity < -120) {
+    if (velocity < -400) {
       _changeWeek(_week + 1);
-    } else if (velocity > 120) {
+    } else if (velocity > 400) {
       _changeWeek(_week - 1);
     }
+  }
+
+  /// 日视图水平滑动切换相邻星期；周一再往前、周日再往后不越界（保持不动）。
+  void _onDayDrag(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity < -400) {
+      _shiftSelectedDay(1);
+    } else if (velocity > 400) {
+      _shiftSelectedDay(-1);
+    }
+  }
+
+  void _shiftSelectedDay(int delta) {
+    final next = _selectedDay + delta;
+    if (next < 1 || next > 7) return;
+    if (next == _selectedDay) return;
+    setState(() => _selectedDay = next);
   }
 
   Future<void> _syncTimetable() async {
@@ -262,9 +280,15 @@ class _TimetablePageState extends State<TimetablePage> {
           header,
           const SizedBox(height: 10),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-              child: _buildDayAgenda(),
+            // 日视图也支持左右滑动切换星期。顶部 7 个 _DayChip 自带横向
+            // 滚动，深处的手势优先，不受这里影响。
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragEnd: _onDayDrag,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                child: _buildDayAgenda(),
+              ),
             ),
           ),
         ],
