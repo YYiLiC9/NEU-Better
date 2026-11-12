@@ -132,8 +132,55 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 800);
+
+  // Default window size in logical (DPI-independent) pixels.
+  double logical_width = 1280.0;
+  double logical_height = 800.0;
+  double origin_x = 10.0;
+  double origin_y = 10.0;
+
+  // Center the window inside the primary monitor's work area. Work-area and
+  // window metrics are physical pixels here, so divide back by the DPI scale
+  // before handing the (logical) origin/size to Win32Window::Create, which
+  // multiplies them by that same scale factor.
+  RECT work_area = {0, 0, 0, 0};
+  if (::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0)) {
+    const int work_width = work_area.right - work_area.left;
+    const int work_height = work_area.bottom - work_area.top;
+    if (work_width > 0 && work_height > 0) {
+      UINT dpi = ::GetDpiForSystem();
+      if (dpi == 0) {
+        dpi = 96;
+      }
+      const double scale = dpi / 96.0;
+
+      // Do not exceed the work area (leave a small margin on small screens).
+      const int margin = static_cast<int>(40 * scale);
+      int window_px_w = static_cast<int>(logical_width * scale);
+      int window_px_h = static_cast<int>(logical_height * scale);
+      if (window_px_w > work_width - margin) {
+        window_px_w = work_width - margin;
+      }
+      if (window_px_h > work_height - margin) {
+        window_px_h = work_height - margin;
+      }
+      if (window_px_w > 0 && window_px_h > 0) {
+        logical_width = window_px_w / scale;
+        logical_height = window_px_h / scale;
+        const int centered_px_x =
+            work_area.left + (work_width - window_px_w) / 2;
+        const int centered_px_y =
+            work_area.top + (work_height - window_px_h) / 2;
+        origin_x = centered_px_x / scale;
+        origin_y = centered_px_y / scale;
+      }
+    }
+  }
+
+  Win32Window::Point origin(static_cast<unsigned int>(origin_x),
+                            static_cast<unsigned int>(origin_y));
+  Win32Window::Size size(static_cast<unsigned int>(logical_width),
+                         static_cast<unsigned int>(logical_height));
   if (!window.Create(L"NEU Better", origin, size)) {
     return EXIT_FAILURE;
   }
