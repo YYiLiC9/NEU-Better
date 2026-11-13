@@ -67,13 +67,24 @@ const String _cleanScript = r"""
   }
   var lastEl=null;
   var applying=false;
+  // 首次就绪前要求候选“稳定”若干次，避免把官方“获取失败/加载中”页面里的
+  // 方形插图误判成二维码，导致失败界面一闪而过。
+  var stableEl=null;
+  var stable=0;
+  var everReady=false;
   function apply(){
     if(applying) return false;
     applying=true;
     try{
       ensureStyle();
       var t=pick();
-      if(!t){ cover(true); return false; } // 二维码渲染中：先用底色盖住，避免露出官方界面
+      if(!t){ stable=0; stableEl=null; cover(true); return false; } // 二维码渲染中：先用底色盖住，避免露出官方界面
+      if(!everReady){
+        // 首次确认前，候选需连续约 360ms(6×60ms) 保持同一元素才认作二维码；
+        // 官方“获取失败”页的方形插图会很快消失，从而不会被当成二维码。
+        if(t===stableEl){ stable++; } else { stableEl=t; stable=0; }
+        if(stable<6){ cover(true); return false; }
+      }
       t.classList.add('ecode-qr'); // 标记为已识别二维码（未被标记的 canvas/img 一律隐藏，杜绝未定位时的错位闪现）
       var chain=[],n=t;
       while(n&&n!==document.body){chain.push(n);n=n.parentElement;}
@@ -97,6 +108,7 @@ const String _cleanScript = r"""
       // 同一元素在后续 tick 里再撤销底色只留二维码。
       var isNew = (t!==lastEl);
       lastEl=t;
+      everReady=true;
       cover(isNew);
       if(window.EcodeBridge){ window.EcodeBridge.postMessage('ready'); }
       return true;
@@ -204,14 +216,9 @@ class _EcodePageState extends State<EcodePage> {
         },
         onPageFinished: (_) => _onPageFinished(controller),
         onWebResourceError: (error) {
-          if (!mounted || _ready) return;
-          if (error.isForMainFrame != true) return;
-          final desc = error.description;
-          // 页面跳转/SSO 重定向期间会报“取消/中断”，这类瞬时错误不弹错误页；
-          // 真正的失败延迟 1.8s 仍无二维码才提示，避免闪现“获取失败”。
-          final lower = desc.toLowerCase();
-          if (lower.contains('abort') || lower.contains('err_blocked')) return;
-          _armError(desc);
+          // 页面跳转/SSO 重定向/冷启动首帧会报瞬时错误；一律不弹错误页，
+          // 真正失败交给 18 秒超时兜底，从根本上杜绝“失败界面一闪而过”。
+          debugPrint('[ecode] web resource error: ${error.description}');
         },
       ),
     );
@@ -231,16 +238,6 @@ class _EcodePageState extends State<EcodePage> {
         () => _error =
             'e码通加载超时。请确认已连接校园网；若登录状态已失效，请返回重新登录后再试。',
       );
-    });
-  }
-
-  /// 主框架错误先不立刻弹错误页：延迟 1.8s 仍无二维码才提示，避免页面仍在
-  /// 跳转/SSO 时闪现“获取失败”。
-  void _armError(String description) {
-    _errorTimer?.cancel();
-    _errorTimer = Timer(const Duration(milliseconds: 1800), () {
-      if (!mounted || _ready || _error != null) return;
-      setState(() => _error = description);
     });
   }
 
