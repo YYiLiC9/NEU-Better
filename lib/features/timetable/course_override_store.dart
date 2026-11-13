@@ -30,6 +30,12 @@ class CourseOverrideStore {
         'data$separator$_fileName',
       ),
       File('${Directory.current.path}$separator' 'data$separator$_fileName'),
+      if (Platform.isAndroid)
+        File(
+          '${Directory.systemTemp.parent.path}$separator'
+          'files$separator'
+          'NEU Better$separator$_fileName',
+        ),
       File(
         '${Directory.systemTemp.path}$separator'
         'NEU Better$separator$_fileName',

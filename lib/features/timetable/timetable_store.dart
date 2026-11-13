@@ -27,6 +27,15 @@ class TimetableStore {
         '${Directory.current.path}$separator'
         'data$separator$_fileName',
       ),
+      // Android：systemTemp = /data/user/0/<pkg>/cache（缓存，覆盖安装/清缓存会
+      // 丢失）；其父目录下的 files 才是持久私有目录，优先写这里，避免课表/修改
+      // 因覆盖安装而丢失。
+      if (Platform.isAndroid)
+        File(
+          '${Directory.systemTemp.parent.path}$separator'
+          'files$separator'
+          'NEU Better$separator$_fileName',
+        ),
       File(
         '${Directory.systemTemp.path}$separator'
         'NEU Better$separator$_fileName',
