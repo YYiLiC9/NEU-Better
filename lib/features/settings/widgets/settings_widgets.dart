@@ -239,6 +239,173 @@ class _WeekStartSelector extends StatelessWidget {
   }
 }
 
+/// 「课表修改」小节：显示本地覆盖层计数，并提供一键清除 / 清除孤立修改。
+class _CourseOverlaySection extends StatefulWidget {
+  const _CourseOverlaySection();
+
+  @override
+  State<_CourseOverlaySection> createState() => _CourseOverlaySectionState();
+}
+
+class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
+  int _added = 0;
+  int _modified = 0;
+  int _deleted = 0;
+  int _orphans = 0;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<Set<String>> _officialKeys() async {
+    final official = await const TimetableStore().read();
+    final keys = <String>{};
+    if (official != null) {
+      for (final session in official.sessions) {
+        keys.add(courseKey(session));
+      }
+    }
+    return keys;
+  }
+
+  Future<void> _refresh() async {
+    final overlay = await const CourseOverrideStore().read();
+    final keys = await _officialKeys();
+    var orphans = 0;
+    for (final modification in overlay.modified) {
+      if (!keys.contains(modification.targetKey)) orphans++;
+    }
+    for (final deletion in overlay.deleted) {
+      if (!keys.contains(deletion.targetKey)) orphans++;
+    }
+    if (!mounted) return;
+    setState(() {
+      _added = overlay.added.length;
+      _modified = overlay.modified.length;
+      _deleted = overlay.deleted.length;
+      _orphans = orphans;
+      _loading = false;
+    });
+  }
+
+  int get _total => _added + _modified + _deleted;
+
+  Future<void> _clearAll() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('清除课表修改'),
+        content: const Text(
+          '将删除全部本地新增 / 修改 / 删除记录，官方课表不受影响；课程备注会保留。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await const CourseOverrideStore().clear();
+    await _refresh();
+  }
+
+  Future<void> _clearOrphans() async {
+    final overlay = await const CourseOverrideStore().read();
+    final keys = await _officialKeys();
+    final next = TimetableOverlay(
+      added: overlay.added,
+      modified: overlay.modified
+          .where((m) => keys.contains(m.targetKey))
+          .toList(),
+      deleted: overlay.deleted
+          .where((d) => keys.contains(d.targetKey))
+          .toList(),
+    );
+    await const CourseOverrideStore().save(next);
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = _loading
+        ? '读取中…'
+        : '本地修改 $_total 处（新增 $_added · 修改 $_modified · 删除 $_deleted）';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel(icon: Icons.edit_note_rounded, label: '课表修改'),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          decoration: BoxDecoration(
+            color: AppColors.canvas,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: AppColors.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                summary,
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '长按（手机）/ 右键（电脑）课表格子可新增课程；点开课程可编辑或删除。',
+                style: TextStyle(color: AppColors.faint, fontSize: 10),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  if (_orphans > 0)
+                    TextButton.icon(
+                      onPressed: _clearOrphans,
+                      icon: const Icon(
+                        Icons.cleaning_services_outlined,
+                        size: 15,
+                      ),
+                      label: Text('清除孤立修改 ($_orphans)'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.muted,
+                        textStyle: const TextStyle(fontSize: 11.5),
+                      ),
+                    ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _total == 0 ? null : _clearAll,
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                    label: const Text('一键清除课表修改'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.danger,
+                      disabledForegroundColor: AppColors.faint,
+                      textStyle: const TextStyle(fontSize: 11.5),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Footnote extends StatelessWidget {
   const _Footnote();
 

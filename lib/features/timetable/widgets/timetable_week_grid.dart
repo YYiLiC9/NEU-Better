@@ -14,6 +14,8 @@ class _WeekGrid extends StatelessWidget {
     this.onOpenCourse,
     this.onOpenExam,
     this.notedCourseIds = const <String>{},
+    this.onCellLongPress,
+    this.onCellSecondaryTap,
   });
 
   final DateTime? weekStart;
@@ -26,6 +28,10 @@ class _WeekGrid extends StatelessWidget {
   final void Function(CourseSession session)? onOpenCourse;
   final void Function(ExamEntry exam)? onOpenExam;
   final Set<String> notedCourseIds;
+
+  /// 空白格长按（手机）/ 右键（电脑）：新增课程。
+  final void Function(int day, int period)? onCellLongPress;
+  final void Function(int day, int period)? onCellSecondaryTap;
 
   /// 7 列的显示顺序（1=周一 … 7=周日），由「每周起始日」决定。
   final List<int> days;
@@ -167,6 +173,8 @@ class _WeekGrid extends StatelessWidget {
                             onOpenCourse: onOpenCourse,
                             onOpenExam: onOpenExam,
                             notedCourseIds: notedCourseIds,
+                            onCellLongPress: onCellLongPress,
+                            onCellSecondaryTap: onCellSecondaryTap,
                           ),
                         ),
                     ],
@@ -316,6 +324,8 @@ class _DayColumn extends StatelessWidget {
     this.onOpenCourse,
     this.onOpenExam,
     this.notedCourseIds = const <String>{},
+    this.onCellLongPress,
+    this.onCellSecondaryTap,
   });
 
   final int day;
@@ -327,6 +337,8 @@ class _DayColumn extends StatelessWidget {
   final void Function(CourseSession session)? onOpenCourse;
   final void Function(ExamEntry exam)? onOpenExam;
   final Set<String> notedCourseIds;
+  final void Function(int day, int period)? onCellLongPress;
+  final void Function(int day, int period)? onCellSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -339,6 +351,23 @@ class _DayColumn extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          // 空白格手势层（在课程卡之下）：长按（手机）/ 右键（电脑）新增课程。
+          for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
+            Positioned(
+              top: _slotTopFor(slotHeight, period),
+              left: 0,
+              right: 0,
+              height: slotHeight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: onCellLongPress == null
+                    ? null
+                    : () => onCellLongPress!(day, period),
+                onSecondaryTap: onCellSecondaryTap == null
+                    ? null
+                    : () => onCellSecondaryTap!(day, period),
+              ),
+            ),
           for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
             Positioned(
               top: _slotTopFor(slotHeight, period),
@@ -366,6 +395,12 @@ class _DayColumn extends StatelessWidget {
                 dense: dense,
                 hasNote: notedCourseIds.contains(session.id),
                 onTap: onOpenCourse == null
+                    ? null
+                    : () => onOpenCourse!(session),
+                onLongPress: onOpenCourse == null
+                    ? null
+                    : () => onOpenCourse!(session),
+                onSecondaryTap: onOpenCourse == null
                     ? null
                     : () => onOpenCourse!(session),
               ),
@@ -425,12 +460,16 @@ class _CourseCard extends StatelessWidget {
     this.dense = false,
     this.hasNote = false,
     this.onTap,
+    this.onLongPress,
+    this.onSecondaryTap,
   });
 
   final CourseSession session;
   final bool dense;
   final bool hasNote;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -520,6 +559,8 @@ class _CourseCard extends StatelessWidget {
         );
         return GestureDetector(
           onTap: onTap,
+          onLongPress: onLongPress,
+          onSecondaryTap: onSecondaryTap,
           behavior: HitTestBehavior.opaque,
           child: Stack(
             children: [

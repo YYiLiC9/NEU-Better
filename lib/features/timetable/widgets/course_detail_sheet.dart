@@ -29,6 +29,9 @@ Future<void> showCourseDetail(
   ExamEntry? exam,
   String initialNote = '',
   ValueChanged<String>? onNoteChanged,
+  VoidCallback? onEdit,
+  VoidCallback? onDeleteThisCourse,
+  VoidCallback? onDeleteThisWeek,
 }) {
   return showDialog<void>(
     context: context,
@@ -38,6 +41,9 @@ Future<void> showCourseDetail(
       exam: exam,
       initialNote: initialNote,
       onNoteChanged: onNoteChanged,
+      onEdit: onEdit,
+      onDeleteThisCourse: onDeleteThisCourse,
+      onDeleteThisWeek: onDeleteThisWeek,
     ),
   );
 }
@@ -48,12 +54,18 @@ class _CourseDetailDialog extends StatefulWidget {
     this.exam,
     this.initialNote = '',
     this.onNoteChanged,
+    this.onEdit,
+    this.onDeleteThisCourse,
+    this.onDeleteThisWeek,
   });
 
   final CourseSession? session;
   final ExamEntry? exam;
   final String initialNote;
   final ValueChanged<String>? onNoteChanged;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDeleteThisCourse;
+  final VoidCallback? onDeleteThisWeek;
 
   @override
   State<_CourseDetailDialog> createState() => _CourseDetailDialogState();
@@ -246,6 +258,63 @@ class _CourseDetailDialogState extends State<_CourseDetailDialog> {
                       fontSize: 9,
                     ),
                   ),
+                ),
+              ],
+              if (session != null &&
+                  (widget.onEdit != null ||
+                      widget.onDeleteThisCourse != null ||
+                      widget.onDeleteThisWeek != null)) ...[
+                const SizedBox(height: 4),
+                Container(height: 1, color: AppColors.line),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (widget.onEdit != null)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          widget.onEdit!.call();
+                        },
+                        icon: const Icon(Icons.edit_outlined, size: 15),
+                        label: const Text('编辑'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.campusBlue,
+                          side: BorderSide(color: AppColors.line),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    if (widget.onDeleteThisCourse != null)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          widget.onDeleteThisCourse!.call();
+                        },
+                        icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                        label: const Text('删除本课程'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          side: BorderSide(
+                            color: AppColors.danger.withValues(alpha: 0.4),
+                          ),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    if (widget.onDeleteThisWeek != null)
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          widget.onDeleteThisWeek!.call();
+                        },
+                        icon: const Icon(Icons.event_busy_outlined, size: 15),
+                        label: const Text('删除本周'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
                 ),
               ],
               const SizedBox(height: 8),

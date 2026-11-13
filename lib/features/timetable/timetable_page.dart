@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
 import 'course_note_store.dart';
+import 'course_override_store.dart';
 import 'timetable_models.dart';
+import 'timetable_overlay.dart';
 import 'timetable_schedule.dart';
 import 'timetable_store.dart';
 import 'timetable_widget_service.dart';
@@ -18,10 +20,17 @@ part 'widgets/timetable_week_grid.dart';
 part 'widgets/timetable_exam_widgets.dart';
 part 'widgets/timetable_day_agenda.dart';
 part 'widgets/course_detail_sheet.dart';
+part 'widgets/course_editor_sheet.dart';
 
 /// 课表数据的跨重建共享缓存：主题切换会重挂载根子树，把它放在
 /// ProviderScope 层可在重建后立即恢复（含考试信息），不必再读磁盘。
 final timetableDataProvider = StateProvider<TimetableData?>((ref) => null);
+
+/// 课表本地覆盖层（新增/修改/删除）的跨重建共享缓存。
+/// 主题切换会重挂载根子树，放在 ProviderScope 层可在重建后立刻恢复。
+final timetableOverlayProvider = StateProvider<TimetableOverlay?>(
+  (ref) => null,
+);
 
 /// 课表视图状态（当前周 / 选中星期 / 周或日视图）的跨重建缓存：
 /// 主题切换会重挂载根子树，恢复这些状态避免跳回当前周/日视图，
@@ -100,6 +109,13 @@ class TimetablePage extends ConsumerStatefulWidget {
 }
 
 class _TimetablePageState extends ConsumerState<TimetablePage> {
+  /// 官方快照（只含同步结果，不含用户修改）。
+  TimetableData _officialData = SampleTimetable.data;
+
+  /// 本地覆盖层（用户新增 / 修改 / 删除）。
+  TimetableOverlay _overlay = TimetableOverlay.empty;
+
+  /// 展示用数据 = applyOverlay(_officialData, _overlay)。
   TimetableData _data = SampleTimetable.data;
   int _week = SampleTimetable.data.weekFor(DateTime.now());
   int _selectedDay = DateTime.now().weekday.clamp(1, 7);
@@ -117,26 +133,32 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     super.initState();
     _loadNotes();
     final shared = ref.read(timetableDataProvider);
+    final sharedOverlay = ref.read(timetableOverlayProvider);
     final savedView = ref.read(timetableViewProvider);
     // 周/日视图选择持久化在 settings.json；冷启动与主题重挂载都从设置读取。
     _weekView = ref.read(appSettingsProvider).timetableWeekView;
     if (shared != null) {
       // 从 Provider 恢复（主题重挂载后仍保留课表、考试数据与正在查看的周）。
-      _data = shared;
+      _officialData = shared;
+      _overlay = sharedOverlay ?? TimetableOverlay.empty;
+      _data = applyOverlay(_officialData, _overlay);
       _week =
           savedView.week ??
           TimetableSchedule(
-            shared,
+            _officialData,
             weekStartSetting: ref.read(appSettingsProvider).weekStart,
           ).nowWeek();
       _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
+      // Provider 里可能只有刚自动同步的官方数据（home 写入），覆盖层需从磁盘补读。
+      if (sharedOverlay == null) _bootstrapOverlay();
     } else {
       if (savedView.day != null) {
         _selectedDay = savedView.day!.clamp(1, 7);
       }
-      _loadCachedTimetable();
+      _bootstrap();
     }
     timetableChanged.addListener(_onTimetableChanged);
+    courseOverridesChanged.addListener(_onOverridesChanged);
     // "当前时间线"是信息不是装饰：每半分钟检查一次，只在跨过整分时重建。
     _minuteTimer = Timer.periodic(const Duration(milliseconds: 15000), (_) {
       final now = DateTime.now();
@@ -150,6 +172,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   @override
   void dispose() {
     timetableChanged.removeListener(_onTimetableChanged);
+    courseOverridesChanged.removeListener(_onOverridesChanged);
     _minuteTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -159,29 +182,80 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     _loadCachedTimetable(force: true);
   }
 
+  void _onOverridesChanged() {
+    _reloadOverlay();
+  }
+
+  /// 冷启动 / 主题重挂载且 Provider 无缓存时：从磁盘读官方快照与覆盖层。
+  Future<void> _bootstrap() async {
+    final cached = await const TimetableStore().read();
+    final overlay = await const CourseOverrideStore().read();
+    if (!mounted) return;
+    _overlay = overlay;
+    _applyOfficial(cached ?? _officialData, resetView: true);
+  }
+
+  /// 只补读覆盖层（Provider 已有官方数据但没有覆盖层时使用）。
+  Future<void> _bootstrapOverlay() async {
+    final overlay = await const CourseOverrideStore().read();
+    if (!mounted) return;
+    _overlay = overlay;
+    _recomputeOverlay();
+  }
+
   Future<void> _loadCachedTimetable({bool force = false}) async {
     final cached = await const TimetableStore().read();
     if (!mounted || cached == null) return;
-    if (!force && !_data.isSample) return;
-    _applyData(cached);
+    if (!force && !_officialData.isSample) return;
+    _applyOfficial(cached, resetView: true);
   }
 
-  /// 统一落数据：写入内存 + 共享 Provider，并刷新到当前教学周。
-  void _applyData(TimetableData data) {
-    ref.read(timetableDataProvider.notifier).state = data;
+  /// 从磁盘重新读取覆盖层（设置里清除修改后会触发）。
+  Future<void> _reloadOverlay() async {
+    final overlay = await const CourseOverrideStore().read();
+    if (!mounted) return;
+    _overlay = overlay;
+    _recomputeOverlay();
+  }
+
+  /// 落官方快照：更新官方数据并重算展示数据；[resetView] 时刷新到当前教学周。
+  void _applyOfficial(TimetableData official, {bool resetView = false}) {
+    _officialData = official;
+    _data = applyOverlay(_officialData, _overlay);
+    ref.read(timetableDataProvider.notifier).state = _officialData;
+    ref.read(timetableOverlayProvider.notifier).state = _overlay;
     final savedView = ref.read(timetableViewProvider);
     setState(() {
-      _data = data;
-      _week =
-          savedView.week ??
-          TimetableSchedule(
-            data,
-            weekStartSetting: ref.read(appSettingsProvider).weekStart,
-          ).nowWeek();
-      _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
+      if (resetView) {
+        _week =
+            savedView.week ??
+            TimetableSchedule(
+              _officialData,
+              weekStartSetting: ref.read(appSettingsProvider).weekStart,
+            ).nowWeek();
+        _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
+      }
     });
-    // 同步到桌面小部件（今日课程）。
-    unawaited(TimetableWidgetService.sync(data));
+    // 同步到桌面小部件（今日课程），用合并后的展示数据。
+    unawaited(TimetableWidgetService.sync(_data));
+  }
+
+  /// 提交覆盖层改动：重算展示数据、写内存 Provider、落盘、刷小部件。
+  void _commitOverlay(TimetableOverlay overlay) {
+    _overlay = overlay;
+    _data = applyOverlay(_officialData, _overlay);
+    ref.read(timetableOverlayProvider.notifier).state = _overlay;
+    ref.read(timetableDataProvider.notifier).state = _officialData;
+    setState(() {});
+    unawaited(const CourseOverrideStore().save(_overlay));
+    unawaited(TimetableWidgetService.sync(_data));
+  }
+
+  void _recomputeOverlay() {
+    _data = applyOverlay(_officialData, _overlay);
+    ref.read(timetableOverlayProvider.notifier).state = _overlay;
+    setState(() {});
+    unawaited(TimetableWidgetService.sync(_data));
   }
 
   /// 记录当前视图状态，供主题重挂载后恢复。
@@ -205,11 +279,159 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       session: session,
       initialNote: _courseNotes[session.id] ?? '',
       onNoteChanged: (text) => _saveNote(session.id, text),
+      onEdit: () => _editCourse(session),
+      onDeleteThisCourse: () => _deleteCourse(session, allWeeks: true),
+      onDeleteThisWeek: () => _deleteCourse(session, allWeeks: false),
     );
   }
 
   Future<void> _openExam(ExamEntry exam) {
     return showCourseDetail(context, exam: exam);
+  }
+
+  /// 官方课程的原指纹：用官方快照按 id 反查，避免课程被改过 day/period 后失配。
+  CourseSession? _officialSessionFor(CourseSession session) {
+    for (final item in _officialData.sessions) {
+      if (item.id == session.id) return item;
+    }
+    return null;
+  }
+
+  String _targetKeyFor(CourseSession session) {
+    final official = _officialSessionFor(session);
+    return courseKey(official ?? session);
+  }
+
+  Set<int> _officialWeeksFor(String targetKey) {
+    final weeks = <int>{};
+    for (final item in _officialData.sessions) {
+      if (courseKey(item) == targetKey) weeks.addAll(item.weeks);
+    }
+    return weeks;
+  }
+
+  /// 打开空白格：新增一门课程。
+  Future<void> _openNewCourse(int day, int period) async {
+    final result = await showCourseEditor(
+      context,
+      presetDay: day,
+      presetPeriod: period,
+      presetWeek: _week,
+      allWeeks: {for (var i = 1; i <= _data.totalWeeks; i++) i},
+      validate: (draft, scope, week) => _validateDraft(draft, null),
+    );
+    if (result == null || !mounted) return;
+    final id = 'user-${DateTime.now().microsecondsSinceEpoch}';
+    _commitOverlay(_overlay.addCourse(result.session.copyWith(id: id)));
+  }
+
+  Future<void> _editCourse(CourseSession session) async {
+    final isUser = session.id.startsWith('user-');
+    final targetKey = isUser ? '' : _targetKeyFor(session);
+    final allWeeks = isUser ? {...session.weeks} : _officialWeeksFor(targetKey);
+    final result = await showCourseEditor(
+      context,
+      editing: session,
+      presetWeek: _week,
+      allWeeks: allWeeks.isEmpty ? {...session.weeks} : allWeeks,
+      validate: (draft, scope, week) => _validateDraft(draft, session),
+    );
+    if (result == null || !mounted) return;
+    if (isUser) {
+      _commitOverlay(
+        _overlay.replaceAdded(result.session.copyWith(id: session.id)),
+      );
+      return;
+    }
+    if (result.scope == 'all') {
+      _commitOverlay(
+        _overlay.modify(
+          targetKey: targetKey,
+          scope: 'all',
+          replacement: result.session.copyWith(weeks: allWeeks),
+        ),
+      );
+    } else {
+      final week = result.week ?? _week;
+      _commitOverlay(
+        _overlay.modify(
+          targetKey: targetKey,
+          scope: 'week',
+          week: week,
+          replacement: result.session.copyWith(weeks: {week}),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteCourse(
+    CourseSession session, {
+    required bool allWeeks,
+  }) async {
+    final message = allWeeks
+        ? '删除「${session.name}」的全部安排？'
+        : '仅删除「${session.name}」第 $_week 周的安排？';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(allWeeks ? '删除本课程' : '删除本周'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (session.id.startsWith('user-')) {
+      _commitOverlay(
+        allWeeks
+            ? _overlay.removeAdded(session.id)
+            : _overlay.removeAddedWeek(session.id, _week),
+      );
+      return;
+    }
+    final targetKey = _targetKeyFor(session);
+    _commitOverlay(
+      _overlay.delete(
+        targetKey: targetKey,
+        scope: allWeeks ? 'all' : 'week',
+        week: allWeeks ? null : _week,
+      ),
+    );
+  }
+
+  /// 编辑时的冲突校验：先排除正在编辑的课程，再交给纯函数 [findConflicts]。
+  Future<List<CourseConflict>> _validateDraft(
+    CourseSession draft,
+    CourseSession? editing,
+  ) async {
+    final base = <CourseSession>[];
+    for (final item in _data.sessions) {
+      if (editing != null) {
+        if (item.id == editing.id) continue; // 自建课程按 id 排除
+        if (!editing.id.startsWith('user-') &&
+            courseKey(item) == _targetKeyFor(editing)) {
+          continue; // 官方课程按指纹排除
+        }
+      }
+      base.add(item);
+    }
+    return findConflicts(
+      sessions: base,
+      exams: _data.exams,
+      candidate: draft,
+      totalWeeks: _data.totalWeeks,
+      termStartDate: _data.termStartDate,
+    );
   }
 
   Future<void> _saveNote(String id, String text) async {
@@ -332,7 +554,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     }
     await const TimetableStore().save(imported);
     if (!mounted) return;
-    _applyData(imported);
+    // 官方快照更新后重算展示数据；覆盖层（用户修改）保持不变。
+    _applyOfficial(imported, resetView: true);
   }
 
   @override
@@ -500,6 +723,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         onOpenCourse: _openCourse,
         onOpenExam: _openExam,
         notedCourseIds: _courseNotes.keys.toSet(),
+        onCellLongPress: _openNewCourse,
+        onCellSecondaryTap: _openNewCourse,
       ),
     );
     if (!widget.compact || fitWidth) return pager;
@@ -531,6 +756,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           onOpenCourse: _openCourse,
           onOpenExam: _openExam,
           notedCourseIds: _courseNotes.keys.toSet(),
+          onOpenCourseLongPress: _openCourse,
           onDayChanged: (day) {
             setState(() => _selectedDay = day);
             _persistView();

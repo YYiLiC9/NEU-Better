@@ -11,6 +11,7 @@ class _DayAgenda extends StatelessWidget {
     required this.onDayChanged,
     this.onOpenCourse,
     this.onOpenExam,
+    this.onOpenCourseLongPress,
     this.notedCourseIds = const <String>{},
   });
 
@@ -25,6 +26,9 @@ class _DayAgenda extends StatelessWidget {
   final ValueChanged<int> onDayChanged;
   final void Function(CourseSession session)? onOpenCourse;
   final void Function(ExamEntry exam)? onOpenExam;
+
+  /// 卡片长按（手机）/ 右键（电脑）也进详情。
+  final void Function(CourseSession session)? onOpenCourseLongPress;
   final Set<String> notedCourseIds;
 
   @override
@@ -89,6 +93,12 @@ class _DayAgenda extends StatelessWidget {
               onTap: onOpenCourse == null
                   ? null
                   : () => onOpenCourse!(session),
+              onLongPress: onOpenCourseLongPress == null
+                  ? null
+                  : () => onOpenCourseLongPress!(session),
+              onSecondaryTap: onOpenCourseLongPress == null
+                  ? null
+                  : () => onOpenCourseLongPress!(session),
             ),
             const SizedBox(height: 8),
           ],
@@ -161,11 +171,15 @@ class _AgendaCard extends StatelessWidget {
     required this.session,
     this.hasNote = false,
     this.onTap,
+    this.onLongPress,
+    this.onSecondaryTap,
   });
 
   final CourseSession session;
   final bool hasNote;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -253,6 +267,8 @@ class _AgendaCard extends StatelessWidget {
     );
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
+      onSecondaryTap: onSecondaryTap,
       behavior: HitTestBehavior.opaque,
       child: Stack(
         children: [

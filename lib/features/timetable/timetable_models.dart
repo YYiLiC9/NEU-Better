@@ -190,6 +190,30 @@ class CourseSession {
   bool isActive(int week) => weeks.contains(week);
   int get span => endPeriod - startPeriod + 1;
 
+  CourseSession copyWith({
+    String? id,
+    String? name,
+    String? teacher,
+    String? room,
+    String? className,
+    int? day,
+    int? startPeriod,
+    int? endPeriod,
+    Set<int>? weeks,
+  }) {
+    return CourseSession(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      teacher: teacher ?? this.teacher,
+      room: room ?? this.room,
+      className: className ?? this.className,
+      day: day ?? this.day,
+      startPeriod: startPeriod ?? this.startPeriod,
+      endPeriod: endPeriod ?? this.endPeriod,
+      weeks: weeks ?? this.weeks,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,

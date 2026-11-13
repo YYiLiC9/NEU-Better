@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/update/update_flow.dart';
+import '../timetable/course_override_store.dart';
+import '../timetable/timetable_overlay.dart';
+import '../timetable/timetable_store.dart';
 
 part 'widgets/settings_widgets.dart';
 
@@ -115,6 +118,8 @@ class _SettingsDialog extends ConsumerWidget {
               value: settings.weekStart,
               onChanged: controller.setWeekStart,
             ),
+            const SizedBox(height: 18),
+            const _CourseOverlaySection(),
             const SizedBox(height: 16),
             const _SectionLabel(
               icon: Icons.system_update_alt_rounded,
@@ -260,6 +265,8 @@ class MobileSettingsPage extends ConsumerWidget {
           value: settings.weekStart,
           onChanged: controller.setWeekStart,
         ),
+        const SizedBox(height: 20),
+        const _CourseOverlaySection(),
         const SizedBox(height: 20),
         const _SectionLabel(
           icon: Icons.system_update_alt_rounded,
