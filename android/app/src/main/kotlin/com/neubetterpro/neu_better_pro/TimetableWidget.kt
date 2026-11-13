@@ -194,7 +194,7 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
             context, 0, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        views.setOnClickPendingIntent(R.id.widget_root, pending)
+        views.setOnClickPendingIntent(R.id.widget_card, pending)
         manager.updateAppWidget(widgetId, views)
     }
 
