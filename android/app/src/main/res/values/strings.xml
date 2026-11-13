@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_2x2_name">NEU Better 今日课程 2×2</string>
-    <string name="widget_2x4_name">NEU Better 今日课程 2×4</string>
+    <string name="widget_2x2_name">NEU Better 今日课程（2行2列）</string>
+    <string name="widget_2x4_name">NEU Better 今日课程（2行4列）</string>
     <string name="widget_desc">显示今天正在上/接下来要上的课程与考试</string>
 </resources>
