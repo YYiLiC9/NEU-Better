@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -75,6 +77,19 @@ class _HomePageState extends ConsumerState<HomePage> {
         _autoSyncTimetable();
       }
     });
+    // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
+    // 用户点开 e码通时二维码通常已渲染好，实现「点进去就显示」。
+    // 单元/组件测试环境跳过，避免测试里创建 WebView 与悬挂定时器。
+    final inTest = Platform.environment.containsKey('FLUTTER_TEST');
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        !inTest) {
+      Future<void>.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted && !_ecodeVisited) {
+          setState(() => _ecodeVisited = true);
+        }
+      });
+    }
   }
 
   Future<void> _autoSyncTimetable() async {
