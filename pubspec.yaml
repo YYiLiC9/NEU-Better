@@ -1,7 +1,7 @@
 name: neu_better_pro
 description: "NEU Better — 东北大学校园客户端（非官方，开源）。"
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+1
 
 environment:
   sdk: ^3.13.7

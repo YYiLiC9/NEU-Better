@@ -57,7 +57,7 @@ class UpdateService {
   static const String repo = 'YYiLiC9/NEU-Better';
 
   /// 当前应用版本（与 pubspec 的 version 保持一致，发布新版本时同步更新）。
-  static const String currentVersion = '0.1.0';
+  static const String currentVersion = '0.2.0';
 
   /// 返回比当前版本更新的 Release；已是最新或网络异常时返回 null。
   Future<UpdateInfo?> check() async {
