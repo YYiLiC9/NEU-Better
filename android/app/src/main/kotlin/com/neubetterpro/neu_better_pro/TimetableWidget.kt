@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,6 +30,7 @@ object TimetableWidgetData {
     private const val PREFS = "neu_widget_prefs"
     private const val KEY = "payload"
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    private val weekdayNames = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
     fun store(context: Context, payload: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -39,21 +41,35 @@ object TimetableWidgetData {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY, null)
 
-    /** 两行要显示的内容。 */
+    /** Calendar.SUNDAY=1..SATURDAY=7 → ISO 周一=1..周日=7 */
+    private fun isoDowOf(now: Calendar): Int = ((now.get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
+
+    private fun dayLabelOf(now: Calendar): String =
+        "今日 / " + weekdayNames[isoDowOf(now) - 1]
+
+    /**
+     * 小部件要显示的内容。
+     * - 有课：[first]/[second] 为两行课程或考试；[emptyText] 为空。
+     * - 无课：[emptyText] 为居中的状态文案，两行为空。
+     * 头部固定展示 [dayLabel]（如「今日 / 周五」）与 [weekLabel]（如「第11周」）。
+     */
     data class Lines(
         val first: WidgetItem?,
         val second: WidgetItem?,
         val firstActive: Boolean,
-        val secondActive: Boolean,
         val emptyText: String?,
+        val dayLabel: String,
+        val weekLabel: String,
     )
 
     fun compute(context: Context): Lines {
-        val payload = load(context) ?: return Lines(null, null, false, false, "打开应用同步课程")
+        val now = Calendar.getInstance()
+        val payload = load(context)
+            ?: return Lines(null, null, false, "打开应用同步课程", dayLabelOf(now), "")
         return try {
-            computeFrom(payload, Calendar.getInstance())
+            computeFrom(payload, now)
         } catch (e: Exception) {
-            Lines(null, null, false, false, "今日课程已结束")
+            Lines(null, null, false, "今日课程已上完", dayLabelOf(now), "")
         }
     }
 
@@ -62,7 +78,7 @@ object TimetableWidgetData {
         val anchorRaw = root.optString("anchorDate")
         val anchorWeek = root.optInt("anchorWeek", 1)
         val anchor = dateFormat.parse(anchorRaw)
-            ?: return Lines(null, null, false, false, "今日课程已结束")
+            ?: return Lines(null, null, false, "今日课程已上完", dayLabelOf(now), "")
 
         val todayCal = Calendar.getInstance().apply {
             timeInMillis = now.timeInMillis
@@ -76,8 +92,9 @@ object TimetableWidgetData {
         }
         val diffDays = ((todayCal.timeInMillis - anchorCal.timeInMillis) / 86400000L).toInt()
         val week = anchorWeek + Math.floorDiv(diffDays, 7)
-        // Calendar.SUNDAY=1..SATURDAY=7 → ISO 周一=1..周日=7
-        val isoDow = ((now.get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
+        val isoDow = isoDowOf(now)
+        val dayLabel = "今日 / " + weekdayNames[isoDow - 1]
+        val weekLabel = "第${week}周"
         val todayStr = dateFormat.format(now.time)
         val nowMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
 
@@ -126,13 +143,13 @@ object TimetableWidgetData {
         val current = items.firstOrNull { nowMinutes >= it.startMinutes && nowMinutes < it.endMinutes }
         if (current != null) {
             val next = items.firstOrNull { it.startMinutes > nowMinutes }
-            return Lines(current, next, true, false, null)
+            return Lines(current, next, true, null, dayLabel, weekLabel)
         }
         val upcoming = items.filter { it.startMinutes > nowMinutes }
         return if (upcoming.isNotEmpty()) {
-            Lines(upcoming.getOrNull(0), upcoming.getOrNull(1), false, false, null)
+            Lines(upcoming.getOrNull(0), upcoming.getOrNull(1), false, null, dayLabel, weekLabel)
         } else {
-            Lines(null, null, false, false, "今日课程已结束")
+            Lines(null, null, false, "今日课程已上完", dayLabel, weekLabel)
         }
     }
 
@@ -165,6 +182,10 @@ object WidgetUpdater {
 abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
     protected abstract fun layoutId(): Int
 
+    private val blue = 0xFF0B4F9C.toInt()
+    private val ink = 0xFF14243B.toInt()
+    private val muted = 0xFF5D7392.toInt()
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -180,17 +201,37 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
     ) {
         val views = RemoteViews(context.packageName, layoutId())
         val lines = TimetableWidgetData.compute(context)
-        val blue = 0xFF0B4F9C.toInt()
-        val ink = 0xFF14243B.toInt()
-        val muted = 0xFF5D7392.toInt()
+
+        views.setTextViewText(R.id.widget_today, lines.dayLabel)
+        views.setTextViewText(R.id.widget_week, lines.weekLabel)
 
         if (lines.emptyText != null) {
-            views.setTextViewText(R.id.widget_line1, lines.emptyText)
-            views.setTextColor(R.id.widget_line1, muted)
-            views.setTextViewText(R.id.widget_line2, "")
+            views.setViewVisibility(R.id.widget_status, View.VISIBLE)
+            views.setTextViewText(R.id.widget_status, lines.emptyText)
+            views.setTextColor(R.id.widget_status, muted)
+            views.setViewVisibility(R.id.widget_items, View.GONE)
         } else {
-            bindLine(views, R.id.widget_line1, lines.first, lines.firstActive, blue, ink)
-            bindLine(views, R.id.widget_line2, lines.second, lines.secondActive, blue, muted)
+            views.setViewVisibility(R.id.widget_status, View.GONE)
+            views.setViewVisibility(R.id.widget_items, View.VISIBLE)
+            bindItem(
+                views,
+                R.id.widget_item1_name,
+                R.id.widget_item1_info,
+                lines.first,
+                lines.firstActive,
+            )
+            if (lines.second == null) {
+                views.setViewVisibility(R.id.widget_item2, View.GONE)
+            } else {
+                views.setViewVisibility(R.id.widget_item2, View.VISIBLE)
+                bindItem(
+                    views,
+                    R.id.widget_item2_name,
+                    R.id.widget_item2_info,
+                    lines.second,
+                    false,
+                )
+            }
         }
 
         val launch = Intent(context, MainActivity::class.java)
@@ -204,28 +245,29 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
         manager.updateAppWidget(widgetId, views)
     }
 
-    private fun bindLine(
+    private fun bindItem(
         views: RemoteViews,
-        viewId: Int,
+        nameId: Int,
+        infoId: Int,
         item: WidgetItem?,
         active: Boolean,
-        activeColor: Int,
-        normalColor: Int,
     ) {
         if (item == null) {
-            views.setTextViewText(viewId, "")
+            views.setTextViewText(nameId, "")
+            views.setTextViewText(infoId, "")
             return
         }
         val meta = ArrayList<String>()
         if (item.room.isNotEmpty()) meta.add(item.room)
         if (item.teacher.isNotEmpty()) meta.add(item.teacher)
         if (item.start.isNotEmpty() || item.end.isNotEmpty()) {
-            meta.add(item.start + "-" + item.end)
+            meta.add(item.start + " - " + item.end)
         }
-        val head = if (active) "● 上课中  " + item.name else item.name
-        val text = if (meta.isEmpty()) head else head + "\n" + meta.joinToString(" · ")
-        views.setTextViewText(viewId, text)
-        views.setTextColor(viewId, if (active) activeColor else normalColor)
+        val head = if (active) "● 上课中 · " + item.name else item.name
+        views.setTextViewText(nameId, head)
+        views.setTextColor(nameId, if (active) blue else ink)
+        views.setTextViewText(infoId, meta.joinToString("  ·  "))
+        views.setTextColor(infoId, muted)
     }
 }
 
