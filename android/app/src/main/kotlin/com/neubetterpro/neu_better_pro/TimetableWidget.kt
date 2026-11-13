@@ -185,6 +185,7 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
     private val blue = 0xFF0B4F9C.toInt()
     private val ink = 0xFF14243B.toInt()
     private val muted = 0xFF5D7392.toInt()
+    private val red = 0xFFC2402A.toInt()
 
     override fun onUpdate(
         context: Context,
@@ -215,23 +216,24 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
             views.setViewVisibility(R.id.widget_items, View.VISIBLE)
             bindItem(
                 views,
+                R.id.widget_item1_time,
+                R.id.widget_item1_bar,
                 R.id.widget_item1_name,
                 R.id.widget_item1_info,
                 lines.first,
                 lines.firstActive,
             )
-            if (lines.second == null) {
-                views.setViewVisibility(R.id.widget_item2, View.GONE)
-            } else {
-                views.setViewVisibility(R.id.widget_item2, View.VISIBLE)
-                bindItem(
-                    views,
-                    R.id.widget_item2_name,
-                    R.id.widget_item2_info,
-                    lines.second,
-                    false,
-                )
-            }
+            // 仅一节课时第二行保留为空白卡片（与参考样式一致）。
+            views.setViewVisibility(R.id.widget_item2, View.VISIBLE)
+            bindItem(
+                views,
+                R.id.widget_item2_time,
+                R.id.widget_item2_bar,
+                R.id.widget_item2_name,
+                R.id.widget_item2_info,
+                lines.second,
+                false,
+            )
         }
 
         val launch = Intent(context, MainActivity::class.java)
@@ -241,28 +243,38 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
             launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        views.setOnClickPendingIntent(R.id.widget_root, pending)
+        // 点击只绑在可见卡片上：顶部透明占位区域点击不跳转。
+        views.setOnClickPendingIntent(R.id.widget_card, pending)
         manager.updateAppWidget(widgetId, views)
     }
 
     private fun bindItem(
         views: RemoteViews,
+        timeId: Int,
+        barId: Int,
         nameId: Int,
         infoId: Int,
         item: WidgetItem?,
         active: Boolean,
     ) {
         if (item == null) {
+            views.setTextViewText(timeId, "")
             views.setTextViewText(nameId, "")
             views.setTextViewText(infoId, "")
+            views.setViewVisibility(barId, View.INVISIBLE)
             return
         }
+        views.setViewVisibility(barId, View.VISIBLE)
+        views.setInt(
+            barId,
+            "setBackgroundColor",
+            if (item.isExam) red else blue,
+        )
+        views.setTextViewText(timeId, item.start + "\n" + item.end)
+        views.setTextColor(timeId, muted)
         val meta = ArrayList<String>()
         if (item.room.isNotEmpty()) meta.add(item.room)
         if (item.teacher.isNotEmpty()) meta.add(item.teacher)
-        if (item.start.isNotEmpty() || item.end.isNotEmpty()) {
-            meta.add(item.start + " - " + item.end)
-        }
         val head = if (active) "● 上课中 · " + item.name else item.name
         views.setTextViewText(nameId, head)
         views.setTextColor(nameId, if (active) blue else ink)
