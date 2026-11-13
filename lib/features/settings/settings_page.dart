@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -157,6 +159,31 @@ class _SettingsDialog extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
+            if (Platform.isWindows) ...[
+              const _SectionLabel(
+                icon: Icons.power_settings_new_outlined,
+                label: '启动',
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.canvas,
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: AppColors.line),
+                ),
+                child: _SwitchRow(
+                  icon: Icons.login_rounded,
+                  title: '开机自启动',
+                  value: settings.autoStart,
+                  onChanged: controller.setAutoStart,
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             const _SectionLabel(
               icon: Icons.desktop_windows_outlined,
               label: '窗口',

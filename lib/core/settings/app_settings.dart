@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
+import '../platform/windows_startup.dart';
+
 /// 主题偏好：跟随系统 / 固定浅色 / 固定深色。
 enum ThemePreference { system, light, dark }
 
@@ -28,6 +30,7 @@ class AppSettings {
     this.weekStart = WeekStart.monday,
     this.timetableWeekView = true,
     this.autoUpdate = true,
+    this.autoStart = false,
   });
 
   final ThemePreference themePreference;
@@ -42,6 +45,9 @@ class AppSettings {
   /// 是否自动检查并从 GitHub 更新。
   final bool autoUpdate;
 
+  /// Windows 开机自启动（仅 Windows 生效，注册表 HKCU Run 项）。
+  final bool autoStart;
+
   AppSettings copyWith({
     ThemePreference? themePreference,
     bool? scheduledTheme,
@@ -52,6 +58,7 @@ class AppSettings {
     WeekStart? weekStart,
     bool? timetableWeekView,
     bool? autoUpdate,
+    bool? autoStart,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -63,6 +70,7 @@ class AppSettings {
       weekStart: weekStart ?? this.weekStart,
       timetableWeekView: timetableWeekView ?? this.timetableWeekView,
       autoUpdate: autoUpdate ?? this.autoUpdate,
+      autoStart: autoStart ?? this.autoStart,
     );
   }
 
@@ -77,6 +85,7 @@ class AppSettings {
       'weekStart': weekStart.name,
       'timetableWeekView': timetableWeekView,
       'autoUpdate': autoUpdate,
+      'autoStart': autoStart,
     };
   }
 
@@ -102,6 +111,7 @@ class AppSettings {
         defaults.timetableWeekView,
       ),
       autoUpdate: _parseBool(json['autoUpdate'], defaults.autoUpdate),
+      autoStart: _parseBool(json['autoStart'], defaults.autoStart),
     );
   }
 
@@ -258,6 +268,7 @@ class AppSettingsController extends ChangeNotifier {
   bool get showTrayIcon => _settings.showTrayIcon;
   WeekStart get weekStart => _settings.weekStart;
   bool get timetableWeekView => _settings.timetableWeekView;
+  bool get autoStart => _settings.autoStart;
   bool get autoUpdate => _settings.autoUpdate;
   Brightness get platformBrightness => _platformBrightness;
 
@@ -280,6 +291,11 @@ class AppSettingsController extends ChangeNotifier {
     _settings = loaded;
     _lastResolvedDark = isDarkNow;
     notifyListeners();
+    // 已开启自启动时，每次启动都按当前 exe 路径重写一次 Run 项，
+    // 避免安装目录变化后仍指向旧路径。
+    if (loaded.autoStart && Platform.isWindows) {
+      unawaited(WindowsStartup.setEnabled(true));
+    }
   }
 
   void setThemePreference(ThemePreference preference) {
@@ -328,6 +344,15 @@ class AppSettingsController extends ChangeNotifier {
     if (_settings.timetableWeekView == value) return;
     _settings = _settings.copyWith(timetableWeekView: value);
     _commit();
+  }
+
+  void setAutoStart(bool value) {
+    if (_settings.autoStart == value) return;
+    _settings = _settings.copyWith(autoStart: value);
+    _commit();
+    if (Platform.isWindows) {
+      unawaited(WindowsStartup.setEnabled(value));
+    }
   }
 
   void setAutoUpdate(bool value) {
