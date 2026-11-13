@@ -260,6 +260,14 @@ class TimetableData {
   final bool isSample;
   final int currentWeek;
 
+  /// 空课表占位：首启动/无缓存时用它，避免显示示例课表。
+  static const TimetableData empty = TimetableData(
+    termName: '',
+    totalWeeks: 16,
+    sessions: <CourseSession>[],
+    currentWeek: 1,
+  );
+
   /// Monday of teaching week 1. Used to derive the current week from the
   /// calendar; null keeps the stored [currentWeek] fallback.
   final DateTime? termStartDate;

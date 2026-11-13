@@ -18,6 +18,7 @@ import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
+import '../timetable/timetable_store.dart';
 import '../timetable/timetable_sync.dart';
 
 part 'widgets/home_chrome.dart';
@@ -69,13 +70,9 @@ class _HomePageState extends ConsumerState<HomePage> {
         minimizeToTaskbar: settings.minimizeOnClose && settings.showTrayIcon,
       ),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _runDailyElectricityCheck();
-      // 刚刚登录（而非恢复旧会话）时后台同步一次课表。
-      final sinceLogin = DateTime.now().difference(widget.session.createdAt);
-      if (!sinceLogin.isNegative && sinceLogin < const Duration(minutes: 3)) {
-        _autoSyncTimetable();
-      }
+      await _ensureTimetable();
     });
     // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
     // 用户点开 e码通时二维码通常已渲染好，实现「点进去就显示」。
@@ -89,6 +86,24 @@ class _HomePageState extends ConsumerState<HomePage> {
           setState(() => _ecodeVisited = true);
         }
       });
+    }
+  }
+
+  Future<void> _ensureTimetable() async {
+    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    try {
+      final cached = await const TimetableStore().read();
+      if (!mounted) return;
+      final cacheEmpty = cached == null || cached.sessions.isEmpty;
+      final sinceLogin = DateTime.now().difference(widget.session.createdAt);
+      final justLoggedIn =
+          !sinceLogin.isNegative && sinceLogin < const Duration(minutes: 3);
+      if (cacheEmpty || justLoggedIn) {
+        await _autoSyncTimetable();
+      }
+    } catch (error) {
+      debugPrint('[timetable] ensure failed: $error');
     }
   }
 

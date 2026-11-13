@@ -110,14 +110,14 @@ class TimetablePage extends ConsumerStatefulWidget {
 
 class _TimetablePageState extends ConsumerState<TimetablePage> {
   /// 官方快照（只含同步结果，不含用户修改）。
-  TimetableData _officialData = SampleTimetable.data;
+  TimetableData _officialData = TimetableData.empty;
 
   /// 本地覆盖层（用户新增 / 修改 / 删除）。
   TimetableOverlay _overlay = TimetableOverlay.empty;
 
   /// 展示用数据 = applyOverlay(_officialData, _overlay)。
-  TimetableData _data = SampleTimetable.data;
-  int _week = SampleTimetable.data.weekFor(DateTime.now());
+  TimetableData _data = TimetableData.empty;
+  int _week = 1;
   int _selectedDay = DateTime.now().weekday.clamp(1, 7);
   int _direction = 1;
   bool _weekView = true;
@@ -192,7 +192,14 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     final overlay = await const CourseOverrideStore().read();
     if (!mounted) return;
     _overlay = overlay;
-    _applyOfficial(cached ?? _officialData, resetView: true);
+    if (cached != null && cached.sessions.isNotEmpty) {
+      _applyOfficial(cached, resetView: true);
+    } else {
+      // 没有缓存：保持空课表（不显示示例课表），等 HomePage 自动同步后通过
+      // timetableChanged 通知刷新；期间界面显示「正在同步」占位。
+      _data = applyOverlay(_officialData, _overlay);
+      setState(() {});
+    }
   }
 
   /// 只补读覆盖层（Provider 已有官方数据但没有覆盖层时使用）。
@@ -205,8 +212,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
 
   Future<void> _loadCachedTimetable({bool force = false}) async {
     final cached = await const TimetableStore().read();
-    if (!mounted || cached == null) return;
-    if (!force && !_officialData.isSample) return;
+    if (!mounted || cached == null || cached.sessions.isEmpty) return;
+    if (!force && _officialData.sessions.isNotEmpty) return;
     _applyOfficial(cached, resetView: true);
   }
 
@@ -700,6 +707,31 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         PeriodTimes.periodsPerDay;
   }
 
+  Widget _buildEmptyTimetable() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.calendar_month_outlined, size: 40, color: AppColors.faint),
+          const SizedBox(height: 12),
+          Text(
+            '暂无课表数据',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '正在同步，或点右上角「同步」获取你的课表',
+            style: TextStyle(color: AppColors.faint, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWeekView(
     double slotHeight, {
     bool fitWidth = false,
@@ -707,6 +739,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     bool dense = false,
     required List<int> days,
   }) {
+    if (_data.sessions.isEmpty) return _buildEmptyTimetable();
     final pager = _WeekPager(
       week: _week,
       direction: _direction,
@@ -742,6 +775,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   }
 
   Widget _buildDayAgenda({required List<int> days}) {
+    if (_data.sessions.isEmpty) return _buildEmptyTimetable();
     return Align(
       alignment: Alignment.topCenter,
       child: SizedBox(

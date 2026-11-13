@@ -141,8 +141,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('我的课表'), findsOneWidget);
-    // 标题下方只保留学期名，不再显示周次和日期范围。
-    expect(find.textContaining('2026–2027 秋季学期'), findsOneWidget);
+    // 恢复旧会话且无本地缓存时不再显示示例课表，而是空课表占位。
+    expect(find.text('暂无课表数据'), findsOneWidget);
     expect(find.text('测试同学'), findsWidgets);
   });
 
