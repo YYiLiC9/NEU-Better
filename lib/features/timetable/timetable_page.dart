@@ -10,6 +10,7 @@ import 'course_note_store.dart';
 import 'timetable_models.dart';
 import 'timetable_schedule.dart';
 import 'timetable_store.dart';
+import 'timetable_widget_service.dart';
 import 'yjs_timetable_page.dart';
 
 part 'widgets/timetable_chrome.dart';
@@ -179,6 +180,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           ).nowWeek();
       _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
     });
+    // 同步到桌面小部件（今日课程）。
+    unawaited(TimetableWidgetService.sync(data));
   }
 
   /// 记录当前视图状态，供主题重挂载后恢复。

@@ -87,6 +87,26 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // 桌面小部件：Dart 侧把课表数据推过来，存本地并刷新所有小部件。
+        val widgetChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "neu_better/widget",
+        )
+        widgetChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "update" -> {
+                    val payload = call.argument<String>("payload")
+                    if (payload == null) {
+                        result.error("bad_args", "payload is null", null)
+                    } else {
+                        TimetableWidgetData.store(this, payload)
+                        WidgetUpdater.refreshAll(this)
+                        result.success(true)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     /** 用 FileProvider 授权的 content:// 触发系统安装未知来源应用。 */
