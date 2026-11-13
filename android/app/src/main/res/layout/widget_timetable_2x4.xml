@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="14dp"
+    android:padding="12dp"
     android:background="@drawable/widget_bg">
 
     <LinearLayout
@@ -18,7 +18,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="今日 / 周一"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textColor="#5D7392" />
 
         <TextView
@@ -26,7 +26,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text=""
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textColor="#5D7392" />
     </LinearLayout>
 
@@ -34,7 +34,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="6dp">
 
         <TextView
             android:id="@+id/widget_status"
@@ -62,7 +62,7 @@
                     android:id="@+id/widget_item1_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textStyle="bold"
                     android:textColor="#14243B"
                     android:maxLines="2"
@@ -72,7 +72,7 @@
                     android:id="@+id/widget_item1_info"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="11sp"
+                    android:textSize="10.5sp"
                     android:textColor="#5D7392"
                     android:maxLines="2"
                     android:ellipsize="end"
@@ -84,13 +84,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:paddingTop="10dp">
+                android:paddingTop="8dp">
 
                 <TextView
                     android:id="@+id/widget_item2_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textStyle="bold"
                     android:textColor="#14243B"
                     android:maxLines="2"
@@ -100,7 +100,7 @@
                     android:id="@+id/widget_item2_info"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="11sp"
+                    android:textSize="10.5sp"
                     android:textColor="#5D7392"
                     android:maxLines="2"
                     android:ellipsize="end"

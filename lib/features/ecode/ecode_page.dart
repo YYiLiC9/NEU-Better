@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -154,6 +155,7 @@ class _EcodePageState extends State<EcodePage> {
   WebViewController? _controller;
   bool _ready = false;
   String? _error;
+  Timer? _timeout;
 
   @override
   void initState() {
@@ -161,6 +163,12 @@ class _EcodePageState extends State<EcodePage> {
     if (Platform.isAndroid) {
       _bootstrap();
     }
+  }
+
+  @override
+  void dispose() {
+    _timeout?.cancel();
+    super.dispose();
   }
 
   Future<void> _bootstrap() async {
@@ -173,13 +181,14 @@ class _EcodePageState extends State<EcodePage> {
         onMessageReceived: (message) {
           if (!mounted) return;
           if (message.message == 'ready' && !_ready) {
+            _timeout?.cancel();
             setState(() => _ready = true);
           }
         },
       );
     controller.setNavigationDelegate(
       NavigationDelegate(
-        onPageFinished: (_) => controller.runJavaScript(_cleanScript),
+        onPageFinished: (_) => _onPageFinished(controller),
         onWebResourceError: (error) {
           if (mounted && error.isForMainFrame == true) {
             setState(() => _error = error.description);
@@ -190,6 +199,25 @@ class _EcodePageState extends State<EcodePage> {
     await _injectCookies();
     await controller.loadRequest(Uri.parse(_ecodeUrl));
     if (mounted) setState(() => _controller = controller);
+    _armTimeout();
+  }
+
+  /// 首次加载最多等 18 秒；超时仍未拿到二维码就转为可重试的错误态，
+  /// 避免一直停在空白盖层（会话过期/网络异常时页面可能既不报错也不出码）。
+  void _armTimeout() {
+    _timeout?.cancel();
+    _timeout = Timer(const Duration(seconds: 18), () {
+      if (!mounted || _ready) return;
+      setState(
+        () => _error =
+            'e码通加载超时。请确认已连接校园网；若登录状态已失效，请返回重新登录后再试。',
+      );
+    });
+  }
+
+  Future<void> _onPageFinished(WebViewController controller) async {
+    await controller.runJavaScript(_cleanScript);
+    _armTimeout();
   }
 
   /// 把已有的 CAS 票据注入 pass/webvpn 域，让官方 e码通页面自动 SSO 登录。
@@ -221,6 +249,7 @@ class _EcodePageState extends State<EcodePage> {
     final controller = _controller;
     if (controller == null) return;
     setState(() => _error = null);
+    _armTimeout();
     // 优先原地换码：不重载页面、不显示加载圈，新二维码就绪后直接覆盖旧码。
     try {
       final result = await controller.runJavaScriptReturningResult(
@@ -232,7 +261,9 @@ class _EcodePageState extends State<EcodePage> {
       debugPrint('[ecode] refresh js failed: $error');
     }
     // 兜底：仅当页面自身换码不可用时才整体重载（不显示加载圈，尽量不闪烁）。
+    setState(() => _ready = false);
     await controller.reload();
+    _armTimeout();
   }
 
   @override
@@ -328,7 +359,7 @@ class _EcodePageState extends State<EcodePage> {
                   Icon(Icons.wifi_off_rounded, size: 40, color: AppColors.muted),
                   const SizedBox(height: 12),
                   Text(
-                    '暂时无法加载 e码通，请确认已连接校园网后重试。',
+                    _error ?? '暂时无法加载 e码通，请确认已连接校园网后重试。',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppColors.muted, fontSize: 12),
                   ),
