@@ -21,28 +21,27 @@ const String _ecodeUrl = 'https://ecode.neu.edu.cn/ecode/#/';
 const String _cleanScript = r"""
 (function(){
   function isSquare(r){
-    return r.width>=120 && r.height>=120 &&
-      Math.abs(r.width-r.height) < Math.max(r.width,r.height)*0.30;
+    return r.width>=100 && r.height>=100 &&
+      Math.abs(r.width-r.height) < Math.max(r.width,r.height)*0.35;
   }
-  // 只认真正的二维码：优先 canvas；否则只接受 data:/blob: 动态生成的 img。
-  // 借此排除官方宣传图（大尺寸静态图片）被误判为二维码。
+  // 二维码可能是 canvas，也可能是任意来源的 <img>（data/blob 或服务端 URL）。
+  // 宣传图/横幅是宽矩形，会被“近似正方形”条件排除，所以不再限制 src —— 旧实现
+  // 只认 data:/blob: 图片，一旦官方 H5 改用服务端二维码图片就会一直识别不到、
+  // 停留在空白盖层（即“长时间白屏”）。
   function pick(){
     var best=null, area=0, i, r, a;
-    var cs=document.querySelectorAll('canvas');
-    for(i=0;i<cs.length;i++){
-      r=cs[i].getBoundingClientRect();
-      if(isSquare(r)){ a=r.width*r.height; if(a>area){area=a;best=cs[i];} }
-    }
-    if(best) return best;
-    var imgs=document.querySelectorAll('img');
-    area=0;
-    for(i=0;i<imgs.length;i++){
-      var el=imgs[i];
-      var src=el.currentSrc||el.src||'';
-      if(src.indexOf('data:')!==0 && src.indexOf('blob:')!==0) continue;
+    function consider(el){
       r=el.getBoundingClientRect();
       if(isSquare(r)){ a=r.width*r.height; if(a>area){area=a;best=el;} }
     }
+    var cs=document.querySelectorAll('canvas');
+    for(i=0;i<cs.length;i++){ consider(cs[i]); }
+    if(best) return best;
+    var imgs=document.querySelectorAll('img');
+    for(i=0;i<imgs.length;i++){ consider(imgs[i]); }
+    if(best) return best;
+    var hinted=document.querySelectorAll('[class*="qr" i],[id*="qr" i],[class*="qrcode" i]');
+    for(i=0;i<hinted.length;i++){ if(hinted[i].getBoundingClientRect){ consider(hinted[i]); } }
     return best;
   }
   function cover(on){
