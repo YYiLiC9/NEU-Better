@@ -155,6 +155,7 @@ class _EcodePageState extends State<EcodePage> {
   bool _ready = false;
   String? _error;
   Timer? _timeout;
+  Timer? _errorTimer;
 
   @override
   void initState() {
@@ -167,6 +168,7 @@ class _EcodePageState extends State<EcodePage> {
   @override
   void dispose() {
     _timeout?.cancel();
+    _errorTimer?.cancel();
     super.dispose();
   }
 
@@ -179,19 +181,37 @@ class _EcodePageState extends State<EcodePage> {
         'EcodeBridge',
         onMessageReceived: (message) {
           if (!mounted) return;
-          if (message.message == 'ready' && !_ready) {
+          if (message.message == 'ready') {
+            _errorTimer?.cancel();
             _timeout?.cancel();
-            setState(() => _ready = true);
+            if (!_ready || _error != null) {
+              setState(() {
+                _ready = true;
+                _error = null;
+              });
+            }
           }
         },
       );
     controller.setNavigationDelegate(
       NavigationDelegate(
+        // 一进入新页面就注入清洗脚本，尽早隐藏官方页面（含其自身的
+        // “获取失败/加载中”提示），避免快速切换时露出一瞬非二维码内容。
+        onPageStarted: (_) async {
+          try {
+            await controller.runJavaScript(_cleanScript);
+          } catch (_) {}
+        },
         onPageFinished: (_) => _onPageFinished(controller),
         onWebResourceError: (error) {
-          if (mounted && error.isForMainFrame == true) {
-            setState(() => _error = error.description);
-          }
+          if (!mounted || _ready) return;
+          if (error.isForMainFrame != true) return;
+          final desc = error.description;
+          // 页面跳转/SSO 重定向期间会报“取消/中断”，这类瞬时错误不弹错误页；
+          // 真正的失败延迟 1.8s 仍无二维码才提示，避免闪现“获取失败”。
+          final lower = desc.toLowerCase();
+          if (lower.contains('abort') || lower.contains('err_blocked')) return;
+          _armError(desc);
         },
       ),
     );
@@ -214,7 +234,19 @@ class _EcodePageState extends State<EcodePage> {
     });
   }
 
+  /// 主框架错误先不立刻弹错误页：延迟 1.8s 仍无二维码才提示，避免页面仍在
+  /// 跳转/SSO 时闪现“获取失败”。
+  void _armError(String description) {
+    _errorTimer?.cancel();
+    _errorTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (!mounted || _ready || _error != null) return;
+      setState(() => _error = description);
+    });
+  }
+
   Future<void> _onPageFinished(WebViewController controller) async {
+    _errorTimer?.cancel();
+    if (_error != null && mounted) setState(() => _error = null);
     await controller.runJavaScript(_cleanScript);
     _armTimeout();
   }
@@ -247,6 +279,7 @@ class _EcodePageState extends State<EcodePage> {
   Future<void> _reload() async {
     final controller = _controller;
     if (controller == null) return;
+    _errorTimer?.cancel();
     setState(() => _error = null);
     _armTimeout();
     // 优先原地换码：不重载页面、不显示加载圈，新二维码就绪后直接覆盖旧码。
