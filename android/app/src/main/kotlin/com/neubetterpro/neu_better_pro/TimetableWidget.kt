@@ -41,18 +41,11 @@ object TimetableWidgetData {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY, null)
 
-    /** Calendar.SUNDAY=1..SATURDAY=7 → ISO 周一=1..周日=7 */
     private fun isoDowOf(now: Calendar): Int = ((now.get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
 
     private fun dayLabelOf(now: Calendar): String =
-        "今日 / " + weekdayNames[isoDowOf(now) - 1]
+        "今日 · " + weekdayNames[isoDowOf(now) - 1]
 
-    /**
-     * 小部件要显示的内容。
-     * - 有课：[first]/[second] 为两行课程或考试；[emptyText] 为空。
-     * - 无课：[emptyText] 为居中的状态文案，两行为空。
-     * 头部固定展示 [dayLabel]（如「今日 / 周五」）与 [weekLabel]（如「第11周」）。
-     */
     data class Lines(
         val first: WidgetItem?,
         val second: WidgetItem?,
@@ -65,7 +58,7 @@ object TimetableWidgetData {
     fun compute(context: Context): Lines {
         val now = Calendar.getInstance()
         val payload = load(context)
-            ?: return Lines(null, null, false, "打开应用同步课程", dayLabelOf(now), "")
+            ?: return Lines(null, null, false, "点按打开应用同步课程", dayLabelOf(now), "")
         return try {
             computeFrom(payload, now)
         } catch (e: Exception) {
@@ -93,7 +86,7 @@ object TimetableWidgetData {
         val diffDays = ((todayCal.timeInMillis - anchorCal.timeInMillis) / 86400000L).toInt()
         val week = anchorWeek + Math.floorDiv(diffDays, 7)
         val isoDow = isoDowOf(now)
-        val dayLabel = "今日 / " + weekdayNames[isoDow - 1]
+        val dayLabel = "今日 · " + weekdayNames[isoDow - 1]
         val weekLabel = "第${week}周"
         val todayStr = dateFormat.format(now.time)
         val nowMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
@@ -114,12 +107,7 @@ object TimetableWidgetData {
             val end = o.optString("endTime")
             val sm = parseMinutes(start) ?: continue
             val em = parseMinutes(end) ?: (sm + 45)
-            items.add(
-                WidgetItem(
-                    o.optString("name"), o.optString("room"), o.optString("teacher"),
-                    start, end, false, sm, em,
-                ),
-            )
+            items.add(WidgetItem(o.optString("name"), o.optString("room"), o.optString("teacher"), start, end, false, sm, em))
         }
 
         val exams = root.optJSONArray("exams") ?: JSONArray()
@@ -130,12 +118,7 @@ object TimetableWidgetData {
             val end = o.optString("endTime")
             val sm = parseMinutes(start) ?: continue
             val em = parseMinutes(end) ?: (sm + 60)
-            items.add(
-                WidgetItem(
-                    o.optString("name"), o.optString("room"), o.optString("teacher"),
-                    start, end, true, sm, em,
-                ),
-            )
+            items.add(WidgetItem(o.optString("name"), o.optString("room"), o.optString("teacher"), start, end, true, sm, em))
         }
 
         items.sortBy { it.startMinutes }
@@ -163,10 +146,7 @@ object TimetableWidgetData {
 object WidgetUpdater {
     fun refreshAll(context: Context) {
         val manager = AppWidgetManager.getInstance(context)
-        val classes = listOf(
-            TimetableWidget2x2Provider::class.java,
-            TimetableWidget2x4Provider::class.java,
-        )
+        val classes = listOf(TimetableWidget2x2Provider::class.java, TimetableWidget2x4Provider::class.java)
         for (clazz in classes) {
             val ids = manager.getAppWidgetIds(ComponentName(context, clazz))
             if (ids.isEmpty()) continue
@@ -182,24 +162,11 @@ object WidgetUpdater {
 abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
     protected abstract fun layoutId(): Int
 
-    private val blue = 0xFF0B4F9C.toInt()
-    private val ink = 0xFF14243B.toInt()
-    private val muted = 0xFF5D7392.toInt()
-    private val red = 0xFFC2402A.toInt()
-
-    override fun onUpdate(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray,
-    ) {
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (id in appWidgetIds) render(context, appWidgetManager, id)
     }
 
-    private fun render(
-        context: Context,
-        manager: AppWidgetManager,
-        widgetId: Int,
-    ) {
+    private fun render(context: Context, manager: AppWidgetManager, widgetId: Int) {
         val views = RemoteViews(context.packageName, layoutId())
         val lines = TimetableWidgetData.compute(context)
 
@@ -209,77 +176,48 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
         if (lines.emptyText != null) {
             views.setViewVisibility(R.id.widget_status, View.VISIBLE)
             views.setTextViewText(R.id.widget_status, lines.emptyText)
-            views.setTextColor(R.id.widget_status, muted)
             views.setViewVisibility(R.id.widget_items, View.GONE)
         } else {
             views.setViewVisibility(R.id.widget_status, View.GONE)
             views.setViewVisibility(R.id.widget_items, View.VISIBLE)
-            bindItem(
-                views,
-                R.id.widget_item1_time,
-                R.id.widget_item1_bar,
-                R.id.widget_item1_name,
-                R.id.widget_item1_info,
-                lines.first,
-                lines.firstActive,
-            )
-            // 仅一节课时第二行保留为空白卡片（与参考样式一致）。
-            views.setViewVisibility(R.id.widget_item2, View.VISIBLE)
-            bindItem(
-                views,
-                R.id.widget_item2_time,
-                R.id.widget_item2_bar,
-                R.id.widget_item2_name,
-                R.id.widget_item2_info,
-                lines.second,
-                false,
-            )
+            bindItem(views, 1, lines.first, lines.firstActive)
+            if (lines.second == null) {
+                views.setViewVisibility(R.id.widget_item2, View.GONE)
+            } else {
+                views.setViewVisibility(R.id.widget_item2, View.VISIBLE)
+                bindItem(views, 2, lines.second, false)
+            }
         }
 
         val launch = Intent(context, MainActivity::class.java)
         val pending = PendingIntent.getActivity(
-            context,
-            0,
-            launch,
+            context, 0, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        // 点击只绑在可见卡片上：顶部透明占位区域点击不跳转。
-        views.setOnClickPendingIntent(R.id.widget_card, pending)
+        views.setOnClickPendingIntent(R.id.widget_root, pending)
         manager.updateAppWidget(widgetId, views)
     }
 
-    private fun bindItem(
-        views: RemoteViews,
-        timeId: Int,
-        barId: Int,
-        nameId: Int,
-        infoId: Int,
-        item: WidgetItem?,
-        active: Boolean,
-    ) {
+    private fun bindItem(views: RemoteViews, index: Int, item: WidgetItem?, active: Boolean) {
+        val timeId = if (index == 1) R.id.widget_item1_time else R.id.widget_item2_time
+        val nameId = if (index == 1) R.id.widget_item1_name else R.id.widget_item2_name
+        val infoId = if (index == 1) R.id.widget_item1_info else R.id.widget_item2_info
         if (item == null) {
             views.setTextViewText(timeId, "")
             views.setTextViewText(nameId, "")
             views.setTextViewText(infoId, "")
-            views.setViewVisibility(barId, View.INVISIBLE)
             return
         }
-        views.setViewVisibility(barId, View.VISIBLE)
-        views.setInt(
-            barId,
-            "setBackgroundColor",
-            if (item.isExam) red else blue,
-        )
-        views.setTextViewText(timeId, item.start + "\n" + item.end)
-        views.setTextColor(timeId, muted)
+        val timeText = if (item.start.isNotEmpty() || item.end.isNotEmpty()) {
+            item.start + "\n" + item.end
+        } else ""
+        views.setTextViewText(timeId, timeText)
+        val head = if (active) "● 上课中 · " + item.name else item.name
+        views.setTextViewText(nameId, head)
         val meta = ArrayList<String>()
         if (item.room.isNotEmpty()) meta.add(item.room)
         if (item.teacher.isNotEmpty()) meta.add(item.teacher)
-        val head = if (active) "● 上课中 · " + item.name else item.name
-        views.setTextViewText(nameId, head)
-        views.setTextColor(nameId, if (active) blue else ink)
         views.setTextViewText(infoId, meta.joinToString("  ·  "))
-        views.setTextColor(infoId, muted)
     }
 }
 

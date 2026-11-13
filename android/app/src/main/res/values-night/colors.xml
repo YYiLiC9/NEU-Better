@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- HyperOS 小部件深色模式取色 -->
+    <color name="widget_card_bg">#F2202124</color>
+    <color name="widget_row_bg">#1AFFFFFF</color>
+    <color name="widget_title">#66FFFFFF</color>
+    <color name="widget_primary">#F2FFFFFF</color>
+    <color name="widget_secondary">#66FFFFFF</color>
+    <color name="widget_accent">#5A97D6</color>
+</resources>
