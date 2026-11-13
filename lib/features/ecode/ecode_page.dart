@@ -41,7 +41,19 @@ const String _cleanScript = r"""
     for(i=0;i<imgs.length;i++){ consider(imgs[i]); }
     if(best) return best;
     var hinted=document.querySelectorAll('[class*="qr" i],[id*="qr" i],[class*="qrcode" i]');
-    for(i=0;i<hinted.length;i++){ if(hinted[i].getBoundingClientRect){ consider(hinted[i]); } }
+    for(i=0;i<hinted.length;i++){
+      var h=hinted[i];
+      if(!h.getBoundingClientRect) continue;
+      // 只认“真正承载图像”的元素：内部 canvas/img，或带 background-image 的元素。
+      // 官方“获取失败”占位块是一个带边框的方形容器（里面有“获取失败”文字，但
+      // 尚无二维码图像），以前会把这个容器误判成二维码导致失败界面一闪而过。
+      var inner=h.querySelector('canvas,img');
+      if(inner){ consider(inner); continue; }
+      try{
+        var bg=window.getComputedStyle(h).backgroundImage||'';
+        if(bg && bg!=='none' && bg.indexOf('url(')>=0) consider(h);
+      }catch(e){}
+    }
     return best;
   }
   function cover(on){
@@ -80,10 +92,10 @@ const String _cleanScript = r"""
       var t=pick();
       if(!t){ stable=0; stableEl=null; cover(true); return false; } // 二维码渲染中：先用底色盖住，避免露出官方界面
       if(!everReady){
-        // 首次确认前，候选需连续约 360ms(6×60ms) 保持同一元素才认作二维码；
-        // 官方“获取失败”页的方形插图会很快消失，从而不会被当成二维码。
+        // 首次确认前，候选需连续约 480ms(8×60ms) 保持同一元素才认作二维码；
+        // 官方“获取失败”占位块会很快被真码替换，从而不会被当成二维码。
         if(t===stableEl){ stable++; } else { stableEl=t; stable=0; }
-        if(stable<6){ cover(true); return false; }
+        if(stable<8){ cover(true); return false; }
       }
       t.classList.add('ecode-qr'); // 标记为已识别二维码（未被标记的 canvas/img 一律隐藏，杜绝未定位时的错位闪现）
       var chain=[],n=t;
