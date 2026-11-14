@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/platform/windows_window.dart';
 import '../core/settings/app_settings.dart';
 import '../core/update/update_flow.dart';
+import '../core/update/update_manager.dart';
 import '../features/auth/auth_gate.dart';
 import 'theme/app_theme.dart';
 
@@ -21,10 +22,13 @@ class NeuBetterApp extends ConsumerStatefulWidget {
 
 class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     with WidgetsBindingObserver {
+  final UpdateManager _updates = UpdateManager.instance;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _updates.addListener(_onUpdateChanged);
     final controller = ref.read(appSettingsProvider.notifier);
     controller.updatePlatformBrightness(
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
@@ -33,9 +37,38 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!ref.read(appSettingsProvider).autoUpdate) return;
-      final ctx = _rootNavigatorKey.currentContext;
-      if (ctx != null) unawaited(checkForUpdates(ctx));
+      unawaited(_bootstrapUpdate());
     });
+  }
+
+  /// 启动时自动检查：若有更新，弹「发现新版本」；若安装包已下载完成，直接提示安装。
+  Future<void> _bootstrapUpdate() async {
+    final ctx = _rootNavigatorKey.currentContext;
+    if (ctx == null) return;
+    final info = await _updates.check();
+    if (!mounted || info == null) return;
+    final current = _rootNavigatorKey.currentContext;
+    if (current == null || !current.mounted) return;
+    if (_updates.readyFile != null) {
+      _updates.promptedReady = true;
+      await showUpdateReadyDialog(current);
+    } else {
+      await showUpdateAvailableDialog(current);
+    }
+  }
+
+  /// 后台下载完成且在应用前台时弹「立即更新 / 下次重启更新」。
+  void _onUpdateChanged() {
+    if (!mounted) return;
+    if (_updates.readyFile == null || _updates.downloading) return;
+    if (_updates.promptedReady) return;
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    final ctx = _rootNavigatorKey.currentContext;
+    if (ctx == null) return;
+    _updates.promptedReady = true;
+    unawaited(showUpdateReadyDialog(ctx));
   }
 
   void _applyWindowSettings(AppSettingsController settings) {
@@ -57,7 +90,18 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (_updates.readyFile == null || _updates.promptedReady) return;
+    final ctx = _rootNavigatorKey.currentContext;
+    if (ctx == null) return;
+    _updates.promptedReady = true;
+    unawaited(showUpdateReadyDialog(ctx));
+  }
+
+  @override
   void dispose() {
+    _updates.removeListener(_onUpdateChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

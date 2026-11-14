@@ -10,8 +10,18 @@ import 'package:flutter/services.dart';
 abstract final class UpdateInstaller {
   static const MethodChannel _channel = MethodChannel('neu_better/updater');
 
-  static Future<void> installAndroid(File apk) async {
-    await _channel.invokeMethod<void>('installApk', {'path': apk.path});
+  static Future<String> installAndroid(File apk) async {
+    try {
+      final result = await _channel.invokeMethod<String>('installApk', {
+        'path': apk.path,
+      });
+      return result ?? 'ok';
+    } on PlatformException catch (error) {
+      if (error.code == 'need_permission') return 'need_permission';
+      return 'error: ${error.message}';
+    } catch (error) {
+      return 'error: $error';
+    }
   }
 
   static Future<void> applyWindows(File zip) async {

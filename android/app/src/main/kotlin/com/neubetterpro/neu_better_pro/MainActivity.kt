@@ -5,10 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -77,8 +80,8 @@ class MainActivity : FlutterActivity() {
                         result.error("bad_args", "path is null", null)
                     } else {
                         try {
-                            installApk(path)
-                            result.success(true)
+                            val status = installApk(path)
+                            result.success(status)
                         } catch (error: Exception) {
                             result.error("install_failed", error.message, null)
                         }
@@ -109,10 +112,27 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** 用 FileProvider 授权的 content:// 触发系统安装未知来源应用。 */
-    private fun installApk(path: String) {
+    /**
+     * 用 FileProvider 授权的 content:// 触发系统安装未知来源应用。
+     *
+     * 返回 "ok" 表示已拉起安装器；"need_permission" 表示用户尚未允许
+     * 「安装未知应用」，此时跳转系统授权页，用户允许后需再次点击更新。
+     */
+    private fun installApk(path: String): String {
         val file = File(path)
-        require(file.exists()) { "apk not found: $path" }
+        require(file.exists() && file.length() > 0L) {
+            "apk not found or empty: $path"
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            val settingsIntent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(settingsIntent)
+            return "need_permission"
+        }
         val uri = FileProvider.getUriForFile(
             this,
             "$packageName.fileprovider",
@@ -122,8 +142,12 @@ class MainActivity : FlutterActivity() {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            // 部分厂商 ROM 需要 clipData 才能把读权限一并授予安装器。
+            clipData = ClipData.newRawUri("apk", uri)
         }
         startActivity(intent)
+        return "ok"
     }
 
     override fun onNewIntent(intent: Intent) {
