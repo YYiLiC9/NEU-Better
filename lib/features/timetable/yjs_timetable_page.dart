@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -43,7 +44,10 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
       _error = null;
     });
     try {
-      final raw = await _fetchRaw();
+      final raw = await _fetchRaw().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('同步超时'),
+      );
       if (raw == null) {
         throw const FormatException('研究生系统没有返回响应');
       }
@@ -75,7 +79,7 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
         final recovered = await TimetableSyncService.recoverExams(
           auth is AuthAuthenticated ? auth.session : null,
         ).timeout(
-          const Duration(seconds: 45),
+          const Duration(seconds: 20),
           onTimeout: () => const <ExamEntry>[],
         );
         if (recovered.isNotEmpty) {
@@ -143,11 +147,12 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
   String _shortError(Object error) {
     final text = error.toString();
     if (text.contains('receive timeout') ||
+        text.contains('TimeoutException') ||
         text.contains('DioException') ||
         text.contains('Connection') ||
         text.contains('SocketException') ||
         text.contains('超时')) {
-      return '连接学校服务器超时或失败，请确认已连接校园网 / 学校 VPN 后重试。';
+      return '同步超时或连接失败：请确认已连接校园网 / 学校 VPN 后重试。';
     }
     if (text.contains('grouplist 为空') || text.contains('研究生系统身份')) {
       return '当前账号没有研究生系统身份，请先确认学校已开通“研究生系统（新）”。';

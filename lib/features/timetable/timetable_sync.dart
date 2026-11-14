@@ -13,11 +13,17 @@ import 'timetable_store.dart';
 
 /// 后台课表同步：登录成功后自动拉一次并写入本地缓存。
 abstract final class TimetableSyncService {
+  static bool _inFlight = false;
+
   /// 用当前登录会话免密同步课表；失败时返回 null，不打断主流程。
   static Future<TimetableData?> syncWithSession(AuthSession session) async {
     if (!session.hasCookies) return null;
+    if (_inFlight) return null;
+    _inFlight = true;
     try {
-      final raw = await YjsTimetableClient().fetchWithSession(session: session);
+      final raw = await YjsTimetableClient()
+          .fetchWithSession(session: session)
+          .timeout(const Duration(seconds: 30));
       var data = parseEnvelope(raw);
       if (data == null) return null;
       // 考试接口偶发失败（返回空）时不要把上一次已缓存的考试清空：保留旧考试，
@@ -26,7 +32,9 @@ abstract final class TimetableSyncService {
         // 1) 先用保存的账号密码重新登录：考试接口部署在部分后端节点上，
         //    少数会话会命中没有该接口的节点而返回 404。重新登录会换到新节点，
         //    多试几次基本都能拿到考试，保证「能读到课表就能读到考试」。
-        final recovered = await _recoverWithCredentials(session);
+        final recovered = await _recoverWithCredentials(
+          session,
+        ).timeout(const Duration(seconds: 12), onTimeout: () => null);
         if (recovered != null) {
           data = recovered;
         } else {
@@ -50,6 +58,8 @@ abstract final class TimetableSyncService {
     } catch (error) {
       debugPrint('[timetable] auto sync skipped: $error');
       return null;
+    } finally {
+      _inFlight = false;
     }
   }
 
@@ -73,13 +83,15 @@ abstract final class TimetableSyncService {
     if (studentId.isNotEmpty && saved.username.trim() != studentId) {
       return null;
     }
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= 2; attempt++) {
       try {
-        final raw = await YjsTimetableClient().fetch(
-          username: saved.username,
-          password: password,
-          term: '20261',
-        );
+        final raw = await YjsTimetableClient()
+            .fetch(
+              username: saved.username,
+              password: password,
+              term: '20261',
+            )
+            .timeout(const Duration(seconds: 12));
         final data = parseEnvelope(raw);
         if (data != null && data.exams.isNotEmpty) {
           debugPrint('[timetable] exams recovered on attempt $attempt');

@@ -43,7 +43,7 @@ class NeuServiceSession {
     return Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 25),
+        receiveTimeout: const Duration(seconds: 15),
         sendTimeout: const Duration(seconds: 15),
         responseType: ResponseType.plain,
         followRedirects: false,
@@ -71,8 +71,12 @@ class NeuServiceSession {
     var uri = Uri.https('pass.neu.edu.cn', '/tpass/login', {
       'service': service,
     });
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
 
     for (var hop = 0; hop < 12; hop++) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw const SessionExpiredException('连接学校统一身份认证超时，请重试');
+      }
       final Response<String> response;
       try {
         response = await _dio.getUri<String>(

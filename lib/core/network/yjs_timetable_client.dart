@@ -132,7 +132,7 @@ class YjsTimetableClient {
       roleId: roleId,
       appIndex: examAppIndex,
       term: term,
-    );
+    ).timeout(const Duration(seconds: 18), onTimeout: () => null);
 
     return jsonEncode({
       'body': timetable.data,
@@ -197,7 +197,9 @@ class YjsTimetableClient {
     // 考试接口偶发返回空 / 需要重开 shell 刷新角色会话。重试若干次，任一成功即
     // 返回，避免「能读到课表却读不到考试」——第一次失败不再直接落空。
     final shellUrl = _examShellUrl(roleId, appIndex);
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      if (DateTime.now().isAfter(deadline)) break;
       try {
         final shellResponse = await dio.get<String>(
           shellUrl,
@@ -208,6 +210,8 @@ class YjsTimetableClient {
               'Accept': 'text/html, */*; q=0.01',
               'Referer': service,
             },
+            receiveTimeout: const Duration(seconds: 8),
+            sendTimeout: const Duration(seconds: 8),
           ),
         );
         _captureCookies(cookies, shellResponse.headers);
@@ -227,6 +231,8 @@ class YjsTimetableClient {
                   'application/x-www-form-urlencoded; charset=UTF-8',
               'Referer': 'https://yjs.neu.edu.cn$shellUrl',
             },
+            receiveTimeout: const Duration(seconds: 8),
+            sendTimeout: const Duration(seconds: 8),
           ),
         );
         _captureCookies(cookies, response.headers);
@@ -248,7 +254,7 @@ class YjsTimetableClient {
       } catch (error) {
         debugPrint('[yjs] exam api attempt $attempt failed: $error');
       }
-      if (attempt < 3) {
+      if (attempt < 2) {
         await Future<void>.delayed(const Duration(milliseconds: 350));
       }
     }
@@ -272,7 +278,7 @@ class YjsTimetableClient {
     final appUrl =
         '/gsapp/sys/wdkbapp/*default/index.do?THEME=blue&min=1'
         '&_yhz=${Uri.encodeQueryComponent(roleId)}';
-    for (final path in _legacyExamEndpoints) {
+    for (final path in _legacyExamEndpoints.take(2)) {
       try {
         final response = await dio.post<String>(
           path,
@@ -283,6 +289,8 @@ class YjsTimetableClient {
               'cookie': _cookieHeader(cookies),
               'Referer': 'https://yjs.neu.edu.cn$appUrl',
             },
+            receiveTimeout: const Duration(seconds: 8),
+            sendTimeout: const Duration(seconds: 8),
           ),
         );
         _captureCookies(cookies, response.headers);
