@@ -28,63 +28,76 @@ extension _DormPowerCards on _DormPowerPageState {
     );
   }
 
-  // ---------- campus card entry ----------
+  // ---------- 网费余额卡片 ----------
 
-  Widget _buildCampusCardEntry() {
-    final auth = ref.read(authControllerProvider);
-    final session = auth is AuthAuthenticated ? auth.session : null;
+  Widget _buildNetFeeCard() {
+    final valueText = _netLoading
+        ? null
+        : (_netBalance != null
+              ? '¥ ${_netBalance!.toStringAsFixed(2)}'
+              : (_netError ?? '—'));
     return _card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: session == null
-            ? null
-            : () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => CampusCardPage(session: session),
-                ),
-              ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.campusBlue.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: Icon(
-                  Icons.credit_card_rounded,
-                  size: 21,
-                  color: AppColors.campusBlue,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '校园卡余额',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '点击从一号通门户读取',
-                      style: TextStyle(fontSize: 11, color: AppColors.muted),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: AppColors.faint),
-            ],
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.campusBlue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.wifi_rounded,
+              size: 20,
+              color: AppColors.campusBlue,
+            ),
           ),
-        ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '网费余额',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _netError != null && _netBalance == null
+                      ? _netError!
+                      : '缴费服务大厅 · 进入自动刷新',
+                  style: TextStyle(fontSize: 10.5, color: AppColors.muted),
+                ),
+              ],
+            ),
+          ),
+          if (_netLoading)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Text(
+              valueText ?? '—',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: _netBalance != null ? AppColors.ink : AppColors.muted,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          IconButton(
+            tooltip: '刷新',
+            onPressed: _netLoading ? null : _loadNetFee,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            color: AppColors.muted,
+          ),
+        ],
       ),
     );
   }

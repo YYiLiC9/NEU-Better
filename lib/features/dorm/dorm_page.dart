@@ -9,7 +9,8 @@ import '../auth/auth_controller.dart';
 import 'electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import 'electricity_service.dart';
-import 'campus_card_page.dart';
+import 'campus_card_balance_card.dart';
+import '../../core/network/net_fee_client.dart';
 
 part 'widgets/dorm_cards.dart';
 
@@ -35,6 +36,11 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
   bool _editing = false;
   String? _error;
 
+  // 网费余额（进入余额中心自动刷新）。
+  double? _netBalance;
+  bool _netLoading = false;
+  String? _netError;
+
   String _campus = '浑南校区';
   String? _buildingCode;
   final _roomController = TextEditingController();
@@ -46,6 +52,7 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
     super.initState();
     _thresholdController.text = '20';
     _loadPrefs();
+    _loadNetFee();
     // 后台每日查询完成后自动刷新（home 页每日检查会触发信号）。
     dormPrefsChanged.addListener(_loadPrefs);
   }
@@ -78,6 +85,33 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
   double get _threshold {
     final value = double.tryParse(_thresholdController.text.trim());
     return value == null || value <= 0 ? 20 : value;
+  }
+
+  /// 进入余额中心时自动查询一次网费余额。
+  Future<void> _loadNetFee() async {
+    final auth = ref.read(authControllerProvider);
+    final session = auth is AuthAuthenticated ? auth.session : null;
+    if (session == null) return;
+    if (mounted) {
+      setState(() {
+        _netLoading = true;
+        _netError = null;
+      });
+    }
+    try {
+      final value = await NetFeeClient().queryWithSession(session: session);
+      if (!mounted) return;
+      setState(() {
+        _netBalance = value;
+        _netLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _netLoading = false;
+        _netError = error is NetFeeQueryException ? error.message : '网费查询失败';
+      });
+    }
   }
 
   // 完整房间码 ↔ 校区/楼栋/寝室号 双向联动。
@@ -216,6 +250,8 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
+    final session = auth is AuthAuthenticated ? auth.session : null;
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         _compact ? 20 : 36,
@@ -233,7 +269,11 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
                 _buildHeader(),
                 const SizedBox(height: 22),
               ],
-              _buildCampusCardEntry(),
+              if (session != null) ...[
+                CampusCardBalanceCard(session: session),
+                const SizedBox(height: 12),
+              ],
+              _buildNetFeeCard(),
               const SizedBox(height: 16),
               if (!_prefs.hasRoom || _editing) ...[
                 _buildSetupCard(),
