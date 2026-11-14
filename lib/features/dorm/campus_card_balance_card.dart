@@ -106,16 +106,47 @@ class _CampusCardBalanceCardState extends State<CampusCardBalanceCard> {
     try {
       await controller.runJavaScript(r'''
 (function(){
-  var tries = 0;
+  var tries = 0, clicked = 0;
   function post(o){ try { EcardBridge.postMessage(JSON.stringify(o)); } catch(e){} }
+  function readValue(){
+    var t = document.body ? (document.body.innerText || '') : '';
+    var m = t.match(/(?:校园卡余额|一卡通余额|卡余额)[^0-9*]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/);
+    return m ? m[1] : null;
+  }
+  // 余额默认用 **** 遮住，需要点旁边的“眼睛”才显示真实数字。
+  function clickEye(){
+    if (clicked >= 3) return;
+    var hit = false;
+    var nodes = document.querySelectorAll('i,svg,img,button,span,a,div');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var cls = '' + (el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className);
+      var at = '' + (el.getAttribute ? ((el.getAttribute('title') || '') + ' ' + (el.getAttribute('aria-label') || '')) : '');
+      var sig = cls + ' ' + at;
+      if (/eye|visible|show|display|look|眼睛|显示|mask|查看/i.test(sig)) {
+        var r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 5) { try { el.click(); } catch(e){} hit = true; }
+      }
+    }
+    if (!hit) {
+      // 兜底：找显示 **** 的元素，点它的相邻按钮（通常是眼睛图标）。
+      var all = document.querySelectorAll('body *');
+      for (var j = 0; j < all.length; j++) {
+        var e2 = all[j];
+        if (e2.children.length === 0 && /\*{2,}/.test(e2.innerText || '')) {
+          var p = e2.parentElement;
+          if (p) { for (var k = 0; k < p.children.length; k++) { var s = p.children[k]; if (s !== e2) { try { s.click(); } catch(e){} hit = true; } } }
+        }
+      }
+    }
+    if (hit) clicked++;
+  }
   function tick(){
     tries++;
-    var t = document.body ? (document.body.innerText || '') : '';
-    if (t) {
-      var m = t.match(/(?:校园卡余额|一卡通余额|卡余额)[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/);
-      if (m) { post({value: m[1]}); return; }
-    }
-    if (tries < 40) { setTimeout(tick, 800); return; }
+    var v = readValue();
+    if (v) { post({value: v}); return; }
+    if (tries <= 8) { clickEye(); }
+    if (tries < 45) { setTimeout(tick, 700); return; }
     post({notfound: true});
   }
   tick();
