@@ -4,10 +4,9 @@ import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/network/mail_client.dart';
 import 'mail_format.dart';
-import 'mail_web_view.dart';
 
-/// 邮件详情：原生展示元数据（发件人/收件人/主题/时间/附件），正文用 WebView
-/// 打开官方页面（正文接口未公开）。只读。
+/// 邮件详情：原生展示元数据（发件人/收件人/主题/时间/附件）+ 原生正文
+/// （由 getMessageData 的 MIME 解析而来，HTML 转纯文本）。只读。
 class MailDetailPage extends StatefulWidget {
   const MailDetailPage({
     super.key,
@@ -18,6 +17,8 @@ class MailDetailPage extends StatefulWidget {
 
   final MailClient client;
   final MailSummary summary;
+
+  /// 保留用于上层统一传参；详情已不再依赖 WebView。
   final AuthSession session;
 
   @override
@@ -90,7 +91,7 @@ class _MailDetailPageState extends State<MailDetailPage> {
         title: const Text('邮件详情', style: TextStyle(fontSize: 16)),
         actions: [
           IconButton(
-            tooltip: '重新加载元数据',
+            tooltip: '重新加载',
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh_rounded, size: 20),
           ),
@@ -99,11 +100,7 @@ class _MailDetailPageState extends State<MailDetailPage> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final header = _buildHeader(context);
-          final web = MailWebView(
-            session: widget.session,
-            initialUrl: widget.client.webUrlFor(widget.summary.id),
-            cookieHeader: widget.client.session.cookieHeader,
-          );
+          final content = _buildBody(context);
           if (constraints.maxWidth >= 900) {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -113,7 +110,7 @@ class _MailDetailPageState extends State<MailDetailPage> {
                   child: SingleChildScrollView(child: header),
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(child: web),
+                Expanded(child: content),
               ],
             );
           }
@@ -122,11 +119,43 @@ class _MailDetailPageState extends State<MailDetailPage> {
             children: [
               header,
               const Divider(height: 1),
-              Expanded(child: web),
+              Expanded(child: content),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final detail = _detail;
+    if (_loading && detail == null) {
+      return const Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    final raw = detail?.body ?? '';
+    final text = (detail?.isHtml ?? false) ? stripHtmlToText(raw) : raw;
+    final trimmed = text.trim();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+      child: trimmed.isEmpty
+          ? Text(
+              '（无正文）',
+              style: TextStyle(fontSize: 14, color: AppColors.muted),
+            )
+          : SelectableText(
+              trimmed,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.6,
+                color: AppColors.ink,
+              ),
+            ),
     );
   }
 
@@ -175,7 +204,7 @@ class _MailDetailPageState extends State<MailDetailPage> {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text(
-                '元数据获取失败：$_error',
+                '邮件获取失败：$_error',
                 style: TextStyle(fontSize: 11, color: AppColors.danger),
               ),
             ),
@@ -228,11 +257,6 @@ class _MailDetailPageState extends State<MailDetailPage> {
               ],
             ),
           ],
-          const SizedBox(height: 12),
-          Text(
-            '正文在下方网页中显示（只读）',
-            style: TextStyle(fontSize: 11, color: AppColors.faint),
-          ),
         ],
       ),
     );

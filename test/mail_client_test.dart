@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:neu_better_pro/core/network/mail_client.dart';
@@ -120,5 +122,107 @@ void main() {
     expect(formatMailSize(512), '512 B');
     expect(formatMailSize(2048), '2.0 KB');
     expect(formatMailSize(1024 * 1024 * 3), '3.0 MB');
+  });
+
+  group('MIME 解析（离线）', () {
+    test('multipart/alternative + base64 中文 HTML', () {
+      const htmlText = '<p>你好，欢迎使用<b>东北大学</b>邮件系统</p>';
+      const plainText = '你好，欢迎使用东北大学邮件系统';
+      final b64Html = base64.encode(utf8.encode(htmlText));
+      final b64Plain = base64.encode(utf8.encode(plainText));
+      final subjectWord =
+          '=?UTF-8?B?${base64.encode(utf8.encode('邮件主题'))}?=';
+      final raw = 'From: "东北大学" <mail@neu.edu.cn>\r\n'
+          'Subject: $subjectWord\r\n'
+          'MIME-Version: 1.0\r\n'
+          'Content-Type: multipart/mixed; boundary="BOUND"\r\n'
+          '\r\n'
+          '--BOUND\r\n'
+          'Content-Type: multipart/alternative; boundary="ALT"\r\n'
+          '\r\n'
+          '--ALT\r\n'
+          'Content-Type: text/plain; charset=UTF-8\r\n'
+          'Content-Transfer-Encoding: base64\r\n'
+          '\r\n'
+          '$b64Plain\r\n'
+          '--ALT\r\n'
+          'Content-Type: text/html; charset=UTF-8\r\n'
+          'Content-Transfer-Encoding: base64\r\n'
+          '\r\n'
+          '$b64Html\r\n'
+          '--ALT--\r\n'
+          '--BOUND--\r\n';
+
+      final mime = MailClient.parseMime(raw);
+      expect(mime.isHtml, isTrue);
+      expect(mime.body, contains('东北大学'));
+      expect(mime.body, contains('<b>'));
+      expect(mime.subject, '邮件主题');
+
+      final text = stripHtmlToText(mime.body);
+      expect(text, contains('东北大学邮件系统'));
+      expect(text, isNot(contains('<b>')));
+    });
+
+    test('quoted-printable 纯文本', () {
+      const original = '你好，这是测试正文';
+      final qp = utf8
+          .encode(original)
+          .map((b) => '=${b.toRadixString(16).padLeft(2, '0').toUpperCase()}')
+          .join();
+      final raw = 'Content-Type: text/plain; charset=UTF-8\r\n'
+          'Content-Transfer-Encoding: quoted-printable\r\n'
+          '\r\n'
+          '$qp\r\n';
+
+      final mime = MailClient.parseMime(raw);
+      expect(mime.isHtml, isFalse);
+      expect(mime.body.trim(), original);
+    });
+
+    test('纯 text/plain 直接返回', () {
+      const body = '这是一封纯文本邮件。';
+      final raw = 'Content-Type: text/plain; charset=UTF-8\r\n'
+          'Content-Transfer-Encoding: 7bit\r\n'
+          '\r\n'
+          '$body\r\n';
+
+      final mime = MailClient.parseMime(raw);
+      expect(mime.isHtml, isFalse);
+      expect(mime.body.trim(), body);
+    });
+
+    test('stripHtmlToText 去标签并解码实体', () {
+      const html =
+          '<div>第一行<br>第二行 &amp; <b>加粗</b>&nbsp;&#65;&#x42;</div>'
+          '<style>.x{color:red}</style><script>alert(1)</script>';
+      final text = stripHtmlToText(html);
+      expect(text, contains('第一行'));
+      expect(text, contains('第二行'));
+      expect(text, contains('加粗'));
+      expect(text, contains('A'));
+      expect(text, contains('B'));
+      expect(text, isNot(contains('<b>')));
+      expect(text, isNot(contains('alert(1)')));
+      expect(text, isNot(contains('color:red')));
+    });
+
+    test('GBK quoted-printable 中文正确解码', () {
+      final raw = 'Content-Type: text/html; charset=GBK\r\n'
+          'Content-Transfer-Encoding: quoted-printable\r\n'
+          '\r\n'
+          '=BB=B6=D3=AD=CA=B9=D3=C3=B6=AB=B1=B1=B4=F3=D1=A7<br>\r\n';
+
+      final mime = MailClient.parseMime(raw);
+      expect(mime.body, contains('欢迎使用东北大学'));
+      expect(stripHtmlToText(mime.body), contains('欢迎使用东北大学'));
+    });
+
+    test('无正文的 MIME 返回空', () {
+      final mime = MailClient.parseMime(
+        'Content-Type: multipart/mixed; boundary="B"\r\n\r\n--B--\r\n',
+      );
+      expect(mime.body.trim(), '');
+    });
   });
 }
