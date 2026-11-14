@@ -28,6 +28,67 @@ extension _DormPowerCards on _DormPowerPageState {
     );
   }
 
+  // ---------- campus card entry ----------
+
+  Widget _buildCampusCardEntry() {
+    final auth = ref.read(authControllerProvider);
+    final session = auth is AuthAuthenticated ? auth.session : null;
+    return _card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: session == null
+            ? null
+            : () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CampusCardPage(session: session),
+                ),
+              ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.campusBlue.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  Icons.credit_card_rounded,
+                  size: 21,
+                  color: AppColors.campusBlue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '校园卡余额',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '点击从一号通门户读取',
+                      style: TextStyle(fontSize: 11, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: AppColors.faint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ---------- setup ----------
 
   Widget _buildSetupCard() {

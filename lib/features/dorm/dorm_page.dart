@@ -9,6 +9,7 @@ import '../auth/auth_controller.dart';
 import 'electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import 'electricity_service.dart';
+import 'campus_card_page.dart';
 
 part 'widgets/dorm_cards.dart';
 
@@ -232,6 +233,8 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
                 _buildHeader(),
                 const SizedBox(height: 22),
               ],
+              _buildCampusCardEntry(),
+              const SizedBox(height: 16),
               if (!_prefs.hasRoom || _editing) ...[
                 _buildSetupCard(),
               ] else ...[
