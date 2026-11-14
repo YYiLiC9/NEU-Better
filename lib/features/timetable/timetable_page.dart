@@ -121,6 +121,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   int _selectedDay = DateTime.now().weekday.clamp(1, 7);
   int _direction = 1;
   bool _weekView = true;
+  int? _selectedCellDay;
+  int? _selectedCellPeriod;
   int _lastNowMinute = DateTime.now().hour * 60 + DateTime.now().minute;
   Timer? _minuteTimer;
   final ScrollController _scrollController = ScrollController();
@@ -317,8 +319,12 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     return weeks;
   }
 
-  /// 打开空白格：新增一门课程。
+  /// 打开空白格：右键/长按先框选该格，再新增一门课程。
   Future<void> _openNewCourse(int day, int period) async {
+    setState(() {
+      _selectedCellDay = day;
+      _selectedCellPeriod = period;
+    });
     final result = await showCourseEditor(
       context,
       presetDay: day,
@@ -327,7 +333,12 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       allWeeks: {for (var i = 1; i <= _data.totalWeeks; i++) i},
       validate: (draft, scope, week) => _validateDraft(draft, null),
     );
-    if (result == null || !mounted) return;
+    if (!mounted) return;
+    setState(() {
+      _selectedCellDay = null;
+      _selectedCellPeriod = null;
+    });
+    if (result == null) return;
     final id = 'user-${DateTime.now().microsecondsSinceEpoch}';
     _commitOverlay(_overlay.addCourse(result.session.copyWith(id: id)));
   }
@@ -758,6 +769,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         notedCourseIds: _courseNotes.keys.toSet(),
         onCellLongPress: _openNewCourse,
         onCellSecondaryTap: _openNewCourse,
+        onEditCourse: _editCourse,
+        selectedDay: _selectedCellDay,
+        selectedPeriod: _selectedCellPeriod,
       ),
     );
     if (!widget.compact || fitWidth) return pager;
@@ -789,6 +803,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           days: days,
           onOpenCourse: _openCourse,
           onOpenExam: _openExam,
+          onEditCourse: _editCourse,
           notedCourseIds: _courseNotes.keys.toSet(),
           onOpenCourseLongPress: _openCourse,
           onDayChanged: (day) {

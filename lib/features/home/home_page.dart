@@ -60,6 +60,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.initState();
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
+    unawaited(ref.read(appSettingsProvider.notifier).reload());
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
@@ -98,6 +99,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (oldWidget.session.studentId != widget.session.studentId) {
       // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电。
       AccountScope.setAccount(widget.session.studentId);
+      unawaited(ref.read(appSettingsProvider.notifier).reload());
       _loadStatus();
       ref.read(timetableDataProvider.notifier).state = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {

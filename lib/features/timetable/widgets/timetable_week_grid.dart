@@ -16,6 +16,9 @@ class _WeekGrid extends StatelessWidget {
     this.notedCourseIds = const <String>{},
     this.onCellLongPress,
     this.onCellSecondaryTap,
+    this.onEditCourse,
+    this.selectedDay,
+    this.selectedPeriod,
   });
 
   final DateTime? weekStart;
@@ -32,6 +35,13 @@ class _WeekGrid extends StatelessWidget {
   /// 空白格长按（手机）/ 右键（电脑）：新增课程。
   final void Function(int day, int period)? onCellLongPress;
   final void Function(int day, int period)? onCellSecondaryTap;
+
+  /// 已有课程卡右键 / 长按：进入修改界面；单击进入详情。
+  final void Function(CourseSession session)? onEditCourse;
+
+  /// 当前被「框选」的格子（右键空白格时高亮）。
+  final int? selectedDay;
+  final int? selectedPeriod;
 
   /// 7 列的显示顺序（1=周一 … 7=周日），由「每周起始日」决定。
   final List<int> days;
@@ -175,6 +185,9 @@ class _WeekGrid extends StatelessWidget {
                             notedCourseIds: notedCourseIds,
                             onCellLongPress: onCellLongPress,
                             onCellSecondaryTap: onCellSecondaryTap,
+                            onEditCourse: onEditCourse,
+                            selectedDay: selectedDay,
+                            selectedPeriod: selectedPeriod,
                           ),
                         ),
                     ],
@@ -326,6 +339,9 @@ class _DayColumn extends StatelessWidget {
     this.notedCourseIds = const <String>{},
     this.onCellLongPress,
     this.onCellSecondaryTap,
+    this.onEditCourse,
+    this.selectedDay,
+    this.selectedPeriod,
   });
 
   final int day;
@@ -337,6 +353,9 @@ class _DayColumn extends StatelessWidget {
   final void Function(CourseSession session)? onOpenCourse;
   final void Function(ExamEntry exam)? onOpenExam;
   final Set<String> notedCourseIds;
+  final void Function(CourseSession session)? onEditCourse;
+  final int? selectedDay;
+  final int? selectedPeriod;
   final void Function(int day, int period)? onCellLongPress;
   final void Function(int day, int period)? onCellSecondaryTap;
 
@@ -366,6 +385,18 @@ class _DayColumn extends StatelessWidget {
                 onSecondaryTap: onCellSecondaryTap == null
                     ? null
                     : () => onCellSecondaryTap!(day, period),
+                child: Container(
+                  decoration: (selectedDay == day && selectedPeriod == period)
+                      ? BoxDecoration(
+                          color: AppColors.campusBlue.withValues(alpha: 0.08),
+                          border: Border.all(
+                            color: AppColors.campusBlue,
+                            width: 1.6,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        )
+                      : null,
+                ),
               ),
             ),
           for (var period = 1; period <= PeriodTimes.periodsPerDay; period++)
@@ -397,12 +428,12 @@ class _DayColumn extends StatelessWidget {
                 onTap: onOpenCourse == null
                     ? null
                     : () => onOpenCourse!(session),
-                onLongPress: onOpenCourse == null
+                onLongPress: onEditCourse == null
                     ? null
-                    : () => onOpenCourse!(session),
-                onSecondaryTap: onOpenCourse == null
+                    : () => onEditCourse!(session),
+                onSecondaryTap: onEditCourse == null
                     ? null
-                    : () => onOpenCourse!(session),
+                    : () => onEditCourse!(session),
               ),
             ),
           for (final exam in exams) _examPositioned(exam, gridHeight),

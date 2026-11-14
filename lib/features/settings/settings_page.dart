@@ -37,7 +37,10 @@ class _SettingsDialog extends ConsumerWidget {
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
-        width: 460,
+        width: 560,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
         padding: const EdgeInsets.fromLTRB(22, 18, 22, 16),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -53,10 +56,11 @@ class _SettingsDialog extends ConsumerWidget {
                   ),
                 ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // 头部：调色板徽标 + 标题 + 右上角关闭。
             Row(
               children: [
@@ -223,6 +227,7 @@ class _SettingsDialog extends ConsumerWidget {
             const SizedBox(height: 14),
             const _Footnote(),
           ],
+          ),
         ),
       ),
     );

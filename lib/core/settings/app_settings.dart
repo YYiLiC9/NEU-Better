@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/windows_startup.dart';
+import '../storage/account_scope.dart';
 
 /// 主题偏好：跟随系统 / 固定浅色 / 固定深色。
 enum ThemePreference { system, light, dark }
@@ -175,33 +176,7 @@ class AppSettingsStore {
 
   static const _fileName = 'settings.json';
 
-  List<File> get _candidates {
-    final separator = Platform.pathSeparator;
-    final files = <File>[
-      File(
-        '${File(Platform.resolvedExecutable).parent.path}$separator'
-        'data$separator$_fileName',
-      ),
-      File(
-        '${Directory.current.path}$separator'
-        'data$separator$_fileName',
-      ),
-      File(
-        '${Directory.systemTemp.path}$separator'
-        'NEU Better$separator$_fileName',
-      ),
-    ];
-    final local = Platform.environment['LOCALAPPDATA'];
-    if (local != null && local.isNotEmpty) {
-      files.add(
-        File(
-          '$local$separator'
-          'NEU Better$separator$_fileName',
-        ),
-      );
-    }
-    return files;
-  }
+  List<File> get _candidates => AccountScope.scopedFiles(_fileName);
 
   Future<AppSettings> read() async {
     for (final file in _candidates) {
@@ -213,6 +188,18 @@ class AppSettingsStore {
         }
       } catch (error) {
         debugPrint('[settings] read failed at ${file.path}: $error');
+      }
+    }
+    // 兼容旧版本未加账号后缀的 settings.json：读到即用（之后保存到账号文件）。
+    for (final file in AccountScope.legacyFiles(_fileName)) {
+      try {
+        if (!await file.exists()) continue;
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is Map) {
+          return AppSettings.fromJson(Map<String, dynamic>.from(decoded));
+        }
+      } catch (error) {
+        debugPrint('[settings] legacy read failed at ${file.path}: $error');
       }
     }
     return const AppSettings();
@@ -359,6 +346,12 @@ class AppSettingsController extends ChangeNotifier {
     if (_settings.autoUpdate == value) return;
     _settings = _settings.copyWith(autoUpdate: value);
     _commit();
+  }
+
+  /// 账号切换后重新读取该账号的持久化设置。
+  Future<void> reload() async {
+    _loaded = false;
+    await load();
   }
 
   /// 系统亮度变化时由根组件调用。

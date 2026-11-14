@@ -12,6 +12,7 @@ class _DayAgenda extends StatelessWidget {
     this.onOpenCourse,
     this.onOpenExam,
     this.onOpenCourseLongPress,
+    this.onEditCourse,
     this.notedCourseIds = const <String>{},
   });
 
@@ -29,6 +30,7 @@ class _DayAgenda extends StatelessWidget {
 
   /// 卡片长按（手机）/ 右键（电脑）也进详情。
   final void Function(CourseSession session)? onOpenCourseLongPress;
+  final void Function(CourseSession session)? onEditCourse;
   final Set<String> notedCourseIds;
 
   @override
@@ -93,12 +95,12 @@ class _DayAgenda extends StatelessWidget {
               onTap: onOpenCourse == null
                   ? null
                   : () => onOpenCourse!(session),
-              onLongPress: onOpenCourseLongPress == null
+              onLongPress: onEditCourse == null
                   ? null
-                  : () => onOpenCourseLongPress!(session),
-              onSecondaryTap: onOpenCourseLongPress == null
+                  : () => onEditCourse!(session),
+              onSecondaryTap: onEditCourse == null
                   ? null
-                  : () => onOpenCourseLongPress!(session),
+                  : () => onEditCourse!(session),
             ),
             const SizedBox(height: 8),
           ],
