@@ -27,7 +27,6 @@ class _WeekStepper extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            tooltip: '上一周',
             onPressed: week <= 1 ? null : () => onChanged(week - 1),
             icon: Icon(Icons.chevron_left_rounded, size: dense ? 16 : 18),
             padding: EdgeInsets.zero,
@@ -49,7 +48,6 @@ class _WeekStepper extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: '下一周',
             onPressed: week >= totalWeeks ? null : () => onChanged(week + 1),
             icon: Icon(Icons.chevron_right_rounded, size: dense ? 16 : 18),
             padding: EdgeInsets.zero,

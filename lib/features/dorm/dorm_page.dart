@@ -291,7 +291,7 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
               ],
               const SizedBox(height: 18),
               Text(
-                '数据来自缴费服务大厅（电费项目） · 学生电价 0.51 元/度 · 电量每日由系统刷新',
+                '系统电表每天 6:00 更新一次，当天查询均为当日 6:00 读数；23:30–6:00 系统维护，无法查询。',
                 style: TextStyle(fontSize: 9, color: AppColors.faint),
                 textAlign: TextAlign.center,
               ),

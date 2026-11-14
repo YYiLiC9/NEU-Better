@@ -500,10 +500,7 @@ class _CourseCard extends StatelessWidget {
         final showRoom = session.room.trim().isNotEmpty;
         final padLeft = dense ? 5.0 : 8.0;
         final padRight = dense ? 4.0 : 6.0;
-        final card = Tooltip(
-          message: '${session.name}\n${session.room} · ${session.teacher}',
-          waitDuration: const Duration(milliseconds: 700),
-          child: Container(
+        final Widget cardContent = Container(
             padding: EdgeInsets.fromLTRB(
               padLeft,
               compact ? 3 : 6,
@@ -572,8 +569,15 @@ class _CourseCard extends StatelessWidget {
                 );
               },
             ),
-          ),
         );
+        // 手机端(dense)不要长按弹说明 Tooltip：长按应直接进入修改界面。
+        final Widget card = dense
+            ? cardContent
+            : Tooltip(
+                message: '${session.name}\n${session.room} · ${session.teacher}',
+                waitDuration: const Duration(milliseconds: 700),
+                child: cardContent,
+              );
         return GestureDetector(
           onTap: onTap,
           onLongPress: onLongPress,

@@ -734,19 +734,19 @@ class _PlaceholderCard extends StatelessWidget {
       child: compact
           ? FittedBox(
               fit: BoxFit.scaleDown,
-              alignment: Alignment.topLeft,
+              alignment: Alignment.center,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(icon, size: 18, color: AppColors.muted),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Text(
                     name,
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 12.5,
                       fontWeight: FontWeight.w600,
                       color: AppColors.ink,
                     ),
@@ -760,17 +760,19 @@ class _PlaceholderCard extends StatelessWidget {
               fit: BoxFit.scaleDown,
               alignment: Alignment.topLeft,
               child: SizedBox(
-                width: 200,
+                // 2×2 用 150 设计宽度（与余额中心一致），避免窄卡片里被整体
+                // 缩小导致文字过小；2×4 用 320。
+                width: size == HomeCardSize.s2x2 ? 150 : 320,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(icon, size: 22, color: AppColors.muted),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     Text(
                       name,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: size == HomeCardSize.s2x2 ? 13 : 14,
                         fontWeight: FontWeight.w600,
                         color: AppColors.ink,
                       ),

@@ -395,11 +395,12 @@ class _HomePageState extends ConsumerState<HomePage>
       child: NavigationBarTheme(
         data: NavigationBarThemeData(
           backgroundColor: AppColors.surface,
-          indicatorColor: AppColors.campusBlue.withValues(alpha: 0.12),
+          // 去掉选中项背后的“胶囊/操场”指示器，只靠图标与文字变深区分。
+          indicatorColor: Colors.transparent,
           iconTheme: WidgetStateProperty.resolveWith((states) {
             final selected = states.contains(WidgetState.selected);
             return IconThemeData(
-              color: selected ? AppColors.campusBlue : AppColors.muted,
+              color: selected ? AppColors.ink : AppColors.muted,
               size: 22,
             );
           }),
@@ -407,8 +408,8 @@ class _HomePageState extends ConsumerState<HomePage>
             final selected = states.contains(WidgetState.selected);
             return TextStyle(
               fontSize: 11,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              color: selected ? AppColors.campusBlue : AppColors.muted,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? AppColors.ink : AppColors.muted,
             );
           }),
         ),
@@ -571,9 +572,7 @@ class _HomePageState extends ConsumerState<HomePage>
     } else {
       content = _buildHomeOverview();
     }
-    final Duration duration = galleryInvolved
-        ? Duration.zero
-        : const Duration(milliseconds: 300);
+    const Duration duration = Duration(milliseconds: 300);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _lastSection = section;
     });
@@ -605,7 +604,21 @@ class _HomePageState extends ConsumerState<HomePage>
             children: [...previousChildren, ?currentChild],
           ),
           transitionBuilder: galleryInvolved
-              ? (child, animation) => child
+              ? (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0.04, 0),
+                      end: Offset.zero,
+                    ).animate(
+                      CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
+                    child: child,
+                  ),
+                )
               : (child, animation) => FadeTransition(
                   opacity: animation,
                   child: ScaleTransition(
