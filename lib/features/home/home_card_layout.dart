@@ -2,7 +2,7 @@ import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
 
-/// 首页卡片尺寸档（单位：高×宽，基于 4 列方形单元网格）。
+/// 首页卡片尺寸档（单位：高×宽，基于方形单元网格）。
 enum HomeCardSize { s1x1, s2x2, s2x4 }
 
 /// 尺寸档对应的 (rows, cols)。
@@ -17,8 +17,17 @@ enum HomeCardSize { s1x1, s2x2, s2x4 }
   }
 }
 
-/// 首页允许出现的卡片 id（本迭代仅寝室用电 + 通知/邮件占位）。
-const List<String> knownHomeCardIds = <String>['dorm', 'notify', 'mail'];
+/// 循环切换尺寸：1×1 → 2×2 → 2×4 → 1×1。
+HomeCardSize nextSizeOf(HomeCardSize size) {
+  switch (size) {
+    case HomeCardSize.s1x1:
+      return HomeCardSize.s2x2;
+    case HomeCardSize.s2x2:
+      return HomeCardSize.s2x4;
+    case HomeCardSize.s2x4:
+      return HomeCardSize.s1x1;
+  }
+}
 
 @immutable
 class HomeCardLayout {
@@ -60,9 +69,9 @@ class HomeCardLayout {
   int get hashCode => Object.hash(id, size);
 }
 
-/// 默认首页布局：寝室用电 2×4，通知/邮件 1×1，顺序 [dorm, notify, mail]。
+/// 默认首页布局：全部 1×1，顺序 [dorm, notify, mail]。
 List<HomeCardLayout> defaultHomeCards() => const <HomeCardLayout>[
-  HomeCardLayout(id: 'dorm', size: HomeCardSize.s2x4),
+  HomeCardLayout(id: 'dorm', size: HomeCardSize.s1x1),
   HomeCardLayout(id: 'notify', size: HomeCardSize.s1x1),
   HomeCardLayout(id: 'mail', size: HomeCardSize.s1x1),
 ];
@@ -98,28 +107,51 @@ class HomePackResult {
   const HomePackResult({
     required this.cards,
     required this.unit,
+    required this.columns,
+    required this.usedWidth,
     required this.totalHeight,
   });
 
   final List<PlacedHomeCard> cards;
   final double unit;
+  final int columns;
+  final double usedWidth;
   final double totalHeight;
 }
 
-/// 纯函数：按顺序 first-fit 打包卡片到固定列数的方形单元网格。
+/// 纯函数：按顺序 first-fit 打包卡片到方形单元网格。
 ///
-/// [columns] 默认 4；[gap] 单元间距。返回每张卡的像素落位与整块总高，供
-/// `_HomeGrid` 渲染与单元测试共用。
+/// - [unit] 非空（桌面固定像素）：列数 = ((maxWidth+gap)/(unit+gap)).floor()
+///   并夹在 [minColumns] 与 64 之间；单元尺寸固定为 [unit]，不随窗口缩放。
+/// - [unit] 为空（手机等比）：使用 [columns] 列，单元 = 可用宽度均分。
+///
+/// 返回每张卡的像素落位、单元尺寸、实际列数、占用宽度与整块总高。
 HomePackResult packHomeCards(
   List<HomeCardLayout> cards,
   double maxWidth, {
   double gap = 12,
+  double? unit,
   int columns = 4,
+  int minColumns = 4,
 }) {
-  final safeColumns = columns <= 0 ? 1 : columns;
-  final unit = maxWidth <= 0
-      ? 0.0
-      : (maxWidth - gap * (safeColumns - 1)) / safeColumns;
+  final int effectiveColumns;
+  final double resolvedUnit;
+  if (unit != null && unit > 0) {
+    final rawColumns = maxWidth.isFinite
+        ? ((maxWidth + gap) / (unit + gap)).floor()
+        : 64;
+    effectiveColumns = rawColumns.clamp(minColumns, 64);
+    resolvedUnit = unit;
+  } else {
+    effectiveColumns = columns.clamp(minColumns, 64);
+    resolvedUnit = maxWidth <= 0
+        ? 0.0
+        : (maxWidth - gap * (effectiveColumns - 1)) / effectiveColumns;
+  }
+  final safeColumns = effectiveColumns <= 0 ? 1 : effectiveColumns;
+  final safeUnit = resolvedUnit <= 0 ? 0.0 : resolvedUnit;
+  final usedWidth = safeUnit * safeColumns + gap * (safeColumns - 1);
+
   final occupied = <List<bool>>[];
 
   void ensureRows(int count) {
@@ -174,10 +206,10 @@ HomePackResult packHomeCards(
     final col = bestCol;
     fill(row, col, rows, cols);
 
-    final left = col * unit + col * gap;
-    final top = row * unit + row * gap;
-    final width = cols * unit + (cols - 1) * gap;
-    final height = rows * unit + (rows - 1) * gap;
+    final left = col * safeUnit + col * gap;
+    final top = row * safeUnit + row * gap;
+    final width = cols * safeUnit + (cols - 1) * gap;
+    final height = rows * safeUnit + (rows - 1) * gap;
 
     placed.add(
       PlacedHomeCard(
@@ -194,5 +226,11 @@ HomePackResult packHomeCards(
     if (top + height > totalHeight) totalHeight = top + height;
   }
 
-  return HomePackResult(cards: placed, unit: unit, totalHeight: totalHeight);
+  return HomePackResult(
+    cards: placed,
+    unit: safeUnit,
+    columns: safeColumns,
+    usedWidth: usedWidth,
+    totalHeight: totalHeight,
+  );
 }

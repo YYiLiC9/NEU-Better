@@ -1,5 +1,6 @@
 #include "flutter_window.h"
 
+#include <cstdint>
 #include <cwchar>
 #include <optional>
 #include <string>
@@ -218,6 +219,35 @@ bool FlutterWindow::OnCreate() {
           } else {
             RemoveTrayIcon();
           }
+          result->Success();
+          return;
+        }
+
+        if (call.method_name() == "setMinimumSize") {
+          const auto* args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (args == nullptr) {
+            result->Error("invalid_arguments",
+                          "setMinimumSize expects a map");
+            return;
+          }
+          const auto width_it =
+              args->find(flutter::EncodableValue(std::string("width")));
+          const auto height_it =
+              args->find(flutter::EncodableValue(std::string("height")));
+          if (width_it == args->end() || height_it == args->end()) {
+            result->Error("invalid_arguments",
+                          "setMinimumSize expects width and height");
+            return;
+          }
+          const auto* width = std::get_if<int32_t>(&width_it->second);
+          const auto* height = std::get_if<int32_t>(&height_it->second);
+          if (width == nullptr || height == nullptr) {
+            result->Error("invalid_arguments",
+                          "setMinimumSize width/height must be integers");
+            return;
+          }
+          SetMinimumSize(*width, *height);
           result->Success();
           return;
         }

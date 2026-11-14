@@ -55,6 +55,11 @@ class Win32Window {
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
+  // Sets the minimum size the window can be resized to, in logical pixels. The
+  // value is scaled by the window's current DPI when the OS queries size
+  // limits. A value of 0 for either axis leaves that axis unconstrained.
+  void SetMinimumSize(int width, int height);
+
  protected:
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
@@ -97,6 +102,10 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  // Minimum window size in logical pixels (0 = unconstrained).
+  int min_width_ = 0;
+  int min_height_ = 0;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

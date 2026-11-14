@@ -258,6 +258,29 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
     }
 
+    case WM_GETMINMAXINFO: {
+      // Let the default handler fill in the standard max size/position values,
+      // then tighten only the minimum tracking size. ptMinTrackSize is the
+      // full window size in physical pixels, so scale the logical minimum by
+      // the window's current DPI.
+      DefWindowProc(hwnd, message, wparam, lparam);
+      if (min_width_ > 0 || min_height_ > 0) {
+        auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+        if (info != nullptr) {
+          const UINT dpi = FlutterDesktopGetDpiForMonitor(
+              MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST));
+          const double scale_factor = dpi > 0 ? dpi / 96.0 : 1.0;
+          if (min_width_ > 0) {
+            info->ptMinTrackSize.x = Scale(min_width_, scale_factor);
+          }
+          if (min_height_ > 0) {
+            info->ptMinTrackSize.y = Scale(min_height_, scale_factor);
+          }
+        }
+      }
+      return 0;
+    }
+
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
         SetFocus(child_content_);
@@ -312,6 +335,11 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::SetMinimumSize(int width, int height) {
+  min_width_ = width;
+  min_height_ = height;
 }
 
 bool Win32Window::OnCreate() {

@@ -3,10 +3,19 @@ part of '../home_page.dart';
 // ─────────────────────────── 首页问候条 ───────────────────────────
 
 class _HomeMasthead extends StatelessWidget {
-  const _HomeMasthead({required this.accountLabel, required this.week});
+  const _HomeMasthead({
+    required this.accountLabel,
+    required this.week,
+    required this.designMode,
+    required this.onAdd,
+    required this.onDone,
+  });
 
   final String accountLabel;
   final int? week;
+  final bool designMode;
+  final VoidCallback onAdd;
+  final VoidCallback onDone;
 
   String get _greeting {
     final hour = DateTime.now().hour;
@@ -30,30 +39,49 @@ class _HomeMasthead extends StatelessWidget {
     final who = name.isEmpty ? '同学' : name;
     final meta = <String>[_dateLine(now)];
     if (week != null && week! > 0) meta.add('第 $week 周');
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '$_greeting，$who',
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 30,
-            height: 1.15,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.6,
-            color: AppColors.ink,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$_greeting，$who',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 30,
+                  height: 1.15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.6,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                meta.join(' · '),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.muted,
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          meta.join(' · '),
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.muted,
+        if (designMode)
+          TextButton(
+            onPressed: onDone,
+            style: TextButton.styleFrom(foregroundColor: AppColors.campusBlue),
+            child: const Text('完成'),
+          )
+        else
+          IconButton(
+            onPressed: onAdd,
+            tooltip: '添加卡片',
+            icon: Icon(Icons.add_rounded, color: AppColors.ink),
           ),
-        ),
       ],
     );
   }
@@ -64,17 +92,29 @@ class _HomeMasthead extends StatelessWidget {
 class _HomeGrid extends StatefulWidget {
   const _HomeGrid({
     required this.cards,
+    required this.unit,
+    required this.columns,
+    required this.designMode,
     required this.buildCard,
     required this.onReorder,
     required this.onResize,
-    required this.onResetLayout,
+    required this.onDelete,
+    required this.onRequestEnterDesign,
+    required this.onExitDesign,
   });
 
   final List<HomeCardLayout> cards;
+
+  /// 桌面固定像素单元；手机传 null 走等比列。
+  final double? unit;
+  final int columns;
+  final bool designMode;
   final Widget Function(String id) buildCard;
   final void Function(List<String> newOrder) onReorder;
   final void Function(String id, HomeCardSize size) onResize;
-  final VoidCallback onResetLayout;
+  final void Function(String id) onDelete;
+  final VoidCallback onRequestEnterDesign;
+  final VoidCallback onExitDesign;
 
   @override
   State<_HomeGrid> createState() => _HomeGridState();
@@ -83,11 +123,19 @@ class _HomeGrid extends StatefulWidget {
 class _HomeGridState extends State<_HomeGrid> {
   final _gridKey = GlobalKey();
 
-  void _handleDrop(String id, Offset globalPosition) {
+  HomePackResult _pack(double width) => packHomeCards(
+    widget.cards,
+    width,
+    unit: widget.unit,
+    columns: widget.columns,
+  );
+
+  /// 实时拖动重排：手指移到某张卡范围内即把它插到该卡位置（顺序变化才回调）。
+  void _handleDragMove(String id, Offset globalPosition) {
     final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final local = box.globalToLocal(globalPosition);
-    final pack = packHomeCards(widget.cards, box.size.width);
+    final pack = _pack(box.size.width);
     int? targetIndex;
     for (final placed in pack.cards) {
       if (placed.id == id) continue;
@@ -96,53 +144,69 @@ class _HomeGridState extends State<_HomeGrid> {
         break;
       }
     }
+    if (targetIndex == null) return;
     final ids = <String>[for (final card in widget.cards) card.id];
     final from = ids.indexOf(id);
-    if (from < 0) return;
+    if (from < 0 || from == targetIndex) return;
     ids.removeAt(from);
-    var to = targetIndex ?? ids.length;
-    if (to < 0) to = 0;
-    if (to > ids.length) to = ids.length;
+    final to = targetIndex.clamp(0, ids.length);
     ids.insert(to, id);
+    if (listEquals(ids, [for (final card in widget.cards) card.id])) return;
     widget.onReorder(ids);
+  }
+
+  void _handleDrop(String id, Offset globalPosition) {
+    _handleDragMove(id, globalPosition);
   }
 
   @override
   Widget build(BuildContext context) {
     if (widget.cards.isEmpty) return const _HomeEmpty();
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth.isFinite
             ? constraints.maxWidth
             : 1120.0;
-        final pack = packHomeCards(widget.cards, width);
-        return SizedBox(
-          height: pack.totalHeight,
-          child: Stack(
-            key: _gridKey,
-            children: [
-              for (final placed in pack.cards)
-                AnimatedPositioned(
-                  key: ValueKey<String>(placed.id),
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
-                  left: placed.left,
-                  top: placed.top,
-                  width: placed.width,
-                  height: placed.height,
-                  child: _DraggableCard(
-                    id: placed.id,
-                    size: widget.cards
-                        .firstWhere((card) => card.id == placed.id)
-                        .size,
-                    onDrop: (global) => _handleDrop(placed.id, global),
-                    onResize: widget.onResize,
-                    onResetLayout: widget.onResetLayout,
-                    child: widget.buildCard(placed.id),
+        final pack = _pack(width);
+        return Center(
+          child: SizedBox(
+            width: pack.usedWidth,
+            height: pack.totalHeight,
+            child: Stack(
+              key: _gridKey,
+              children: [
+                if (widget.designMode)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: widget.onExitDesign,
+                    ),
                   ),
-                ),
-            ],
+                for (final placed in pack.cards)
+                  AnimatedPositioned(
+                    key: ValueKey<String>('card-${placed.id}'),
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutCubic,
+                    left: placed.left,
+                    top: placed.top,
+                    width: placed.width,
+                    height: placed.height,
+                    child: _DraggableCard(
+                      id: placed.id,
+                      size: widget.cards
+                          .firstWhere((card) => card.id == placed.id)
+                          .size,
+                      designMode: widget.designMode,
+                      onMove: (global) => _handleDragMove(placed.id, global),
+                      onDrop: (global) => _handleDrop(placed.id, global),
+                      onResize: widget.onResize,
+                      onDelete: widget.onDelete,
+                      onRequestEnterDesign: widget.onRequestEnterDesign,
+                      child: widget.buildCard(placed.id),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -154,18 +218,24 @@ class _DraggableCard extends StatefulWidget {
   const _DraggableCard({
     required this.id,
     required this.size,
+    required this.designMode,
     required this.child,
+    required this.onMove,
     required this.onDrop,
     required this.onResize,
-    required this.onResetLayout,
+    required this.onDelete,
+    required this.onRequestEnterDesign,
   });
 
   final String id;
   final HomeCardSize size;
+  final bool designMode;
   final Widget child;
+  final ValueChanged<Offset> onMove;
   final ValueChanged<Offset> onDrop;
   final void Function(String id, HomeCardSize size) onResize;
-  final VoidCallback onResetLayout;
+  final ValueChanged<String> onDelete;
+  final VoidCallback onRequestEnterDesign;
 
   @override
   State<_DraggableCard> createState() => _DraggableCardState();
@@ -175,16 +245,11 @@ class _DraggableCardState extends State<_DraggableCard> {
   Offset _dragDelta = Offset.zero;
   bool _dragging = false;
 
-  HomeCardSize get _nextSize {
-    switch (widget.size) {
-      case HomeCardSize.s1x1:
-        return HomeCardSize.s2x2;
-      case HomeCardSize.s2x2:
-        return HomeCardSize.s2x4;
-      case HomeCardSize.s2x4:
-        return HomeCardSize.s1x1;
-    }
-  }
+  bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// 桌面临时（非安卓）始终可长按拖动；安卓仅在设计模式内可拖。
+  bool get _canDrag => !_isAndroid || widget.designMode;
 
   Future<void> _showSizeMenu(TapDownDetails details) async {
     final box = context.findRenderObject() as RenderBox?;
@@ -204,12 +269,12 @@ class _DraggableCardState extends State<_DraggableCard> {
         PopupMenuItem<String>(value: 'medium', child: Text('中 · 2×2')),
         PopupMenuItem<String>(value: 'large', child: Text('大 · 2×4')),
         PopupMenuDivider(),
-        PopupMenuItem<String>(value: 'reset', child: Text('重置布局')),
+        PopupMenuItem<String>(value: 'delete', child: Text('删除卡片')),
       ],
     );
     if (result == null) return;
-    if (result == 'reset') {
-      widget.onResetLayout();
+    if (result == 'delete') {
+      widget.onDelete(widget.id);
       return;
     }
     final size = switch (result) {
@@ -222,13 +287,24 @@ class _DraggableCardState extends State<_DraggableCard> {
 
   @override
   Widget build(BuildContext context) {
+    final showDesignAffordances = _isAndroid && widget.designMode;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onSecondaryTapDown: _showSizeMenu,
-      onLongPressStart: (_) => setState(() => _dragging = true),
-      onLongPressMoveUpdate: (details) =>
-          setState(() => _dragDelta = details.offsetFromOrigin),
+      onSecondaryTapDown: _isAndroid ? null : _showSizeMenu,
+      onLongPressStart: (_) {
+        if (_canDrag) {
+          setState(() => _dragging = true);
+        } else if (_isAndroid) {
+          widget.onRequestEnterDesign();
+        }
+      },
+      onLongPressMoveUpdate: (details) {
+        if (!_dragging) return;
+        setState(() => _dragDelta = details.offsetFromOrigin);
+        widget.onMove(details.globalPosition);
+      },
       onLongPressEnd: (details) {
+        if (!_dragging) return;
         setState(() {
           _dragging = false;
           _dragDelta = Offset.zero;
@@ -247,34 +323,70 @@ class _DraggableCardState extends State<_DraggableCard> {
             child: Stack(
               children: [
                 Positioned.fill(child: widget.child),
-                Positioned(
-                  right: 4,
-                  bottom: 4,
-                  child: Tooltip(
-                    message: '调整尺寸',
-                    child: GestureDetector(
-                      onTap: () => widget.onResize(widget.id, _nextSize),
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        width: 18,
-                        height: 18,
-                        decoration: BoxDecoration(
-                          color: AppColors.surface.withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AppColors.line),
-                        ),
-                        child: Icon(
-                          Icons.open_in_full_rounded,
-                          size: 10,
-                          color: AppColors.muted,
-                        ),
+                if (showDesignAffordances) ...[
+                  Positioned(
+                    right: 2,
+                    top: 2,
+                    child: _CornerButton(
+                      icon: Icons.close_rounded,
+                      color: AppColors.nowRed,
+                      tooltip: '删除卡片',
+                      onTap: () => widget.onDelete(widget.id),
+                    ),
+                  ),
+                  Positioned(
+                    right: 2,
+                    bottom: 2,
+                    child: _CornerButton(
+                      icon: Icons.aspect_ratio_rounded,
+                      color: AppColors.muted,
+                      tooltip: '调整尺寸',
+                      onTap: () => widget.onResize(
+                        widget.id,
+                        nextSizeOf(widget.size),
                       ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerButton extends StatelessWidget {
+  const _CornerButton({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          margin: const EdgeInsets.all(4),
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppColors.line),
+          ),
+          child: Icon(icon, size: 14, color: color),
         ),
       ),
     );
@@ -324,7 +436,7 @@ class _DormCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(9),
           ),
           child: Icon(
-            Icons.electric_bolt_rounded,
+            Icons.account_balance_wallet_outlined,
             size: iconSize,
             color: AppColors.campusBlue,
           ),
@@ -332,7 +444,7 @@ class _DormCard extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            '寝室用电',
+            kBalanceFeatureName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -356,10 +468,11 @@ class _DormCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.electric_bolt_rounded, size: 18, color: accent),
+              Icon(Icons.account_balance_wallet_outlined,
+                  size: 18, color: AppColors.campusBlue),
               const SizedBox(height: 4),
               Text(
-                remain == '--' ? '寝室用电' : '$remain 度',
+                kBalanceFeatureName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -485,13 +598,13 @@ class _PlaceholderCard extends StatelessWidget {
   final String id;
   final HomeCardSize size;
 
-  String get _name => id == 'mail' ? '邮件' : '通知';
-  IconData get _icon => id == 'mail'
-      ? Icons.mail_outline_rounded
-      : Icons.notifications_none_rounded;
+  HomeCardInfo? get _info => homeCardInfo(id);
 
   @override
   Widget build(BuildContext context) {
+    final info = _info;
+    final name = info?.name ?? id;
+    final icon = info?.icon ?? Icons.widgets_outlined;
     final compact = size == HomeCardSize.s1x1;
     return Container(
       padding: EdgeInsets.all(compact ? 8 : 16),
@@ -504,10 +617,10 @@ class _PlaceholderCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(_icon, size: 18, color: AppColors.muted),
+                  Icon(icon, size: 18, color: AppColors.muted),
                   const SizedBox(height: 4),
                   Text(
-                    _name,
+                    name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -522,10 +635,10 @@ class _PlaceholderCard extends StatelessWidget {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(_icon, size: 22, color: AppColors.muted),
+                Icon(icon, size: 22, color: AppColors.muted),
                 const Spacer(),
                 Text(
-                  _name,
+                  name,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -543,7 +656,7 @@ class _PlaceholderCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────── 二级：寝室用电 ───────────────────────────
+// ─────────────────────────── 二级：余额中心 ───────────────────────────
 
 class _HomeDormDetail extends StatelessWidget {
   const _HomeDormDetail({required this.onBack});
@@ -567,7 +680,7 @@ class _HomeDormDetail extends StatelessWidget {
               ),
               const SizedBox(width: 2),
               Text(
-                '寝室用电',
+                kBalanceFeatureName,
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,

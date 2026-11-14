@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/app_labels.dart';
 import '../../core/network/neu_elec_client.dart' show ElectricityQueryException;
 import '../auth/auth_controller.dart';
 import 'electricity_alert.dart';

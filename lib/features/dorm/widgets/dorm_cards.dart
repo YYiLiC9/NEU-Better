@@ -6,7 +6,7 @@ extension _DormPowerCards on _DormPowerPageState {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '寝室用电',
+          kBalanceFeatureName,
           style: TextStyle(
             fontSize: _compact ? 21 : 24,
             height: 1.2,

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../core/storage/account_scope.dart';
+import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
 
 /// 首页卡片布局（顺序 + 尺寸）按账号持久化：`home_layout_<学号>.json`。
@@ -63,24 +64,21 @@ class HomeLayoutStore {
       });
     }
 
-    final ids = <String>[];
+    // 严格保留文件内的 id：只按 order 顺序重建，不自动补回被删除的卡片。
     final orderRaw = decoded['order'];
-    if (orderRaw is List) {
+    final hasOrder = orderRaw is List;
+    final ids = <String>[];
+    if (hasOrder) {
       for (final entry in orderRaw) {
         final id = entry?.toString() ?? '';
         if (knownHomeCardIds.contains(id) && !ids.contains(id)) ids.add(id);
       }
-    }
-    if (ids.isEmpty) {
-      for (final id in sizes.keys) {
-        if (!ids.contains(id)) ids.add(id);
-      }
-    }
-    if (ids.isEmpty) return null;
-
-    // 补齐缺失的已知卡片（保持默认相对顺序）。
-    for (final id in knownHomeCardIds) {
-      if (!ids.contains(id)) ids.add(id);
+    } else if (sizes.isNotEmpty) {
+      // 无 order 但有 sizes：以 sizes 的键顺序作为顺序。
+      ids.addAll(sizes.keys);
+    } else {
+      // 既无 order（数组）也无 sizes：视为损坏，回落默认。
+      return null;
     }
 
     final defaults = <String, HomeCardSize>{

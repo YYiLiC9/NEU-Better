@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,6 +35,11 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
     );
     _applyWindowSettings(ref.read(appSettingsProvider));
+    // 桌面端限制窗口最小尺寸（逻辑像素），保证首页固定像素网格至少 4 列、
+    // 左栏 3 项正常；原生端按当前 DPI 缩放为物理像素。
+    if (Platform.isWindows) {
+      unawaited(WindowsWindow.setMinimumSize(780, 520));
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!ref.read(appSettingsProvider).autoUpdate) return;

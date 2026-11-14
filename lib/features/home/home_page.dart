@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/app_labels.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/platform/windows_window.dart';
 import '../../core/settings/app_settings.dart';
@@ -22,9 +23,11 @@ import '../timetable/timetable_page.dart';
 import '../timetable/timetable_store.dart';
 import '../timetable/timetable_sync.dart';
 import '../timetable/timetable_schedule.dart';
+import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
 import 'home_layout_store.dart';
 
+part 'widgets/home_card_gallery.dart';
 part 'widgets/home_chrome.dart';
 part 'widgets/home_grid.dart';
 
@@ -32,7 +35,7 @@ part 'widgets/home_grid.dart';
 /// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
 final homeTabProvider = StateProvider<int>((ref) => 0);
 
-/// 首页内部的二级分区（0 = 根总览, 1 = 寝室用电详情）。放 ProviderScope 层
+/// 首页内部的二级分区（0 = 根总览, 1 = 余额中心详情, 2 = 卡片库）。放 ProviderScope 层
 /// 以便主题切换重建后仍停留在原二级页。
 final homeSectionProvider = StateProvider<int>((ref) => 0);
 
@@ -54,6 +57,12 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 首页卡片布局（顺序 + 尺寸），按账号持久化。
   List<HomeCardLayout> _homeCards = defaultHomeCards();
+
+  /// 安卓「设计模式」：长按进入后可拖动/删除/改尺寸；桌面无此状态。
+  bool _designMode = false;
+
+  /// 桌面卡片固定像素单元尺寸（不随窗口缩放）。
+  static const double _desktopHomeUnit = 88;
 
   DormPrefs? _statusPrefs;
 
@@ -123,6 +132,58 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _saveHomeLayout() async {
     await _homeLayoutStore.save(_homeCards);
+  }
+
+  void _enterDesign() {
+    if (!_designMode) setState(() => _designMode = true);
+  }
+
+  void _exitDesign() {
+    if (_designMode) setState(() => _designMode = false);
+  }
+
+  void _addCard(String id) {
+    if (_homeCards.any((card) => card.id == id)) return;
+    setState(() {
+      _homeCards = <HomeCardLayout>[
+        ..._homeCards,
+        HomeCardLayout(id: id, size: HomeCardSize.s1x1),
+      ];
+    });
+    unawaited(_saveHomeLayout());
+  }
+
+  void _deleteCard(String id) {
+    if (!_homeCards.any((card) => card.id == id)) return;
+    setState(() {
+      _homeCards = <HomeCardLayout>[
+        for (final card in _homeCards)
+          if (card.id != id) card,
+      ];
+    });
+    unawaited(_saveHomeLayout());
+  }
+
+  void _setSize(String id, HomeCardSize size) {
+    setState(() {
+      _homeCards = <HomeCardLayout>[
+        for (final card in _homeCards)
+          card.id == id ? card.copyWith(size: size) : card,
+      ];
+    });
+    unawaited(_saveHomeLayout());
+  }
+
+  void _reorder(List<String> order) {
+    final byId = <String, HomeCardLayout>{
+      for (final card in _homeCards) card.id: card,
+    };
+    final next = <HomeCardLayout>[
+      for (final id in order)
+        if (byId[id] != null) byId[id]!,
+    ];
+    setState(() => _homeCards = next);
+    unawaited(_saveHomeLayout());
   }
 
   Future<void> _ensureTimetable() async {    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
@@ -437,6 +498,13 @@ class _HomePageState extends ConsumerState<HomePage> {
         onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
       );
     }
+    if (section == 2) {
+      return HomeCardGallery(
+        cards: _homeCards,
+        onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
+        onAdd: _addCard,
+      );
+    }
     return _buildHomeOverview();
   }
 
@@ -460,40 +528,29 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
+          constraints: const BoxConstraints(maxWidth: 2600),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _HomeMasthead(
                 accountLabel: widget.session.accountLabel,
                 week: week,
+                designMode: _designMode,
+                onAdd: () => ref.read(homeSectionProvider.notifier).state = 2,
+                onDone: _exitDesign,
               ),
               const SizedBox(height: 20),
               _HomeGrid(
                 cards: _homeCards,
+                unit: isWide ? _desktopHomeUnit : null,
+                columns: 4,
+                designMode: _designMode,
                 buildCard: _buildHomeCard,
-                onReorder: (order) {
-                  final byId = {for (final c in _homeCards) c.id: c};
-                  final next = <HomeCardLayout>[
-                    for (final id in order)
-                      if (byId[id] != null) byId[id]!,
-                  ];
-                  setState(() => _homeCards = next);
-                  unawaited(_saveHomeLayout());
-                },
-                onResize: (id, size) {
-                  setState(() {
-                    _homeCards = [
-                      for (final c in _homeCards)
-                        c.id == id ? c.copyWith(size: size) : c,
-                    ];
-                  });
-                  unawaited(_saveHomeLayout());
-                },
-                onResetLayout: () {
-                  setState(() => _homeCards = defaultHomeCards());
-                  unawaited(_saveHomeLayout());
-                },
+                onReorder: _reorder,
+                onResize: _setSize,
+                onDelete: _deleteCard,
+                onRequestEnterDesign: _enterDesign,
+                onExitDesign: _exitDesign,
               ),
               const SizedBox(height: 24),
             ],

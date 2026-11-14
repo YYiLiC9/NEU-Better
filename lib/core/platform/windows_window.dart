@@ -5,11 +5,12 @@ import 'package:flutter/services.dart';
 
 /// 封装 NEU Better 在 Windows 桌面端需要的原生窗口能力。
 ///
-/// 目前提供三项能力：
+/// 目前提供以下能力：
 /// * [setTaskbarTitle]：设置窗口标题（仅任务栏标题，不携带用电信息）。
 /// * [setTrayTooltip]：设置托盘图标的悬浮提示（可带简短用电信息）。
 /// * [setCloseBehavior]：设置点击关闭按钮时的行为（隐藏到托盘或退出）。
 /// * [setTrayIconVisible]：显示或隐藏系统托盘图标。
+/// * [setMinimumSize]：限制窗口可被拖拽的最小尺寸（逻辑像素）。
 ///
 /// 非 Windows 平台调用为空操作；原生通道不可用时只记录日志，不向调用方
 /// 抛出异常，避免影响业务功能。
@@ -69,6 +70,25 @@ abstract final class WindowsWindow {
       await _channel.invokeMethod<void>('setTrayIconVisible', visible);
     } catch (error) {
       debugPrint('WindowsWindow.setTrayIconVisible failed: $error');
+    }
+  }
+
+  /// 设置窗口可被拖拽的最小尺寸（逻辑像素）。
+  ///
+  /// [width]、[height] 以逻辑像素为单位，原生端会按窗口当前 DPI 缩放为物理
+  /// 像素再作为 [WM_GETMINMAXINFO] 的最小跟踪尺寸；某一方向传 0 表示该方向
+  /// 不限制。用于保证首页固定像素网格至少 4 列、左栏正常显示。
+  static Future<void> setMinimumSize(int width, int height) async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _channel.invokeMethod<void>('setMinimumSize', <String, int>{
+        'width': width,
+        'height': height,
+      });
+    } catch (error) {
+      debugPrint('WindowsWindow.setMinimumSize failed: $error');
     }
   }
 }
