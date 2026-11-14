@@ -6,11 +6,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.ClipData
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
@@ -19,6 +22,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
+import java.io.FileOutputStream
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -110,6 +114,79 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // 文件保存：邮件附件写系统「下载」目录（Android 10+ 走 MediaStore）。
+        val filesChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "neu_better/files",
+        )
+        filesChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "saveToDownloads" -> {
+                    val fileName = call.argument<String>("fileName")
+                    val mime = call.argument<String>("mime") ?: "application/octet-stream"
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (fileName.isNullOrEmpty() || bytes == null) {
+                        result.error("bad_args", "fileName/bytes is null", null)
+                    } else {
+                        try {
+                            val path = saveToDownloads(fileName, mime, bytes)
+                            result.success(path)
+                        } catch (error: Exception) {
+                            result.error("save_failed", error.message, null)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    /**
+     * 把字节保存到系统「下载」目录：Android 10+ 用 MediaStore.Downloads 插入
+     * DISPLAY_NAME/MIME 再写入；<29 用公共 Downloads 目录（同名加 (1)）兜底。
+     * 返回已保存文件的 URI 或绝对路径。
+     */
+    private fun saveToDownloads(fileName: String, mime: String, bytes: ByteArray): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val collection = MediaStore.Downloads.getContentUri(
+                MediaStore.VOLUME_EXTERNAL_PRIMARY,
+            )
+            val uri = contentResolver.insert(collection, values)
+                ?: throw IllegalStateException("无法创建下载条目")
+            val output = contentResolver.openOutputStream(uri)
+                ?: throw IllegalStateException("无法打开下载输出流")
+            output.use {
+                it.write(bytes)
+                it.flush()
+            }
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
+            return uri.toString()
+        }
+        val dir = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOWNLOADS,
+        )
+        if (!dir.exists()) dir.mkdirs()
+        val dot = fileName.lastIndexOf('.')
+        var target = File(dir, fileName)
+        var index = 1
+        while (target.exists()) {
+            val candidate = if (dot > 0) {
+                "${fileName.substring(0, dot)}($index)${fileName.substring(dot)}"
+            } else {
+                "$fileName($index)"
+            }
+            target = File(dir, candidate)
+            index++
+        }
+        FileOutputStream(target).use { it.write(bytes) }
+        return target.absolutePath
     }
 
     /**

@@ -112,17 +112,7 @@ class _MailPageState extends ConsumerState<MailPage> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppColors.ink,
-        titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('邮件', style: TextStyle(fontSize: 16)),
-            Text(
-              widget.session.accountLabel,
-              style: TextStyle(fontSize: 10.5, color: AppColors.muted),
-            ),
-          ],
-        ),
+        title: const Text('邮件', style: TextStyle(fontSize: 16)),
         actions: [
           IconButton(
             tooltip: '刷新收件箱',

@@ -92,6 +92,21 @@ void main() {
       expect(detail.attachments.first.size, 2048);
       expect(detail.attachments.last.name, '通知.docx');
     });
+
+    test('解析真实 Coremail 附件对象（id 作 part、estimateSize 作大小）', () {
+      const body = '{"code":"S_OK","var":{'
+          '"subject":"电子票据",'
+          '"attachments":[{"id":2,"filename":"00010123.pdf",'
+          '"contentType":"text/plain","contentLength":89760,'
+          '"estimateSize":65595,"encoding":"base64"}]}}';
+      final detail = MailClient.parseDetailResponse(body);
+      expect(detail.attachments, hasLength(1));
+      final att = detail.attachments.single;
+      expect(att.name, '00010123.pdf');
+      expect(att.partId, '2');
+      expect(att.size, 65595);
+      expect(att.contentType, 'text/plain');
+    });
   });
 
   group('formatMailDate', () {

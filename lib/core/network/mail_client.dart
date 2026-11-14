@@ -60,13 +60,26 @@ class MailSummary {
   final bool hasAttachment;
 }
 
-/// 附件元数据（仅名称/大小，不下载）。
+/// 附件元数据（名称/大小/服务端 part id，不包含字节）。
 @immutable
 class MailAttachment {
-  const MailAttachment({required this.name, this.size});
+  const MailAttachment({
+    required this.name,
+    this.size,
+    this.partId,
+    this.contentType,
+  });
 
   final String name;
+
+  /// 解码后大小（estimateSize 优先）。
   final int? size;
+
+  /// `getMessageData` 下载时使用的 `part` 参数（Coremail 用附件对象 id）。
+  final String? partId;
+
+  /// 服务端声明的 MIME（Coremail 有时不准，保存时按文件名后缀优先推断）。
+  final String? contentType;
 }
 
 /// 读信详情：元数据 + 已从 MIME 解析出的正文。
@@ -246,6 +259,43 @@ class MailClient {
     return [for (final entry in indexed) entry.value];
   }
 
+  /// 下载附件字节。Coremail 用 `getMessageData&part=<附件 id>` 直接返回
+  /// 解码后的二进制（实测 part=2 返回 PDF 原文，长度等于 estimateSize）。
+  Future<Uint8List> downloadAttachment({
+    required String mid,
+    required String part,
+  }) async {
+    final uri = Uri.parse(_jsonBase).replace(
+      queryParameters: {
+        'func': 'mbox:getMessageData',
+        'sid': session.sid,
+        'mid': mid,
+        'part': part,
+      },
+    );
+    Response<List<int>> response;
+    try {
+      response = await _dio.get<List<int>>(
+        uri.toString(),
+        options: Options(headers: _headers, responseType: ResponseType.bytes),
+      );
+    } on DioException catch (error) {
+      throw MailException(
+        'NETWORK',
+        '附件下载失败：${error.message ?? error.type.name}',
+      );
+    }
+    final status = response.statusCode ?? 0;
+    if (status >= 400) {
+      throw MailException('HTTP$status', '附件下载失败（HTTP $status）');
+    }
+    final data = response.data ?? const <int>[];
+    if (data.isEmpty) {
+      throw const MailException('EMPTY', '附件内容为空');
+    }
+    return Uint8List.fromList(data);
+  }
+
   /// 读信：元数据（readMessage）+ 正文（getMessageData 的原始 MIME）。
   Future<MailDetail> read(String mid) async {
     final metaUri = Uri.parse(_jsonBase).replace(
@@ -384,11 +434,17 @@ class MailClient {
         final name = '${a['name'] ?? a['filename'] ?? a['fileName'] ?? ''}'
             .trim();
         if (name.isEmpty) continue;
-        final size = a['size'];
+        final sizeRaw =
+            a['estimateSize'] ?? a['size'] ?? a['contentLength'];
+        final partRaw = a['part'] ?? a['id'];
+        final partId = partRaw == null ? null : '$partRaw'.trim();
+        final contentType = '${a['contentType'] ?? ''}'.trim();
         attachments.add(
           MailAttachment(
             name: name,
-            size: size is int ? size : int.tryParse('${size ?? ''}'),
+            size: sizeRaw is int ? sizeRaw : int.tryParse('$sizeRaw'),
+            partId: (partId == null || partId.isEmpty) ? null : partId,
+            contentType: contentType.isEmpty ? null : contentType,
           ),
         );
       }

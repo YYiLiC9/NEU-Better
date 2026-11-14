@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/network/mail_client.dart';
+import 'mail_attachment_saver.dart';
 import 'mail_format.dart';
 
 /// 邮件详情：原生展示元数据（发件人/收件人/主题/时间/附件）+ 原生正文
@@ -29,6 +30,39 @@ class _MailDetailPageState extends State<MailDetailPage> {
   MailDetail? _detail;
   bool _loading = true;
   String? _error;
+  final Set<String> _downloading = <String>{};
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _downloadAttachment(MailAttachment attachment) async {
+    final part = attachment.partId;
+    if (part == null || part.isEmpty) {
+      _showSnack('该附件暂不支持下载');
+      return;
+    }
+    setState(() => _downloading.add(attachment.name));
+    try {
+      final bytes = await widget.client.downloadAttachment(
+        mid: widget.summary.id,
+        part: part,
+      );
+      await saveAttachmentToDownloads(
+        fileName: attachment.name,
+        bytes: bytes,
+        mimeType: attachment.contentType,
+      );
+      _showSnack('已保存到 下载/${attachment.name}');
+    } catch (error) {
+      _showSnack('下载失败：$error');
+    } finally {
+      if (mounted) setState(() => _downloading.remove(attachment.name));
+    }
+  }
 
   @override
   void initState() {
@@ -251,6 +285,51 @@ class _MailDetailPageState extends State<MailDetailPage> {
                                 fontSize: 10, color: AppColors.faint),
                           ),
                         ],
+                        const SizedBox(width: 4),
+                        if (_downloading.contains(attachment.name))
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: SizedBox(
+                              width: 12,
+                              height: 12,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 1.6),
+                            ),
+                          )
+                        else
+                          InkWell(
+                            onTap: attachment.partId == null
+                                ? null
+                                : () => _downloadAttachment(attachment),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 2),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.download_rounded,
+                                    size: 14,
+                                    color: attachment.partId == null
+                                        ? AppColors.faint
+                                        : AppColors.campusBlue,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    '下载',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: attachment.partId == null
+                                          ? AppColors.faint
+                                          : AppColors.campusBlue,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
