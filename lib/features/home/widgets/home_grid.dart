@@ -342,11 +342,41 @@ class _DraggableCardState extends State<_DraggableCard> {
             shadowColor: AppColors.ink.withValues(alpha: 0.18),
             child: Stack(
               children: [
-                Positioned.fill(child: widget.child),
-                if (showDesignAffordances) ...[
-                  Positioned(
-                    right: 2,
-                    top: 2,
+                Positioned.fill(
+                  child: ClipRect(
+                    child: AbsorbPointer(
+                      // 设计模式下屏蔽卡片自身的点击（不得进入详情/二级页），
+                      // 但外层的长按拖动、右下尺寸、右上删除仍可用。
+                      absorbing: showDesignAffordances,
+                      child: widget.child,
+                    ),
+                  ),
+                ),
+                // 设计态提示边框（可拖动暗示），随设计模式淡入淡出。
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: showDesignAffordances ? 1 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.campusBlue.withValues(alpha: 0.45),
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // 设计模式控件：用透明度 + 缩放平滑出现/消失，避免硬切。
+                Positioned(
+                  right: 2,
+                  top: 2,
+                  child: _DesignAffordance(
+                    visible: showDesignAffordances,
                     child: _CornerButton(
                       icon: Icons.close_rounded,
                       color: AppColors.nowRed,
@@ -354,9 +384,12 @@ class _DraggableCardState extends State<_DraggableCard> {
                       onTap: () => widget.onDelete(widget.id),
                     ),
                   ),
-                  Positioned(
-                    right: 2,
-                    bottom: 2,
+                ),
+                Positioned(
+                  right: 2,
+                  bottom: 2,
+                  child: _DesignAffordance(
+                    visible: showDesignAffordances,
                     child: _CornerButton(
                       icon: Icons.aspect_ratio_rounded,
                       color: AppColors.muted,
@@ -367,10 +400,35 @@ class _DraggableCardState extends State<_DraggableCard> {
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesignAffordance extends StatelessWidget {
+  const _DesignAffordance({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        child: AnimatedScale(
+          scale: visible ? 1 : 0.8,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: child,
         ),
       ),
     );
@@ -679,25 +737,35 @@ class _PlaceholderCard extends StatelessWidget {
                 ],
               ),
             )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 22, color: AppColors.muted),
-                const Spacer(),
-                Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.ink,
-                  ),
+          : FittedBox(
+              // FittedBox 兜底：2×2/2×4 单元格在尺寸切换的中间帧里可能比内容
+              // 小，等比缩放而不是让 Column 溢出（避免红/黄条闪烁）。
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 200,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 22, color: AppColors.muted),
+                    const SizedBox(height: 16),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '功能开发中，敬请期待',
+                      style: TextStyle(fontSize: 10, color: AppColors.faint),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '功能开发中，敬请期待',
-                  style: TextStyle(fontSize: 10, color: AppColors.faint),
-                ),
-              ],
+              ),
             ),
     );
   }

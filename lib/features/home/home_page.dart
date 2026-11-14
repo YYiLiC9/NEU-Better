@@ -48,7 +48,8 @@ class HomePage extends ConsumerStatefulWidget {
   ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends ConsumerState<HomePage> {
+class _HomePageState extends ConsumerState<HomePage>
+    with SingleTickerProviderStateMixin {
   final _elecService = DormElectricityService();
   final _homeLayoutStore = const HomeLayoutStore();
 
@@ -69,9 +70,21 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// e码通页首次进入后常驻（保留 WebView 状态），避免来回切换时重建/闪烁。
   bool _ecodeVisited = false;
 
+  /// 一级标签「淡入淡出」转场（Material 3 Fade Through）：旧页淡出→换页→新页
+  /// 淡入并轻微放大。用独立 _displayedTab 驱动 IndexedStack，保证子页状态不丢。
+  late final AnimationController _tabFade;
+  late int _displayedTab;
+  int? _pendingTab;
+
   @override
   void initState() {
     super.initState();
+    _tabFade = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 210),
+      value: 1.0,
+    );
+    _displayedTab = ref.read(homeTabProvider);
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
     unawaited(ref.read(appSettingsProvider.notifier).reload());
@@ -216,6 +229,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   void dispose() {
     NotificationRouter.openDormSignal.removeListener(_handleOpenDorm);
     dormPrefsChanged.removeListener(_loadStatus);
+    _tabFade.dispose();
     super.dispose();
   }
 
@@ -287,6 +301,40 @@ class _HomePageState extends ConsumerState<HomePage> {
     ref.read(homeTabProvider.notifier).state = value;
   }
 
+  /// Fade Through：先淡出旧页（90ms），换页后淡入并 0.985→1 轻微放大（210ms）。
+  Future<void> _animateToTab(int target) async {
+    _pendingTab = target;
+    if (_tabFade.isAnimating) return;
+    while (_pendingTab != null) {
+      final next = _pendingTab!;
+      _pendingTab = null;
+      if (next == _displayedTab) continue;
+      await _tabFade.animateTo(
+        0.0,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeIn,
+      );
+      if (!mounted) return;
+      setState(() => _displayedTab = next);
+      await _tabFade.animateTo(
+        1.0,
+        duration: const Duration(milliseconds: 210),
+        curve: Curves.easeOut,
+      );
+      if (!mounted) return;
+    }
+  }
+
+  Widget _wrapTabFade(Widget child) => FadeTransition(
+    opacity: _tabFade,
+    child: ScaleTransition(
+      scale: Tween<double>(begin: 0.985, end: 1.0).animate(
+        CurvedAnimation(parent: _tabFade, curve: Curves.easeOutCubic),
+      ),
+      child: child,
+    ),
+  );
+
   /// 宽窗口（桌面/平板）用左侧栏；窄窗口（手机）用底部导航。
   /// 断点按「可用窗口宽度」判断，而非硬件平台或屏幕方向
   /// （见 flutter-build-responsive-layout skill）。
@@ -303,6 +351,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           minimizeToTaskbar: next.minimizeOnClose && next.showTrayIcon,
         ),
       );
+    });
+    ref.listen<int>(homeTabProvider, (previous, next) {
+      unawaited(_animateToTab(next));
     });
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -322,17 +373,19 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 手机端布局：底部导航（首页 / 课表 / e码通 / 设置），设置以内嵌页呈现。
   Widget _buildMobile(BuildContext context) {
-    return IndexedStack(
-      index: _tab,
-      children: [
-        _buildHomeTab(),
-        TimetablePage(compact: true, mobile: true),
-        // e码通首次进入后常驻，避免来回切换重建闪烁。
-        (_ecodeVisited || _tab == 2)
-            ? EcodePage(session: widget.session)
-            : const SizedBox.shrink(),
-        MobileSettingsPage(onLogout: _logout),
-      ],
+    return _wrapTabFade(
+      IndexedStack(
+        index: _displayedTab,
+        children: [
+          _buildHomeTab(),
+          TimetablePage(compact: true, mobile: true),
+          // e码通首次进入后常驻，避免来回切换重建闪烁。
+          (_ecodeVisited || _tab == 2)
+              ? EcodePage(session: widget.session)
+              : const SizedBox.shrink(),
+          MobileSettingsPage(onLogout: _logout),
+        ],
+      ),
     );
   }
 
@@ -482,16 +535,18 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
         Expanded(
-          child: IndexedStack(
-            index: _tab,
-            children: [
-              _buildHomeTab(),
-              TimetablePage(),
-              (_ecodeVisited || _tab == 2)
-                  ? EcodePage(session: widget.session)
-                  : const SizedBox.shrink(),
-              const SizedBox.shrink(),
-            ],
+          child: _wrapTabFade(
+            IndexedStack(
+              index: _displayedTab,
+              children: [
+                _buildHomeTab(),
+                TimetablePage(),
+                (_ecodeVisited || _tab == 2)
+                    ? EcodePage(session: widget.session)
+                    : const SizedBox.shrink(),
+                const SizedBox.shrink(),
+              ],
+            ),
           ),
         ),
       ],
