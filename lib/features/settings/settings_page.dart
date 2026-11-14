@@ -66,13 +66,11 @@ class _SettingsDialog extends ConsumerWidget {
                   ),
                 ],
         ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(right: 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-            // 头部：调色板徽标 + 标题 + 右上角关闭。
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 头部：调色板徽标 + 标题 + 右上角关闭（固定，不随内容滚动）。
             Row(
               children: [
                 Container(
@@ -118,8 +116,18 @@ class _SettingsDialog extends ConsumerWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            const _SectionLabel(icon: Icons.palette_outlined, label: '主题'),
+            const SizedBox(height: 12),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(right: 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _SectionLabel(
+                      icon: Icons.palette_outlined,
+                      label: '主题',
+                    ),
             const SizedBox(height: 10),
             _ThemeModeSelector(
               value: settings.themePreference,
@@ -256,10 +264,13 @@ class _SettingsDialog extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            const _Footnote(),
+                    const SizedBox(height: 14),
+                    const _Footnote(),
+                  ],
+                ),
+              ),
+            ),
           ],
-          ),
         ),
       ),
       ),

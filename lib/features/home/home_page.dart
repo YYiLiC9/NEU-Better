@@ -385,62 +385,53 @@ class _HomePageState extends ConsumerState<HomePage>
     );
   }
 
-  /// 底部导航栏：首页 / 课表 / e码通 / 设置，配色沿用静蓝令牌。
+  /// 底部导航栏：首页 / 课表 / e码通 / 设置。
+  /// 用自绘 Row + GestureDetector，彻底去掉 NavigationBar 选中项的胶囊
+  /// 指示器与其切换动画、水波纹；只靠图标/文字变深区分当前项。
   Widget _buildMobileNav(BuildContext context) {
+    const items = <(IconData, IconData, String)>[
+      (Icons.home_outlined, Icons.home_rounded, '首页'),
+      (Icons.calendar_month_outlined, Icons.calendar_month, '课表'),
+      (Icons.qr_code_2_outlined, Icons.qr_code_2, 'e码通'),
+      (Icons.settings_outlined, Icons.settings, '设置'),
+    ];
     return Container(
+      height: 62,
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.line)),
       ),
-      child: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          backgroundColor: AppColors.surface,
-          // 去掉选中项背后的“胶囊/操场”指示器，只靠图标与文字变深区分。
-          indicatorColor: Colors.transparent,
-          iconTheme: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return IconThemeData(
-              color: selected ? AppColors.ink : AppColors.muted,
-              size: 22,
-            );
-          }),
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return TextStyle(
-              fontSize: 11,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected ? AppColors.ink : AppColors.muted,
-            );
-          }),
-        ),
-        child: NavigationBar(
-          height: 62,
-          selectedIndex: _tab,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: _selectTab,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: '首页',
+      child: Row(
+        children: [
+          for (var i = 0; i < items.length; i++)
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _selectTab(i),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _tab == i ? items[i].$2 : items[i].$1,
+                      size: 22,
+                      color: _tab == i ? AppColors.ink : AppColors.muted,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      items[i].$3,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: _tab == i
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: _tab == i ? AppColors.ink : AppColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month),
-              label: '课表',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.qr_code_2_outlined),
-              selectedIcon: Icon(Icons.qr_code_2),
-              label: 'e码通',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings),
-              label: '设置',
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
