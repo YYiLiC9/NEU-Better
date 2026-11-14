@@ -10,6 +10,7 @@ import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/platform/windows_window.dart';
 import '../../core/settings/app_settings.dart';
+import '../../core/storage/account_scope.dart';
 import '../auth/auth_controller.dart';
 import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
@@ -57,6 +58,8 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   void initState() {
     super.initState();
+    // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
+    AccountScope.setAccount(widget.session.studentId);
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
@@ -89,8 +92,21 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
   }
 
-  Future<void> _ensureTimetable() async {
-    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
+  @override
+  void didUpdateWidget(covariant HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session.studentId != widget.session.studentId) {
+      // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电。
+      AccountScope.setAccount(widget.session.studentId);
+      _loadStatus();
+      ref.read(timetableDataProvider.notifier).state = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ensureTimetable();
+      });
+    }
+  }
+
+  Future<void> _ensureTimetable() async {    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     try {
       final cached = await const TimetableStore().read();
