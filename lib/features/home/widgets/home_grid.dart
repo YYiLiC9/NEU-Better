@@ -715,10 +715,11 @@ class _DormCard extends StatelessWidget {
 }
 
 class _PlaceholderCard extends StatelessWidget {
-  const _PlaceholderCard({required this.id, required this.size});
+  const _PlaceholderCard({required this.id, required this.size, this.onOpen});
 
   final String id;
   final HomeCardSize size;
+  final VoidCallback? onOpen;
 
   HomeCardInfo? get _info => homeCardInfo(id);
 
@@ -728,7 +729,8 @@ class _PlaceholderCard extends StatelessWidget {
     final name = info?.name ?? id;
     final icon = info?.icon ?? Icons.widgets_outlined;
     final compact = size == HomeCardSize.s1x1;
-    return Container(
+    final subtitle = id == 'mail' ? '只读收件箱' : '功能开发中，敬请期待';
+    final card = Container(
       padding: EdgeInsets.all(compact ? 8 : 16),
       decoration: _homeCardDecoration(),
       child: compact
@@ -779,13 +781,20 @@ class _PlaceholderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '功能开发中，敬请期待',
+                      subtitle,
                       style: TextStyle(fontSize: 10, color: AppColors.faint),
                     ),
                   ],
                 ),
               ),
             ),
+    );
+    final onOpen = this.onOpen;
+    if (onOpen == null) return card;
+    return GestureDetector(
+      onTap: onOpen,
+      behavior: HitTestBehavior.opaque,
+      child: card,
     );
   }
 }

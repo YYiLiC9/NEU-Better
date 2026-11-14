@@ -33,7 +33,7 @@ const List<HomeCardInfo> homeCardCatalog = <HomeCardInfo>[
   HomeCardInfo(
     id: 'mail',
     name: '邮件',
-    description: '校园邮箱（即将上线）',
+    description: '校园邮箱（只读收件箱）',
     icon: Icons.mail_outline_rounded,
   ),
 ];

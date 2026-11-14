@@ -18,6 +18,7 @@ import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
+import '../mail/mail_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
 import '../timetable/timetable_store.dart';
@@ -510,6 +511,12 @@ class _HomePageState extends ConsumerState<HomePage>
                 active: _tab == 2,
                 onTap: () => _selectTab(2),
               ),
+              _NavItem(
+                icon: Icons.mail_outline_rounded,
+                label: '邮件',
+                active: false,
+                onTap: _openMail,
+              ),
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -698,7 +705,22 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
       );
     }
+    if (id == 'mail') {
+      return _PlaceholderCard(
+        id: id,
+        size: size,
+        onOpen: _openMail,
+      );
+    }
     return _PlaceholderCard(id: id, size: size);
+  }
+
+  void _openMail() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MailPage(session: widget.session),
+      ),
+    );
   }
 
   Future<void> _logout() async {
