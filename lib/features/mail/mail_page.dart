@@ -9,13 +9,12 @@ import '../../core/auth/credential_store.dart';
 import '../../core/network/mail_client.dart';
 import 'mail_detail_page.dart';
 import 'mail_format.dart';
-import 'mail_web_view.dart';
 
-/// 邮件（只读收件箱）。
+/// 邮件（只读收件箱，纯原生）。
 ///
-/// 主路径 B1：用已保存的 CAS 会话换 Coremail sid，原生拉取收件箱列表与读信
-/// 元数据；正文在详情页用 WebView 打开。初始化失败时自动切 A：用 WebView
-/// 打开官方邮箱（注入学校 Cookie）兜底。
+/// 用已保存的 CAS 会话换 Coremail sid，原生拉取收件箱列表与读信元数据；
+/// 正文在详情页原生渲染。初始化失败时只显示原生错误态 + 重试，不再使用
+/// WebView / 网页版兜底。
 class MailPage extends ConsumerStatefulWidget {
   const MailPage({super.key, required this.session});
 
@@ -26,14 +25,10 @@ class MailPage extends ConsumerStatefulWidget {
 }
 
 class _MailPageState extends ConsumerState<MailPage> {
-  static const _ssoUrl =
-      'https://mails.neu.edu.cn/coremail/cmcu_addon/dbdxsso.jsp';
-
   MailClient? _client;
   List<MailSummary> _items = const [];
   bool _loading = true;
   String? _error;
-  bool _webFallback = false;
 
   @override
   void initState() {
@@ -78,23 +73,18 @@ class _MailPageState extends ConsumerState<MailPage> {
         _items = items;
         _loading = false;
         _error = null;
-        _webFallback = false;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = _describe(error);
-        if (_client == null && widget.session.hasCookies) {
-          _webFallback = true;
-        }
-        if (error is MailSessionExpired) _webFallback = true;
       });
     }
   }
 
   String _describe(Object error) {
-    if (error is MailSessionExpired) return '邮箱登录状态已过期，请重试或使用网页版';
+    if (error is MailSessionExpired) return '邮箱登录状态已过期，请重新登录后重试';
     if (error is MailException) return error.toString();
     return '邮件加载失败：$error';
   }
@@ -111,15 +101,6 @@ class _MailPageState extends ConsumerState<MailPage> {
         ),
       ),
     );
-  }
-
-  void _useWebFallback() {
-    setState(() => _webFallback = true);
-  }
-
-  void _retryNative() {
-    setState(() => _webFallback = false);
-    unawaited(_load());
   }
 
   @override
@@ -143,25 +124,14 @@ class _MailPageState extends ConsumerState<MailPage> {
           ],
         ),
         actions: [
-          if (!_webFallback)
-            IconButton(
-              tooltip: '刷新收件箱',
-              onPressed: _loading ? null : () => _load(refresh: true),
-              icon: const Icon(Icons.refresh_rounded, size: 20),
-            ),
           IconButton(
-            tooltip: _webFallback ? '重试原生收件箱' : '使用网页版',
-            onPressed: _webFallback ? _retryNative : _useWebFallback,
-            icon: Icon(
-              _webFallback
-                  ? Icons.inbox_rounded
-                  : Icons.open_in_browser_rounded,
-              size: 20,
-            ),
+            tooltip: '刷新收件箱',
+            onPressed: _loading ? null : () => _load(refresh: true),
+            icon: const Icon(Icons.refresh_rounded, size: 20),
           ),
         ],
       ),
-      body: _webFallback ? _buildWebFallback() : _buildNative(),
+      body: _buildNative(),
     );
   }
 
@@ -227,64 +197,13 @@ class _MailPageState extends ConsumerState<MailPage> {
               style: TextStyle(fontSize: 12.5, color: AppColors.muted),
             ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                OutlinedButton(
-                  onPressed: () => _load(),
-                  child: const Text('重试'),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _useWebFallback,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.campusBlue,
-                  ),
-                  child: const Text('使用网页版'),
-                ),
-              ],
+            OutlinedButton(
+              onPressed: () => _load(),
+              child: const Text('重试'),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildWebFallback() {
-    final client = _client;
-    final url = client?.inboxWebUrl ?? _ssoUrl;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          color: AppColors.campusBlue.withValues(alpha: 0.08),
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-          child: Row(
-            children: [
-              Icon(Icons.info_outline_rounded,
-                  size: 15, color: AppColors.campusBlue),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '原生收件箱暂不可用，已切换到网页版邮箱',
-                  style: TextStyle(fontSize: 11.5, color: AppColors.ink),
-                ),
-              ),
-              TextButton(
-                onPressed: _retryNative,
-                child: const Text('重试原生', style: TextStyle(fontSize: 11.5)),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: MailWebView(
-            session: widget.session,
-            initialUrl: url,
-            cookieHeader: client?.session.cookieHeader,
-          ),
-        ),
-      ],
     );
   }
 }

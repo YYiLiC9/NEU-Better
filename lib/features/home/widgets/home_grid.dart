@@ -714,12 +714,175 @@ class _DormCard extends StatelessWidget {
   }
 }
 
+class _MailCard extends StatelessWidget {
+  const _MailCard({
+    required this.size,
+    required this.unread,
+    required this.recent,
+    this.onOpen,
+  });
+
+  final HomeCardSize size;
+  final int unread;
+  final List<MailSummary> recent;
+  final VoidCallback? onOpen;
+
+  String get _unreadText => unread > 0 ? '未读 $unread 封' : '无未读';
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = size == HomeCardSize.s1x1;
+    final card = Container(
+      padding: EdgeInsets.all(compact ? 8 : 16),
+      decoration: _homeCardDecoration(),
+      child: compact ? _buildCompact() : _buildDetailed(),
+    );
+    final onOpen = this.onOpen;
+    if (onOpen == null) return card;
+    return GestureDetector(
+      onTap: onOpen,
+      behavior: HitTestBehavior.opaque,
+      child: card,
+    );
+  }
+
+  Widget _buildCompact() {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.mail_outline_rounded, size: 18, color: AppColors.muted),
+          const SizedBox(height: 5),
+          Text(
+            '邮件',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.ink,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailed() {
+    final wide = size == HomeCardSize.s2x4;
+    final latest = recent.isNotEmpty ? recent.first : null;
+    final second = recent.length > 1 ? recent[1] : null;
+    return FittedBox(
+      // 同 _PlaceholderCard：尺寸切换中间帧可能比内容小，等比缩放避免溢出。
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topLeft,
+      child: SizedBox(
+        width: wide ? 320 : 150,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.mail_outline_rounded,
+                    size: 18, color: AppColors.muted),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '邮件',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: wide ? 14 : 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: unread > 0
+                        ? AppColors.campusBlue.withValues(alpha: 0.12)
+                        : AppColors.line.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _unreadText,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w600,
+                      color:
+                          unread > 0 ? AppColors.campusBlue : AppColors.muted,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (latest == null)
+              Text(
+                '点开查看邮件',
+                style: TextStyle(fontSize: 11.5, color: AppColors.faint),
+              )
+            else ...[
+              Text(
+                latest.subject.isEmpty ? '(无主题)' : latest.subject,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: wide ? 13 : 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                _fromLine(latest),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 10, color: AppColors.muted),
+              ),
+              if (wide && second != null) ...[
+                const SizedBox(height: 8),
+                Divider(height: 1, thickness: 1, color: AppColors.line),
+                const SizedBox(height: 8),
+                Text(
+                  second.subject.isEmpty ? '(无主题)' : second.subject,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: AppColors.ink),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _fromLine(second),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 9.5, color: AppColors.faint),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fromLine(MailSummary mail) {
+    final who = mail.from.isEmpty ? '未知发件人' : mail.from;
+    final when = formatMailDate(mail.receivedDate);
+    return when.isEmpty ? who : '$who · $when';
+  }
+}
+
 class _PlaceholderCard extends StatelessWidget {
-  const _PlaceholderCard({required this.id, required this.size, this.onOpen});
+  const _PlaceholderCard({required this.id, required this.size});
 
   final String id;
   final HomeCardSize size;
-  final VoidCallback? onOpen;
 
   HomeCardInfo? get _info => homeCardInfo(id);
 
@@ -729,7 +892,7 @@ class _PlaceholderCard extends StatelessWidget {
     final name = info?.name ?? id;
     final icon = info?.icon ?? Icons.widgets_outlined;
     final compact = size == HomeCardSize.s1x1;
-    final subtitle = id == 'mail' ? '只读收件箱' : '功能开发中，敬请期待';
+    const subtitle = '功能开发中，敬请期待';
     final card = Container(
       padding: EdgeInsets.all(compact ? 8 : 16),
       decoration: _homeCardDecoration(),
@@ -789,13 +952,7 @@ class _PlaceholderCard extends StatelessWidget {
               ),
             ),
     );
-    final onOpen = this.onOpen;
-    if (onOpen == null) return card;
-    return GestureDetector(
-      onTap: onOpen,
-      behavior: HitTestBehavior.opaque,
-      child: card,
-    );
+    return card;
   }
 }
 

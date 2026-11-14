@@ -207,8 +207,10 @@ class MailClient {
         'Referer': '$_indexUrl?sid=${session.sid}',
       };
 
-  /// 收件箱（fid=1）全部邮件，按日期倒序。接口一次返回全部，不分页。
-  Future<List<MailSummary>> list() async {
+  /// 收件箱（fid=1）邮件，按日期倒序（最新在上）。接口一次返回全部，不分页。
+  /// 服务端虽已 `order=date&desc=1`，这里再做一次客户端排序兜底，避免服务端
+  /// 返回顺序不稳定。`limit` 可选，取最新 N 封（首页卡片用）。
+  Future<List<MailSummary>> list({int? limit}) async {
     final uri = Uri.parse(_jsonBase).replace(
       queryParameters: {
         'func': 'mbox:listMessages',
@@ -219,7 +221,29 @@ class MailClient {
       },
     );
     final body = await _get(uri);
-    return parseListResponse(body);
+    final items = sortSummariesByDateDesc(parseListResponse(body));
+    if (limit != null && limit > 0 && items.length > limit) {
+      return items.sublist(0, limit);
+    }
+    return items;
+  }
+
+  /// 按时间倒序排序：receivedDate 优先（解析时已回退 sentDate）；空日期置后；
+  /// 同日期保持原顺序（稳定排序）。返回新列表，不修改入参。
+  static List<MailSummary> sortSummariesByDateDesc(List<MailSummary> items) {
+    final indexed = <MapEntry<int, MailSummary>>[
+      for (var i = 0; i < items.length; i++) MapEntry(i, items[i]),
+    ];
+    indexed.sort((a, b) {
+      final da = a.value.receivedDate;
+      final db = b.value.receivedDate;
+      if (da == null && db == null) return a.key.compareTo(b.key);
+      if (da == null) return 1;
+      if (db == null) return -1;
+      final byDate = db.compareTo(da);
+      return byDate != 0 ? byDate : a.key.compareTo(b.key);
+    });
+    return [for (final entry in indexed) entry.value];
   }
 
   /// 读信：元数据（readMessage）+ 正文（getMessageData 的原始 MIME）。

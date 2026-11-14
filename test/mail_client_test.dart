@@ -124,6 +124,28 @@ void main() {
     expect(formatMailSize(1024 * 1024 * 3), '3.0 MB');
   });
 
+  test('sortSummariesByDateDesc 最新在上、空日期置后、稳定', () {
+    MailSummary mail(String id, DateTime? date) => MailSummary(
+          id: id,
+          subject: 's$id',
+          from: 'f$id',
+          to: 't',
+          receivedDate: date,
+          read: true,
+          hasAttachment: false,
+        );
+    final items = [
+      mail('old', DateTime(2024, 1, 1)),
+      mail('none', null),
+      mail('new', DateTime(2024, 6, 1)),
+      mail('mid', DateTime(2024, 3, 1)),
+    ];
+    final sorted = MailClient.sortSummariesByDateDesc(items);
+    expect(sorted.map((m) => m.id).toList(), ['new', 'mid', 'old', 'none']);
+    // 不修改入参。
+    expect(items.first.id, 'old');
+  });
+
   group('MIME 解析（离线）', () {
     test('multipart/alternative + base64 中文 HTML', () {
       const htmlText = '<p>你好，欢迎使用<b>东北大学</b>邮件系统</p>';

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/app_labels.dart';
 import '../../core/auth/auth_session.dart';
+import '../../core/auth/credential_store.dart';
 import '../../core/platform/windows_window.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/storage/account_scope.dart';
@@ -16,8 +17,10 @@ import '../auth/auth_controller.dart';
 import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
+import '../../core/network/mail_client.dart';
 import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
+import '../mail/mail_format.dart';
 import '../mail/mail_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
@@ -68,6 +71,10 @@ class _HomePageState extends ConsumerState<HomePage>
 
   DormPrefs? _statusPrefs;
 
+  /// 首页「邮件」卡片展示用（best-effort 拉取，失败不影响首页）。
+  int _mailUnread = 0;
+  List<MailSummary> _mailRecent = const [];
+
   /// e码通页首次进入后常驻（保留 WebView 状态），避免来回切换时重建/闪烁。
   bool _ecodeVisited = false;
 
@@ -106,6 +113,7 @@ class _HomePageState extends ConsumerState<HomePage>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _runDailyElectricityCheck();
       await _ensureTimetable();
+      unawaited(_loadMailSummary());
     });
     // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
     // 用户点开 e码通时二维码通常已渲染好，实现「点进去就显示」。
@@ -511,12 +519,6 @@ class _HomePageState extends ConsumerState<HomePage>
                 active: _tab == 2,
                 onTap: () => _selectTab(2),
               ),
-              _NavItem(
-                icon: Icons.mail_outline_rounded,
-                label: '邮件',
-                active: false,
-                onTap: _openMail,
-              ),
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -706,9 +708,10 @@ class _HomePageState extends ConsumerState<HomePage>
       );
     }
     if (id == 'mail') {
-      return _PlaceholderCard(
-        id: id,
+      return _MailCard(
         size: size,
+        unread: _mailUnread,
+        recent: _mailRecent,
         onOpen: _openMail,
       );
     }
@@ -721,6 +724,35 @@ class _HomePageState extends ConsumerState<HomePage>
         builder: (_) => MailPage(session: widget.session),
       ),
     );
+  }
+
+  /// best-effort 拉取邮件摘要供首页卡片展示；任何失败都静默忽略。
+  Future<void> _loadMailSummary() async {
+    try {
+      MailClient client;
+      try {
+        client = await MailClient.fromSession(widget.session);
+      } catch (_) {
+        // 会话换票失败时，若本地保存了密码则用密码再走一次 CAS（与邮件页一致）。
+        final credentials = await ref.read(credentialStoreProvider).read();
+        final password = credentials?.password;
+        if (credentials == null || password == null || password.isEmpty) {
+          rethrow;
+        }
+        client = await MailClient.fromCredentials(
+          username: credentials.username,
+          password: password,
+        );
+      }
+      final items = await client.list(limit: 30);
+      if (!mounted) return;
+      setState(() {
+        _mailRecent = items.take(2).toList(growable: false);
+        _mailUnread = items.where((m) => !m.read).length;
+      });
+    } catch (_) {
+      // 静默失败：首页卡片显示「点开查看邮件」，不影响其它功能。
+    }
   }
 
   Future<void> _logout() async {
