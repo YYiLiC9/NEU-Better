@@ -301,7 +301,8 @@ class _HomePageState extends ConsumerState<HomePage>
     ref.read(homeTabProvider.notifier).state = value;
   }
 
-  /// Fade Through：先淡出旧页（90ms），换页后淡入并 0.985→1 轻微放大（210ms）。
+  /// 主标签切换：直接换到目标页，再整体淡入 + 0.96→1 轻放大（220ms）。
+  /// 不做「先淡出到全黑再进」的两段式，避免出现卡顿/闪白。
   Future<void> _animateToTab(int target) async {
     _pendingTab = target;
     if (_tabFade.isAnimating) return;
@@ -309,17 +310,12 @@ class _HomePageState extends ConsumerState<HomePage>
       final next = _pendingTab!;
       _pendingTab = null;
       if (next == _displayedTab) continue;
-      await _tabFade.animateTo(
-        0.0,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeIn,
-      );
-      if (!mounted) return;
       setState(() => _displayedTab = next);
+      _tabFade.value = 0.0;
       await _tabFade.animateTo(
         1.0,
-        duration: const Duration(milliseconds: 210),
-        curve: Curves.easeOut,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
       );
       if (!mounted) return;
     }
@@ -328,7 +324,7 @@ class _HomePageState extends ConsumerState<HomePage>
   Widget _wrapTabFade(Widget child) => FadeTransition(
     opacity: _tabFade,
     child: ScaleTransition(
-      scale: Tween<double>(begin: 0.985, end: 1.0).animate(
+      scale: Tween<double>(begin: 0.96, end: 1.0).animate(
         CurvedAnimation(parent: _tabFade, curve: Curves.easeOutCubic),
       ),
       child: child,
@@ -584,6 +580,7 @@ class _HomePageState extends ConsumerState<HomePage>
     return LayoutBuilder(
       builder: (context, constraints) {
         var alignment = Alignment.center;
+        var beginScale = 0.9;
         if (!galleryInvolved && detailInvolved && _dormCardRect != null) {
           final rb = context.findRenderObject() as RenderBox?;
           final boxTopLeft = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
@@ -593,19 +590,30 @@ class _HomePageState extends ConsumerState<HomePage>
           final ax = (localCenter.dx / w * 2 - 1).clamp(-1.0, 1.0);
           final ay = (localCenter.dy / h * 2 - 1).clamp(-1.0, 1.0);
           alignment = Alignment(ax, ay);
+          // 从「卡片实际尺寸」开始放大，而不是从 0（从点缩放会显得很怪）。
+          beginScale = (_dormCardRect!.width / w).clamp(0.22, 0.6);
         }
         return AnimatedSwitcher(
           duration: duration,
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
+          // 关键：旧/新页面按「同一全尺寸、左上对齐」叠放，避免两者高度不同
+          // 时 AnimatedSwitcher 默认居中布局导致整页上下跳动 / 瞬移。
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            fit: StackFit.expand,
+            alignment: Alignment.topLeft,
+            children: [...previousChildren, ?currentChild],
+          ),
           transitionBuilder: galleryInvolved
               ? (child, animation) => child
               : (child, animation) => FadeTransition(
                   opacity: animation,
                   child: ScaleTransition(
-                    scale: CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutCubic,
+                    scale: Tween<double>(begin: beginScale, end: 1.0).animate(
+                      CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
                     ),
                     alignment: alignment,
                     child: child,
