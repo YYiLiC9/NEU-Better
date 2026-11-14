@@ -493,19 +493,38 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildHomeTab() {
     final section = ref.watch(homeSectionProvider);
+    final Widget content;
     if (section == 1) {
-      return _HomeDormDetail(
+      content = _HomeDormDetail(
         onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
       );
-    }
-    if (section == 2) {
-      return HomeCardGallery(
+    } else if (section == 2) {
+      content = HomeCardGallery(
         cards: _homeCards,
         onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
         onAdd: _addCard,
       );
+    } else {
+      content = _buildHomeOverview();
     }
-    return _buildHomeOverview();
+    // 二级页（尤其卡片库）从右上角「＋」处伸缩展开；返回首页时反向缩回。
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        final scale = Tween<double>(begin: 0.84, end: 1.0).animate(animation);
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: scale,
+            alignment: Alignment.topRight,
+            child: child,
+          ),
+        );
+      },
+      child: KeyedSubtree(key: ValueKey<int>(section), child: content),
+    );
   }
 
   Widget _buildHomeOverview() {

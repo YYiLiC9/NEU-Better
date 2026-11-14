@@ -159,6 +159,39 @@ class _HomeGridState extends State<_HomeGrid> {
     _handleDragMove(id, globalPosition);
   }
 
+  final Map<String, HomeCardSize> _lastSizes = <String, HomeCardSize>{};
+
+  /// 尺寸发生变化的那一帧不做位置/尺寸补间（否则大卡内容在 1×1 的小框里
+  /// 被裁切会闪出「奇怪的东西」）；普通拖动重排仍保留 200ms 平滑动画。
+  Widget _cardWidget(PlacedHomeCard placed) {
+    final size = widget.cards.firstWhere((card) => card.id == placed.id).size;
+    final prev = _lastSizes[placed.id];
+    final duration = (prev == null || prev == size)
+        ? const Duration(milliseconds: 200)
+        : Duration.zero;
+    _lastSizes[placed.id] = size;
+    return AnimatedPositioned(
+      key: ValueKey<String>('card-${placed.id}'),
+      duration: duration,
+      curve: Curves.easeOutCubic,
+      left: placed.left,
+      top: placed.top,
+      width: placed.width,
+      height: placed.height,
+      child: _DraggableCard(
+        id: placed.id,
+        size: size,
+        designMode: widget.designMode,
+        onMove: (global) => _handleDragMove(placed.id, global),
+        onDrop: (global) => _handleDrop(placed.id, global),
+        onResize: widget.onResize,
+        onDelete: widget.onDelete,
+        onRequestEnterDesign: widget.onRequestEnterDesign,
+        child: widget.buildCard(placed.id),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.cards.isEmpty) return const _HomeEmpty();
@@ -182,29 +215,7 @@ class _HomeGridState extends State<_HomeGrid> {
                       onTap: widget.onExitDesign,
                     ),
                   ),
-                for (final placed in pack.cards)
-                  AnimatedPositioned(
-                    key: ValueKey<String>('card-${placed.id}'),
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOutCubic,
-                    left: placed.left,
-                    top: placed.top,
-                    width: placed.width,
-                    height: placed.height,
-                    child: _DraggableCard(
-                      id: placed.id,
-                      size: widget.cards
-                          .firstWhere((card) => card.id == placed.id)
-                          .size,
-                      designMode: widget.designMode,
-                      onMove: (global) => _handleDragMove(placed.id, global),
-                      onDrop: (global) => _handleDrop(placed.id, global),
-                      onResize: widget.onResize,
-                      onDelete: widget.onDelete,
-                      onRequestEnterDesign: widget.onRequestEnterDesign,
-                      child: widget.buildCard(placed.id),
-                    ),
-                  ),
+                for (final placed in pack.cards) _cardWidget(placed),
               ],
             ),
           ),
@@ -243,6 +254,7 @@ class _DraggableCard extends StatefulWidget {
 
 class _DraggableCardState extends State<_DraggableCard> {
   Offset _dragDelta = Offset.zero;
+  Offset _startBase = Offset.zero;
   bool _dragging = false;
 
   bool get _isAndroid =>
@@ -293,6 +305,8 @@ class _DraggableCardState extends State<_DraggableCard> {
       onSecondaryTapDown: _isAndroid ? null : _showSizeMenu,
       onLongPressStart: (_) {
         if (_canDrag) {
+          final rb = context.findRenderObject() as RenderBox?;
+          _startBase = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
           setState(() => _dragging = true);
         } else if (_isAndroid) {
           widget.onRequestEnterDesign();
@@ -300,7 +314,13 @@ class _DraggableCardState extends State<_DraggableCard> {
       },
       onLongPressMoveUpdate: (details) {
         if (!_dragging) return;
-        setState(() => _dragDelta = details.offsetFromOrigin);
+        // 手指总位移 = offsetFromOrigin。卡片网格在重排时自身也会移动到新格子
+        // （base 位移）。漂浮位移必须扣掉这段 base 位移，否则卡片会“漂过头”。
+        final rb = context.findRenderObject() as RenderBox?;
+        final shift = rb == null
+            ? Offset.zero
+            : rb.localToGlobal(Offset.zero) - _startBase;
+        setState(() => _dragDelta = details.offsetFromOrigin - shift);
         widget.onMove(details.globalPosition);
       },
       onLongPressEnd: (details) {
