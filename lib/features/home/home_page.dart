@@ -719,11 +719,16 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openMail() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => MailPage(session: widget.session),
-      ),
-    );
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => MailPage(session: widget.session),
+          ),
+        )
+        .whenComplete(() {
+      // 从邮件页返回后刷新首页邮件卡（未读数可能因点开邮件而变化）。
+      if (mounted) unawaited(_loadMailSummary());
+    });
   }
 
   /// best-effort 拉取邮件摘要供首页卡片展示；任何失败都静默忽略。
@@ -746,9 +751,11 @@ class _HomePageState extends ConsumerState<HomePage>
       }
       final items = await client.list(limit: 30);
       if (!mounted) return;
+      // 邮件卡只展示「最近两封未读」：已读邮件不出现在卡片上。
+      final unread = items.where((m) => !m.read).toList(growable: false);
       setState(() {
-        _mailRecent = items.take(2).toList(growable: false);
-        _mailUnread = items.where((m) => !m.read).length;
+        _mailRecent = unread.take(2).toList(growable: false);
+        _mailUnread = unread.length;
       });
     } catch (_) {
       // 静默失败：首页卡片显示「点开查看邮件」，不影响其它功能。

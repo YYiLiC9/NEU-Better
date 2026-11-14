@@ -771,124 +771,142 @@ class _MailCard extends StatelessWidget {
 
   Widget _buildDetailed() {
     final wide = size == HomeCardSize.s2x4;
-    final latest = recent.isNotEmpty ? recent.first : null;
-    final second = recent.length > 1 ? recent[1] : null;
+    final mails = recent.take(2).toList(growable: false);
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 2×4：内容宽度贴合卡片内宽（>320 时用实际宽度并与余额中心一致）；
-        // 2×2：固定 150 设计宽度，避免整体被过度缩小。
-        final designWidth = wide
-            ? (constraints.maxWidth > 320 ? constraints.maxWidth : 320.0)
-            : 150.0;
+        // 2×2 与 2×4 共用同一套「主题 / 发件人·时间」两行版式。
+        // 2×2 用 150×150 的固定设计方框 + BoxFit.contain：最终尺寸下等比铺满
+        // 整张卡（上下自然铺开、不留大片空白），尺寸切换的中间帧（1×1→2×2）
+        // 里自动缩小，避免 RenderFlex 溢出。
+        // 2×4 设计框按实际内框等比放大 16% 留出文字放大（系统字号）余量，
+        // contain 缩放后仍精确铺满整卡、右侧贴紧。
+        final double designWidth;
+        final double designHeight;
+        if (wide && constraints.maxHeight > 0) {
+          designHeight = constraints.maxHeight * 1.16;
+          designWidth =
+              constraints.maxWidth * (designHeight / constraints.maxHeight);
+        } else {
+          designWidth = wide ? constraints.maxWidth : 150.0;
+          designHeight = wide ? 122.0 : 150.0;
+        }
         return FittedBox(
-          // 同 _PlaceholderCard：尺寸切换中间帧可能比内容小，等比缩放避免溢出。
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.topLeft,
+          fit: BoxFit.contain,
+          alignment: Alignment.center,
           child: SizedBox(
             width: designWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.mail_outline_rounded,
-                        size: 18, color: AppColors.muted),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        '邮件',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: wide ? 14 : 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.ink,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: unread > 0
-                            ? AppColors.campusBlue.withValues(alpha: 0.12)
-                            : AppColors.line.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _unreadText,
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                          color: unread > 0
-                              ? AppColors.campusBlue
-                              : AppColors.muted,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (latest == null)
-                  Text(
-                    '点开查看邮件',
-                    style: TextStyle(fontSize: 11.5, color: AppColors.faint),
-                  )
-                else ...[
-                  Text(
-                    latest.subject.isEmpty ? '(无主题)' : latest.subject,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: wide ? 13 : 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                  if (wide) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      _fromLine(latest),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 10, color: AppColors.muted),
-                    ),
-                  ],
-                  if (second != null) ...[
-                    if (wide) ...[
-                      const SizedBox(height: 8),
-                      Divider(height: 1, thickness: 1, color: AppColors.line),
-                      const SizedBox(height: 8),
-                    ] else
-                      const SizedBox(height: 6),
-                    Text(
-                      second.subject.isEmpty ? '(无主题)' : second.subject,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: wide ? 12 : 11.5,
-                        color: wide ? AppColors.ink : AppColors.muted,
-                      ),
-                    ),
-                    if (wide) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        _fromLine(second),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            TextStyle(fontSize: 9.5, color: AppColors.faint),
-                      ),
-                    ],
-                  ],
-                ],
-              ],
-            ),
+            height: designHeight,
+            child: _buildDetailedBody(wide, mails),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildDetailedBody(bool wide, List<MailSummary> mails) {
+    final header = Row(
+      children: [
+        Icon(Icons.mail_outline_rounded, size: 18, color: AppColors.muted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            '邮件',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: wide ? 14 : 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.ink,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: unread > 0
+                ? AppColors.campusBlue.withValues(alpha: 0.12)
+                : AppColors.line.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            _unreadText,
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w600,
+              color: unread > 0 ? AppColors.campusBlue : AppColors.muted,
+            ),
+          ),
+        ),
+      ],
+    );
+
+    if (mails.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          Expanded(
+            child: Center(
+              child: Text(
+                '暂无未读',
+                style: TextStyle(fontSize: 12, color: AppColors.faint),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (wide) {
+      // 2×4 高度充足：header 顶部、两封邮件在其中均匀铺开，避免下半大片空白。
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          header,
+          for (final mail in mails) _mailBlock(mail, wide: true),
+        ],
+      );
+    }
+
+    // 2×2：header 顶部，邮件行在剩余高度内自然分布，避免下半大片空白。
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        header,
+        for (final mail in mails) _mailBlock(mail, wide: false),
+      ],
+    );
+  }
+
+  Widget _mailBlock(MailSummary mail, {required bool wide}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          mail.subject.isEmpty ? '(无主题)' : mail.subject,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: wide ? 13 : 12.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.ink,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _fromLine(mail),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: wide ? 10 : 9.5,
+            color: AppColors.muted,
+          ),
+        ),
+      ],
     );
   }
 

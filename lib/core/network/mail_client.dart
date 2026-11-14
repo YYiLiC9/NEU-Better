@@ -259,6 +259,28 @@ class MailClient {
     return [for (final entry in indexed) entry.value];
   }
 
+  /// 标记单封邮件为已读。
+  ///
+  /// Coremail 的 `mbox:setFlags/markRead/updateMessage` 在本校实例都返回
+  /// `FR_INVALID_REQUEST Invalid method ...`；实测可用的是在 `readMessage`
+  /// 上带 `markRead=true`（GET 后服务器把 flags 从 `{report:true}` 改成
+  /// `{read:true,report:true}`，返回 `S_OK`）。成功返回 true。
+  Future<bool> markRead(String mid) async {
+    final uri = Uri.parse(_jsonBase).replace(
+      queryParameters: {
+        'func': 'mbox:readMessage',
+        'sid': session.sid,
+        'mid': mid,
+        'mode': 'html',
+        'header': '1',
+        'markRead': 'true',
+      },
+    );
+    final body = await _get(uri);
+    _decodeRoot(body);
+    return true;
+  }
+
   /// 下载附件字节。Coremail 用 `getMessageData&part=<附件 id>` 直接返回
   /// 解码后的二进制（实测 part=2 返回 PDF 原文，长度等于 estimateSize）。
   Future<Uint8List> downloadAttachment({

@@ -92,6 +92,9 @@ class _MailPageState extends ConsumerState<MailPage> {
   void _openDetail(MailSummary summary) {
     final client = _client;
     if (client == null) return;
+    if (!summary.read) {
+      unawaited(_markRead(summary, client));
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MailDetailPage(
@@ -101,6 +104,34 @@ class _MailPageState extends ConsumerState<MailPage> {
         ),
       ),
     );
+  }
+
+  /// 点开未读邮件：先本地置已读（列表/未读数立即更新），再尽力同步远程。
+  /// 远程失败只记录日志，不阻塞进入详情。
+  Future<void> _markRead(MailSummary summary, MailClient client) async {
+    if (!mounted) return;
+    setState(() {
+      _items = [
+        for (final item in _items)
+          if (item.id == summary.id)
+            MailSummary(
+              id: item.id,
+              subject: item.subject,
+              from: item.from,
+              to: item.to,
+              receivedDate: item.receivedDate,
+              read: true,
+              hasAttachment: item.hasAttachment,
+            )
+          else
+            item,
+      ];
+    });
+    try {
+      await client.markRead(summary.id);
+    } catch (error) {
+      debugPrint('邮件远程标记已读失败（本地已置已读）：$error');
+    }
   }
 
   @override
