@@ -506,96 +506,123 @@ class _DormCard extends StatelessWidget {
         );
         break;
       case HomeCardSize.s2x2:
-        body = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            header(iconSize: 16, titleSize: 13),
-            const Spacer(),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
+        // 用 FittedBox 兜底：1×1→2×2 那一帧若高度还没铺满，内容等比缩放
+        // 而不是溢出（否则会出现红/黄 overflow 行一闪）。
+        body = FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 150,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  remain,
-                  style: TextStyle(
-                    fontSize: 30,
-                    height: 1.05,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                    color: accent,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+                header(iconSize: 16, titleSize: 13),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      remain,
+                      style: TextStyle(
+                        fontSize: 30,
+                        height: 1.05,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                        color: accent,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '度',
+                      style: TextStyle(fontSize: 11, color: AppColors.muted),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 4),
-                Text('度', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                const SizedBox(height: 2),
+                Text(
+                  roomText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 10, color: AppColors.muted),
+                ),
               ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              roomText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 10, color: AppColors.muted),
-            ),
-          ],
+          ),
         );
         break;
       case HomeCardSize.s2x4:
-        body = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            header(iconSize: 17, titleSize: 14),
-            const Spacer(),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
+        body = FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 320,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  remain,
-                  style: TextStyle(
-                    fontSize: 44,
-                    height: 1.0,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.8,
-                    color: accent,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+                header(iconSize: 17, titleSize: 14),
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      remain,
+                      style: TextStyle(
+                        fontSize: 44,
+                        height: 1.0,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.8,
+                        color: accent,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '度',
+                      style: TextStyle(fontSize: 14, color: AppColors.muted),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '查看详情',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.campusBlue,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                Text('度', style: TextStyle(fontSize: 14, color: AppColors.muted)),
-                const Spacer(),
+                const SizedBox(height: 6),
                 Text(
-                  '查看详情',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.campusBlue,
-                  ),
+                  roomText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: AppColors.muted),
                 ),
+                if (low) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.nowRed.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '电量偏低，建议尽快充值',
+                      style: TextStyle(fontSize: 11, color: AppColors.nowRed),
+                    ),
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              roomText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: AppColors.muted),
-            ),
-            if (low) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.nowRed.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '电量偏低，建议尽快充值',
-                  style: TextStyle(fontSize: 11, color: AppColors.nowRed),
-                ),
-              ),
-            ],
-          ],
+          ),
         );
         break;
     }

@@ -255,8 +255,17 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 打开「首页 · 寝室用电」二级页。
+  final GlobalKey _dormCardKey = GlobalKey();
+  Rect? _dormCardRect;
+  int _lastSection = 0;
+
+  /// 打开「首页 · 余额中心」二级页；先记录被点卡片的屏幕矩形，
+  /// 用于二级页从卡片处放大、返回时缩回卡片处（类 Android 转场）。
   void _openDormDetail() {
+    final rb = _dormCardKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rb != null && rb.hasSize) {
+      _dormCardRect = rb.localToGlobal(Offset.zero) & rb.size;
+    }
     ref.read(homeTabProvider.notifier).state = 0;
     ref.read(homeSectionProvider.notifier).state = 1;
   }
@@ -493,6 +502,10 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildHomeTab() {
     final section = ref.watch(homeSectionProvider);
+    // 卡片库（section 2）不做任何转场；只有「余额中心」二级页(1) 与首页(0)
+    // 之间做「从所点卡片处放大 / 缩回卡片处」的转场。
+    final galleryInvolved = section == 2 || _lastSection == 2;
+    final detailInvolved = section == 1 || _lastSection == 1;
     final Widget content;
     if (section == 1) {
       content = _HomeDormDetail(
@@ -507,23 +520,45 @@ class _HomePageState extends ConsumerState<HomePage> {
     } else {
       content = _buildHomeOverview();
     }
-    // 二级页（尤其卡片库）从右上角「＋」处伸缩展开；返回首页时反向缩回。
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        final scale = Tween<double>(begin: 0.84, end: 1.0).animate(animation);
-        return FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: scale,
-            alignment: Alignment.topRight,
-            child: child,
-          ),
+    final Duration duration = galleryInvolved
+        ? Duration.zero
+        : const Duration(milliseconds: 300);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _lastSection = section;
+    });
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        var alignment = Alignment.center;
+        if (!galleryInvolved && detailInvolved && _dormCardRect != null) {
+          final rb = context.findRenderObject() as RenderBox?;
+          final boxTopLeft = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
+          final localCenter = _dormCardRect!.center - boxTopLeft;
+          final w = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
+          final h = constraints.maxHeight <= 0 ? 1.0 : constraints.maxHeight;
+          final ax = (localCenter.dx / w * 2 - 1).clamp(-1.0, 1.0);
+          final ay = (localCenter.dy / h * 2 - 1).clamp(-1.0, 1.0);
+          alignment = Alignment(ax, ay);
+        }
+        return AnimatedSwitcher(
+          duration: duration,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: galleryInvolved
+              ? (child, animation) => child
+              : (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    ),
+                    alignment: alignment,
+                    child: child,
+                  ),
+                ),
+          child: KeyedSubtree(key: ValueKey<int>(section), child: content),
         );
       },
-      child: KeyedSubtree(key: ValueKey<int>(section), child: content),
     );
   }
 
@@ -587,10 +622,13 @@ class _HomePageState extends ConsumerState<HomePage> {
         )
         .size;
     if (id == 'dorm') {
-      return _DormCard(
-        size: size,
-        prefs: _statusPrefs,
-        onOpen: _openDormDetail,
+      return KeyedSubtree(
+        key: _dormCardKey,
+        child: _DormCard(
+          size: size,
+          prefs: _statusPrefs,
+          onOpen: _openDormDetail,
+        ),
       );
     }
     return _PlaceholderCard(id: id, size: size);
