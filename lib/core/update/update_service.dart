@@ -96,21 +96,35 @@ class UpdateService {
 
   /// 返回比当前版本更新的 Release；已是最新或网络异常时返回 null。
   Future<UpdateInfo?> check() async {
-    try {
-      final response = await _dio.get<String>('/repos/$repo/releases/latest');
-      if (response.statusCode != 200 || response.data == null) return null;
-      final decoded = jsonDecode(response.data!);
-      if (decoded is! Map) return null;
-      final info = UpdateInfoParser.fromRelease(
-        Map<String, dynamic>.from(decoded),
-      );
-      if (info == null) return null;
-      if (compareVersions(info.version, currentVersion) <= 0) return null;
-      return info;
-    } catch (error) {
-      debugPrint('[update] check failed: $error');
-      return null;
+    for (final url in _githubCandidates(
+      'https://api.github.com/repos/$repo/releases/latest',
+    )) {
+      try {
+        final response = await _dio.get<String>(url);
+        if (response.statusCode != 200 || response.data == null) continue;
+        final decoded = jsonDecode(response.data!);
+        if (decoded is! Map) continue;
+        final info = UpdateInfoParser.fromRelease(
+          Map<String, dynamic>.from(decoded),
+        );
+        if (info == null) continue;
+        if (compareVersions(info.version, currentVersion) <= 0) return null;
+        return info;
+      } catch (error) {
+        debugPrint('[update] check failed at $url: $error');
+      }
     }
+    return null;
+  }
+
+  /// GitHub 直连在部分地区不稳定：追加公共镜像前缀作为兜底（按顺序尝试）。
+  static List<String> _githubCandidates(String url) {
+    final list = <String>[url];
+    if (url.contains('github.com') || url.contains('githubusercontent.com')) {
+      list.add('https://ghfast.top/$url');
+      list.add('https://gh-proxy.com/$url');
+    }
+    return list;
   }
 
   /// 下载 [url] 到 [target]。下载地址为大文件，单独用一个长超时 Dio。
@@ -127,7 +141,23 @@ class UpdateService {
       ),
     );
     await target.parent.create(recursive: true);
-    await dio.download(url, target.path, onReceiveProgress: onProgress);
+    Object? lastError;
+    for (final candidate in _githubCandidates(url)) {
+      try {
+        await dio.download(
+          candidate,
+          target.path,
+          onReceiveProgress: onProgress,
+        );
+        if (await target.exists() && await target.length() > 0) return;
+      } catch (error) {
+        lastError = error;
+        debugPrint('[update] download failed at $candidate: $error');
+      }
+    }
+    if (lastError != null) {
+      throw Exception('$lastError');
+    }
   }
 }
 

@@ -146,7 +146,24 @@ class MainActivity : FlutterActivity() {
             // 部分厂商 ROM 需要 clipData 才能把读权限一并授予安装器。
             clipData = ClipData.newRawUri("apk", uri)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (first: Exception) {
+            Log.w(LOG_TAG, "ACTION_VIEW install failed, fallback INSTALL_PACKAGE: ${first.message}")
+            val fallback = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                clipData = ClipData.newRawUri("apk", uri)
+            }
+            try {
+                startActivity(fallback)
+            } catch (second: Exception) {
+                throw IllegalStateException(
+                    "无法调起系统安装器：${second.message ?: second.javaClass.simpleName}",
+                )
+            }
+        }
         return "ok"
     }
 

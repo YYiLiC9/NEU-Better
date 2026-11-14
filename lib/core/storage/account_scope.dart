@@ -36,19 +36,27 @@ class AccountScope {
   }
 
   /// 数据目录候选顺序（写时逐个尝试；读时同样顺序）。
+  ///
+  /// 稳定目录优先，保证应用更新/覆盖安装后数据仍在：
+  /// - Windows：`%LOCALAPPDATA%\NEU Better`（与安装目录无关）；
+  /// - Android：应用私有 `files/NEU Better`（`cache` 会被系统或覆盖安装清理）。
+  /// 其余为历史位置，仅用于读取迁移。
   static List<String> get _dirs {
     final sep = Platform.pathSeparator;
-    final dirs = <String>[
-      '${File(Platform.resolvedExecutable).parent.path}$sep' 'data',
-      '${Directory.current.path}$sep' 'data',
-      // Android：systemTemp 是 cache（覆盖安装会清）；其父目录下 files 才是持久私有目录。
-      if (Platform.isAndroid)
-        '${Directory.systemTemp.parent.path}$sep' 'files$sep' 'NEU Better',
-      '${Directory.systemTemp.path}$sep' 'NEU Better',
-    ];
-    final local = Platform.environment['LOCALAPPDATA'];
-    if (local != null && local.isNotEmpty) {
-      dirs.add('$local$sep' 'NEU Better');
+    final dirs = <String>[];
+    if (Platform.isAndroid) {
+      dirs.add('${Directory.systemTemp.parent.path}$sep' 'files$sep' 'NEU Better');
+      dirs.add('${Directory.systemTemp.path}$sep' 'NEU Better');
+      dirs.add('${File(Platform.resolvedExecutable).parent.path}$sep' 'data');
+      dirs.add('${Directory.current.path}$sep' 'data');
+    } else {
+      final local = Platform.environment['LOCALAPPDATA'];
+      if (local != null && local.isNotEmpty) {
+        dirs.add('$local$sep' 'NEU Better');
+      }
+      dirs.add('${File(Platform.resolvedExecutable).parent.path}$sep' 'data');
+      dirs.add('${Directory.current.path}$sep' 'data');
+      dirs.add('${Directory.systemTemp.path}$sep' 'NEU Better');
     }
     return dirs;
   }

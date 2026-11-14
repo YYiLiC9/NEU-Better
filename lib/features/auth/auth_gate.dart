@@ -16,11 +16,35 @@ class AuthGate extends ConsumerWidget {
     // AppColors 是全局静态令牌，不经过 InheritedWidget；主题切换时显式重建
     // 路由内的页面，避免登录页 / 首页停留在旧配色。
     ref.watch(appSettingsProvider.select((settings) => settings.isDarkNow));
-    return switch (state) {
-      AuthAuthenticated(:final session) => HomePage(session: session),
-      AuthInitial() => _LaunchScreen(),
-      _ => LoginPage(),
-    };
+    final String key;
+    final Widget child;
+    if (state is AuthAuthenticated) {
+      key = 'home';
+      child = HomePage(session: state.session);
+    } else if (state is AuthInitial) {
+      key = 'launch';
+      child = const _LaunchScreen();
+    } else {
+      key = 'login';
+      child = const LoginPage();
+    }
+    // 登录进入主界面 / 退出登录回登录页 / 冷启动过场，都用同一套淡入 + 轻微
+    // 缩放衔接，避免生硬硬切。AnimatedSwitcher 以状态种类为 key 触发动画。
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 340),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        final scale = Tween<double>(begin: 0.96, end: 1.0).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        );
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(scale: scale, child: child),
+        );
+      },
+      child: KeyedSubtree(key: ValueKey<String>(key), child: child),
+    );
   }
 }
 

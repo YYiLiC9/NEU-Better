@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
+import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
 import '../timetable/course_override_store.dart';
 import '../timetable/timetable_overlay.dart';
@@ -156,6 +157,27 @@ class _SettingsDialog extends ConsumerWidget {
                     title: '自动检查更新（来源 GitHub）',
                     value: settings.autoUpdate,
                     onChanged: controller.setAutoUpdate,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 15,
+                          color: AppColors.muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '当前版本 v${UpdateService.currentVersion}',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   Align(
                     alignment: Alignment.centerRight,
@@ -330,6 +352,27 @@ class MobileSettingsPage extends ConsumerWidget {
                 title: '自动检查更新（来源 GitHub）',
                 value: settings.autoUpdate,
                 onChanged: controller.setAutoUpdate,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 15,
+                      color: AppColors.muted,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '当前版本 v${UpdateService.currentVersion}',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               Align(
                 alignment: Alignment.centerRight,

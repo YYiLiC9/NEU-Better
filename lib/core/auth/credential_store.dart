@@ -82,23 +82,8 @@ class _WindowsDpapiCredentialFile {
   /// shortcut with an arbitrary working directory, so never rely on a single
   /// location.
   static List<File> get _candidates {
-    final files = <File>[
-      // The portable release folder is writable for the current user and is
-      // where the shortcut starts the app. Prefer it over %TEMP%, which can
-      // be blocked by AppData ACLs on managed Windows machines.
-      File(
-        '${File(Platform.resolvedExecutable).parent.path}'
-        '${Platform.pathSeparator}data${Platform.pathSeparator}$_fileName',
-      ),
-      File(
-        '${Directory.current.path}${Platform.pathSeparator}data'
-        '${Platform.pathSeparator}$_fileName',
-      ),
-      File(
-        '${Directory.systemTemp.path}${Platform.pathSeparator}NEU Better'
-        '${Platform.pathSeparator}$_fileName',
-      ),
-    ];
+    final files = <File>[];
+    // 用户级稳定目录优先：覆盖安装/换安装目录后仍能自动登录。
     final local = Platform.environment['LOCALAPPDATA'];
     if (local != null && local.isNotEmpty) {
       files.add(
@@ -108,6 +93,24 @@ class _WindowsDpapiCredentialFile {
         ),
       );
     }
+    files.add(
+      File(
+        '${File(Platform.resolvedExecutable).parent.path}'
+        '${Platform.pathSeparator}data${Platform.pathSeparator}$_fileName',
+      ),
+    );
+    files.add(
+      File(
+        '${Directory.current.path}${Platform.pathSeparator}data'
+        '${Platform.pathSeparator}$_fileName',
+      ),
+    );
+    files.add(
+      File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}NEU Better'
+        '${Platform.pathSeparator}$_fileName',
+      ),
+    );
     return files;
   }
 

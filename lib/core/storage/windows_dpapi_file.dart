@@ -21,24 +21,31 @@ class WindowsDpapiFile {
 
   List<File> get _candidates {
     final separator = Platform.pathSeparator;
-    final files = <File>[
-      File(
-        '${File(Platform.resolvedExecutable).parent.path}$separator'
-        'data$separator$fileName',
-      ),
-      File(
-        '${Directory.current.path}$separator'
-        'data$separator$fileName',
-      ),
-      File(
-        '${Directory.systemTemp.path}$separator'
-        'NEU Better$separator$fileName',
-      ),
-    ];
+    final files = <File>[];
+    // 优先用户级稳定目录：应用更新/覆盖安装（不触碰 %LOCALAPPDATA%）后
+    // 登录会话、保存的账号密码等仍可恢复。
     final local = Platform.environment['LOCALAPPDATA'];
     if (local != null && local.isNotEmpty) {
       files.add(File('$local$separator' 'NEU Better$separator$fileName'));
     }
+    files.add(
+      File(
+        '${File(Platform.resolvedExecutable).parent.path}$separator'
+        'data$separator$fileName',
+      ),
+    );
+    files.add(
+      File(
+        '${Directory.current.path}$separator'
+        'data$separator$fileName',
+      ),
+    );
+    files.add(
+      File(
+        '${Directory.systemTemp.path}$separator'
+        'NEU Better$separator$fileName',
+      ),
+    );
     return files;
   }
 
