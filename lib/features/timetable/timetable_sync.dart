@@ -73,7 +73,7 @@ abstract final class TimetableSyncService {
     if (studentId.isNotEmpty && saved.username.trim() != studentId) {
       return null;
     }
-    for (var attempt = 1; attempt <= 5; attempt++) {
+    for (var attempt = 1; attempt <= 3; attempt++) {
       try {
         final raw = await YjsTimetableClient().fetch(
           username: saved.username,

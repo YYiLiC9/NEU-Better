@@ -74,6 +74,9 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
         final auth = ref.read(authControllerProvider);
         final recovered = await TimetableSyncService.recoverExams(
           auth is AuthAuthenticated ? auth.session : null,
+        ).timeout(
+          const Duration(seconds: 45),
+          onTimeout: () => const <ExamEntry>[],
         );
         if (recovered.isNotEmpty) {
           data = TimetableData(
@@ -111,6 +114,9 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
         return await client.fetchWithSession(session: session);
       } catch (error) {
         sessionError = error;
+        // 只有“会话过期”才值得用保存的密码再整轮登录一次；网络超时/连接
+        // 失败若再走一遍完整 CAS 登录，会让同步页成倍卡住仍失败。
+        if (error is! SessionExpiredException) rethrow;
       }
     }
 
@@ -136,6 +142,13 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
 
   String _shortError(Object error) {
     final text = error.toString();
+    if (text.contains('receive timeout') ||
+        text.contains('DioException') ||
+        text.contains('Connection') ||
+        text.contains('SocketException') ||
+        text.contains('超时')) {
+      return '连接学校服务器超时或失败，请确认已连接校园网 / 学校 VPN 后重试。';
+    }
     if (text.contains('grouplist 为空') || text.contains('研究生系统身份')) {
       return '当前账号没有研究生系统身份，请先确认学校已开通“研究生系统（新）”。';
     }

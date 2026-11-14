@@ -325,6 +325,11 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       _selectedCellDay = day;
       _selectedCellPeriod = period;
     });
+    // 先让本帧把框选画出来，再弹出编辑卡片，避免“卡片先出现/框选被盖住”。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    if (!mounted) return;
     final result = await showCourseEditor(
       context,
       presetDay: day,

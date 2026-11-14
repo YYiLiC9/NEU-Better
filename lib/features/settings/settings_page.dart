@@ -34,14 +34,23 @@ class _SettingsDialog extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
 
-    return Dialog(
+    return ScrollbarTheme(
+      data: ScrollbarThemeData(
+        thickness: const WidgetStatePropertyAll(4),
+        radius: const Radius.circular(2),
+        thumbColor: WidgetStatePropertyAll(
+          AppColors.muted.withValues(alpha: 0.45),
+        ),
+        trackColor: const WidgetStatePropertyAll(Colors.transparent),
+      ),
+      child: Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
         width: 560,
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.82,
         ),
-        padding: const EdgeInsets.fromLTRB(22, 18, 22, 16),
+        padding: const EdgeInsets.fromLTRB(22, 18, 8, 16),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(20),
@@ -57,6 +66,7 @@ class _SettingsDialog extends ConsumerWidget {
                 ],
         ),
         child: SingleChildScrollView(
+          padding: const EdgeInsets.only(right: 14),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,6 +239,7 @@ class _SettingsDialog extends ConsumerWidget {
           ],
           ),
         ),
+      ),
       ),
     );
   }

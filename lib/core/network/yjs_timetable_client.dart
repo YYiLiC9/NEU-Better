@@ -46,8 +46,8 @@ class YjsTimetableClient {
     final dio = Dio(
       BaseOptions(
         baseUrl: 'https://yjs.neu.edu.cn',
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 20),
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 45),
         responseType: ResponseType.plain,
         followRedirects: true,
         validateStatus: (status) => status != null && status < 500,
