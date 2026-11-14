@@ -16,7 +16,10 @@ part 'widgets/dorm_cards.dart';
 /// 楼栋编号表来自后勤处缴费编号页（2024-07-02 版，实测 3510409/2600116 命中）；
 /// 也可以直接输入 7/8 位完整房间码（空调楼为 8 位）。
 class DormPowerPage extends ConsumerStatefulWidget {
-  const DormPowerPage({super.key});
+  const DormPowerPage({super.key, this.embedded = false});
+
+  /// 内嵌在首页二级页时隐藏自带的大标题（外层已提供返回栏与标题）。
+  final bool embedded;
 
   @override
   ConsumerState<DormPowerPage> createState() => _DormPowerPageState();
@@ -224,8 +227,10 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildHeader(),
-              const SizedBox(height: 22),
+              if (!widget.embedded) ...[
+                _buildHeader(),
+                const SizedBox(height: 22),
+              ],
               if (!_prefs.hasRoom || _editing) ...[
                 _buildSetupCard(),
               ] else ...[

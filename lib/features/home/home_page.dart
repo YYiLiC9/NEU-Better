@@ -21,12 +21,20 @@ import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
 import '../timetable/timetable_store.dart';
 import '../timetable/timetable_sync.dart';
+import '../timetable/timetable_schedule.dart';
+import 'home_card_layout.dart';
+import 'home_layout_store.dart';
 
 part 'widgets/home_chrome.dart';
+part 'widgets/home_grid.dart';
 
-/// 当前选中的页面（0 = 课表, 1 = 寝室用电, 2 = e码通, 3 = 设置）。
+/// 当前选中一级页（0 = 首页, 1 = 课表, 2 = e码通, 3 = 设置）。
 /// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
 final homeTabProvider = StateProvider<int>((ref) => 0);
+
+/// 首页内部的二级分区（0 = 根总览, 1 = 寝室用电详情）。放 ProviderScope 层
+/// 以便主题切换重建后仍停留在原二级页。
+final homeSectionProvider = StateProvider<int>((ref) => 0);
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key, required this.session});
@@ -39,16 +47,13 @@ class HomePage extends ConsumerStatefulWidget {
 
 class _HomePageState extends ConsumerState<HomePage> {
   final _elecService = DormElectricityService();
+  final _homeLayoutStore = const HomeLayoutStore();
 
-  /// 0 = 课表, 1 = 寝室用电, 2 = e码通, 3 = 设置。
+  /// 0 = 首页, 1 = 课表, 2 = e码通, 3 = 设置。
   int get _tab => ref.watch(homeTabProvider);
 
-  void _setTab(int value) {
-    if (value == 2 && !_ecodeVisited) {
-      setState(() => _ecodeVisited = true);
-    }
-    ref.read(homeTabProvider.notifier).state = value;
-  }
+  /// 首页卡片布局（顺序 + 尺寸），按账号持久化。
+  List<HomeCardLayout> _homeCards = defaultHomeCards();
 
   DormPrefs? _statusPrefs;
 
@@ -61,6 +66,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
     unawaited(ref.read(appSettingsProvider.notifier).reload());
+    unawaited(_loadHomeLayout());
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
@@ -97,15 +103,26 @@ class _HomePageState extends ConsumerState<HomePage> {
   void didUpdateWidget(covariant HomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session.studentId != widget.session.studentId) {
-      // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电。
+      // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电 / 首页布局。
       AccountScope.setAccount(widget.session.studentId);
       unawaited(ref.read(appSettingsProvider.notifier).reload());
+      unawaited(_loadHomeLayout());
       _loadStatus();
       ref.read(timetableDataProvider.notifier).state = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _ensureTimetable();
       });
     }
+  }
+
+  Future<void> _loadHomeLayout() async {
+    final cards = await _homeLayoutStore.read();
+    if (!mounted) return;
+    setState(() => _homeCards = cards);
+  }
+
+  Future<void> _saveHomeLayout() async {
+    await _homeLayoutStore.save(_homeCards);
   }
 
   Future<void> _ensureTimetable() async {    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
@@ -141,11 +158,12 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.dispose();
   }
 
-  /// 收到通知点击请求：切到「寝室用电」页（tab 1）。
+  /// 收到通知点击请求：切到「首页 · 寝室用电」二级页。
   void _handleOpenDorm() {
     if (!mounted) return;
-    debugPrint('[notify] openDorm -> switch to tab 1 (寝室用电)');
-    _setTab(1);
+    debugPrint('[notify] openDorm -> home dorm detail');
+    ref.read(homeTabProvider.notifier).state = 0;
+    ref.read(homeSectionProvider.notifier).state = 1;
   }
 
   Future<void> _loadStatus() async {
@@ -172,8 +190,31 @@ class _HomePageState extends ConsumerState<HomePage> {
       context,
       reading: reading,
       prefs: prefs,
-      onView: () => _setTab(1),
+      onView: _openDormDetail,
     );
+  }
+
+  /// 打开「首页 · 寝室用电」二级页。
+  void _openDormDetail() {
+    ref.read(homeTabProvider.notifier).state = 0;
+    ref.read(homeSectionProvider.notifier).state = 1;
+  }
+
+  /// 一级标签切换，并实现「首页」标签的返回语义：
+  /// 从别的标签点「首页」→ 回到上次的二级页；已在首页二级再点「首页」→ 回根。
+  void _selectTab(int value) {
+    if (value == 0) {
+      if (_tab != 0) {
+        ref.read(homeTabProvider.notifier).state = 0; // 保留 section（回上次二级）
+      } else if (ref.read(homeSectionProvider) != 0) {
+        ref.read(homeSectionProvider.notifier).state = 0;
+      }
+      return;
+    }
+    if (value == 2 && !_ecodeVisited) {
+      setState(() => _ecodeVisited = true);
+    }
+    ref.read(homeTabProvider.notifier).state = value;
   }
 
   /// 宽窗口（桌面/平板）用左侧栏；窄窗口（手机）用底部导航。
@@ -209,14 +250,13 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 手机端布局：不再有顶部品牌行与设置/退出图标，三块内容全部交给
-  /// 底部导航（课表 / 寝室用电 / 设置）。设置以内嵌页呈现。
+  /// 手机端布局：底部导航（首页 / 课表 / e码通 / 设置），设置以内嵌页呈现。
   Widget _buildMobile(BuildContext context) {
     return IndexedStack(
       index: _tab,
       children: [
+        _buildHomeTab(),
         TimetablePage(compact: true, mobile: true),
-        DormPowerPage(),
         // e码通首次进入后常驻，避免来回切换重建闪烁。
         (_ecodeVisited || _tab == 2)
             ? EcodePage(session: widget.session)
@@ -226,7 +266,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 底部导航栏：课表 / 寝室用电 / 设置，配色沿用静蓝令牌。
+  /// 底部导航栏：首页 / 课表 / e码通 / 设置，配色沿用静蓝令牌。
   Widget _buildMobileNav(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
@@ -257,17 +297,17 @@ class _HomePageState extends ConsumerState<HomePage> {
           height: 62,
           selectedIndex: _tab,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: _setTab,
+          onDestinationSelected: _selectTab,
           destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: '首页',
+            ),
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined),
               selectedIcon: Icon(Icons.calendar_month),
               label: '课表',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.electric_bolt_outlined),
-              selectedIcon: Icon(Icons.electric_bolt),
-              label: '寝室用电',
             ),
             NavigationDestination(
               icon: Icon(Icons.qr_code_2_outlined),
@@ -293,36 +333,33 @@ class _HomePageState extends ConsumerState<HomePage> {
     final reading = _statusPrefs?.lastReading;
     final remaining = reading?.rawRemain.trim() ?? '';
     final text = remaining.isEmpty ? '--' : remaining;
-    return InkWell(
-      onTap: () => _setTab(1),
-      child: Container(
-        height: 28,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          border: Border(top: BorderSide(color: AppColors.line)),
-        ),
-        child: Row(
-          children: [
-            const Spacer(),
-            Icon(
-              Icons.electric_bolt_rounded,
-              size: 13,
-              color: remaining.isEmpty ? AppColors.faint : AppColors.campusBlue,
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.line)),
+      ),
+      child: Row(
+        children: [
+          const Spacer(),
+          Icon(
+            Icons.electric_bolt_rounded,
+            size: 13,
+            color: remaining.isEmpty ? AppColors.faint : AppColors.campusBlue,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            maxLines: 1,
+            style: TextStyle(
+              color: remaining.isEmpty ? AppColors.faint : AppColors.ink,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
-            const SizedBox(width: 4),
-            Text(
-              text,
-              maxLines: 1,
-              style: TextStyle(
-                color: remaining.isEmpty ? AppColors.faint : AppColors.ink,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -345,26 +382,22 @@ class _HomePageState extends ConsumerState<HomePage> {
                 child: SizedBox(height: 48, child: _Brand()),
               ),
               _NavItem(
-                icon: Icons.calendar_month_outlined,
-                label: '课表',
+                icon: Icons.home_outlined,
+                label: '首页',
                 active: _tab == 0,
-                onTap: () => _setTab(0),
+                onTap: () => _selectTab(0),
               ),
               _NavItem(
-                icon: Icons.electric_bolt_outlined,
-                label: '寝室用电',
+                icon: Icons.calendar_month_outlined,
+                label: '课表',
                 active: _tab == 1,
-                onTap: () => _setTab(1),
+                onTap: () => _selectTab(1),
               ),
-              const _NavItem(
-                icon: Icons.notifications_none_rounded,
-                label: '通知',
-                comingSoon: true,
-              ),
-              const _NavItem(
-                icon: Icons.mail_outline_rounded,
-                label: '邮件',
-                comingSoon: true,
+              _NavItem(
+                icon: Icons.qr_code_2_outlined,
+                label: 'e码通',
+                active: _tab == 2,
+                onTap: () => _selectTab(2),
               ),
               const Spacer(),
               Padding(
@@ -382,8 +415,8 @@ class _HomePageState extends ConsumerState<HomePage> {
           child: IndexedStack(
             index: _tab,
             children: [
+              _buildHomeTab(),
               TimetablePage(),
-              DormPowerPage(),
               (_ecodeVisited || _tab == 2)
                   ? EcodePage(session: widget.session)
                   : const SizedBox.shrink(),
@@ -393,6 +426,98 @@ class _HomePageState extends ConsumerState<HomePage> {
         ),
       ],
     );
+  }
+
+  // ─────────────────────────── 首页 ───────────────────────────
+
+  Widget _buildHomeTab() {
+    final section = ref.watch(homeSectionProvider);
+    if (section == 1) {
+      return _HomeDormDetail(
+        onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
+      );
+    }
+    return _buildHomeOverview();
+  }
+
+  Widget _buildHomeOverview() {
+    final isWide = MediaQuery.sizeOf(context).width >= _wideLayoutMinWidth;
+    final data = ref.watch(timetableDataProvider);
+    int? week;
+    if (data != null) {
+      try {
+        week = TimetableSchedule(data).nowWeek();
+      } catch (_) {
+        week = null;
+      }
+    }
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        isWide ? 36 : 20,
+        isWide ? 28 : 16,
+        isWide ? 36 : 20,
+        28,
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _HomeMasthead(
+                accountLabel: widget.session.accountLabel,
+                week: week,
+              ),
+              const SizedBox(height: 20),
+              _HomeGrid(
+                cards: _homeCards,
+                buildCard: _buildHomeCard,
+                onReorder: (order) {
+                  final byId = {for (final c in _homeCards) c.id: c};
+                  final next = <HomeCardLayout>[
+                    for (final id in order)
+                      if (byId[id] != null) byId[id]!,
+                  ];
+                  setState(() => _homeCards = next);
+                  unawaited(_saveHomeLayout());
+                },
+                onResize: (id, size) {
+                  setState(() {
+                    _homeCards = [
+                      for (final c in _homeCards)
+                        c.id == id ? c.copyWith(size: size) : c,
+                    ];
+                  });
+                  unawaited(_saveHomeLayout());
+                },
+                onResetLayout: () {
+                  setState(() => _homeCards = defaultHomeCards());
+                  unawaited(_saveHomeLayout());
+                },
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeCard(String id) {
+    final size = _homeCards
+        .firstWhere(
+          (c) => c.id == id,
+          orElse: () => HomeCardLayout(id: id, size: HomeCardSize.s1x1),
+        )
+        .size;
+    if (id == 'dorm') {
+      return _DormCard(
+        size: size,
+        prefs: _statusPrefs,
+        onOpen: _openDormDetail,
+      );
+    }
+    return _PlaceholderCard(id: id, size: size);
   }
 
   Future<void> _logout() async {

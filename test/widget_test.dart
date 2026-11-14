@@ -140,6 +140,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // 登录后默认落在「首页」，需切到「课表」标签再断言课表内容。
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
     expect(find.text('我的课表'), findsOneWidget);
     // 恢复旧会话且无本地缓存时不再显示示例课表，而是空课表占位。
     expect(find.text('暂无课表数据'), findsOneWidget);

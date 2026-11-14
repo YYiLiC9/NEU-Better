@@ -54,55 +54,42 @@ class _NavItem extends StatelessWidget {
     required this.icon,
     required this.label,
     this.active = false,
-    this.comingSoon = false,
     this.onTap,
   });
 
   final IconData icon;
   final String label;
   final bool active;
-  final bool comingSoon;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final dim = comingSoon;
-    return Opacity(
-      opacity: dim ? 0.55 : 1,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-          decoration: BoxDecoration(
-            color: active ? AppColors.campusBlue : null,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 19,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.campusBlue : null,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 19,
+              color: active ? Colors.white : AppColors.muted,
+            ),
+            const SizedBox(width: 11),
+            Text(
+              label,
+              style: TextStyle(
                 color: active ? Colors.white : AppColors.muted,
+                fontSize: 12,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
               ),
-              const SizedBox(width: 11),
-              Text(
-                label,
-                style: TextStyle(
-                  color: active ? Colors.white : AppColors.muted,
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                ),
-              ),
-              if (comingSoon) ...[
-                const Spacer(),
-                Text(
-                  '后续',
-                  style: TextStyle(color: AppColors.faint, fontSize: 9),
-                ),
-              ],
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
