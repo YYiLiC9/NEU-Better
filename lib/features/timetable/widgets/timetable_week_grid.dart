@@ -114,38 +114,24 @@ class _WeekGrid extends StatelessWidget {
                                           style: TextStyle(
                                             color: AppColors.ink,
                                             fontSize: 11,
+                                            height: 1.0,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        // 开始/结束时间分两行，去掉中间的横杠，
-                                        // 窄的窄条里更好读、不折行。
-                                        Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              PeriodTimes.startLabel(period),
-                                              style: TextStyle(
-                                                color: AppColors.faint,
-                                                fontSize: 8,
-                                                height: 1.1,
-                                                fontFeatures: [
-                                                  FontFeature.tabularFigures(),
-                                                ],
-                                              ),
-                                            ),
-                                            Text(
-                                              PeriodTimes.endLabel(period),
-                                              style: TextStyle(
-                                                color: AppColors.faint,
-                                                fontSize: 8,
-                                                height: 1.1,
-                                                fontFeatures: [
-                                                  FontFeature.tabularFigures(),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
+                                        // 开始/结束时间放在同一个 Text 里、用紧凑
+                                        // 行高，和节次数字挨得更近。
+                                        Text(
+                                          '${PeriodTimes.startLabel(period)}\n'
+                                          '${PeriodTimes.endLabel(period)}',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: AppColors.faint,
+                                            fontSize: 8,
+                                            height: 0.95,
+                                            fontFeatures: const [
+                                              FontFeature.tabularFigures(),
+                                            ],
+                                          ),
                                         ),
                                       ],
                                     ),
