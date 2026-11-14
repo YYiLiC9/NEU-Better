@@ -6,6 +6,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
+import '../../core/auth/credential_store.dart';
+import '../../core/network/neu_cas_client.dart';
 
 /// 官方 e码通（校园动态凭证）H5。
 /// 官方 App 本身即用远端 H5 承载 e码通（见 NEUReverse 报告），这里沿用同一
@@ -180,6 +182,7 @@ class _EcodePageState extends State<EcodePage> {
   String? _error;
   Timer? _timeout;
   Timer? _errorTimer;
+  bool _recoverTried = false;
 
   @override
   void initState() {
@@ -244,8 +247,10 @@ class _EcodePageState extends State<EcodePage> {
   /// 避免一直停在空白盖层（会话过期/网络异常时页面可能既不报错也不出码）。
   void _armTimeout() {
     _timeout?.cancel();
-    _timeout = Timer(const Duration(seconds: 18), () {
+    _timeout = Timer(const Duration(seconds: 30), () {
       if (!mounted || _ready) return;
+      final controller = _controller;
+      if (controller != null) unawaited(_logDiagnostics(controller));
       setState(
         () => _error =
             'e码通加载超时。请确认已连接校园网；若登录状态已失效，请返回重新登录后再试。',
@@ -257,7 +262,110 @@ class _EcodePageState extends State<EcodePage> {
     _errorTimer?.cancel();
     if (_error != null && mounted) setState(() => _error = null);
     await controller.runJavaScript(_cleanScript);
+    // 如果页面被重定向到 CAS 登录页，说明注入的会话票据已失效：
+    // 用已保存的账号密码重新登录 CAS（service=ecode 的 SSO 入口），拿到新的
+    // pass/ecode cookies 后重新注入并重载，实现自动恢复。
+    final url = await controller.currentUrl();
+    if (url != null &&
+        (url.contains('pass.neu.edu.cn') || url.contains('/tpass/login'))) {
+      await _recoverExpiredSession(controller);
+      return;
+    }
     _armTimeout();
+    unawaited(_logDiagnostics(controller));
+  }
+
+  /// 会话过期自动恢复：用保存的账号密码对 ecode 的 CAS SSO 入口重新登录，
+  /// 把新拿到的 pass/ecode cookies 注入 WebView 后重载。只尝试一次。
+  Future<void> _recoverExpiredSession(WebViewController controller) async {
+    if (_recoverTried) {
+      if (mounted) {
+        setState(
+          () => _error = 'e码通登录状态已失效，请返回重新登录后再试。',
+        );
+      }
+      return;
+    }
+    _recoverTried = true;
+    try {
+      final saved = await const SecureCredentialStore().read();
+      final password = saved?.password;
+      if (saved == null ||
+          saved.username.trim().isEmpty ||
+          password == null ||
+          password.isEmpty) {
+        if (mounted) {
+          setState(
+            () => _error = 'e码通登录状态已失效，请返回重新登录后再试。',
+          );
+        }
+        return;
+      }
+      debugPrint('[ecode] session expired, re-login as ${saved.username}');
+      // 先用默认门户 service 重新登录 CAS，拿到新的 pass.neu.edu.cn 票据
+      // （CASTGC）；随后重载 ecode 页面，由 CAS 用该票据换 ecode 的 service
+      // ticket 完成 SSO。直接把 ecode 的 SSO 入口当 service 会 404。
+      final cas = await NeuCasClient()
+          .login(username: saved.username, password: password)
+          .timeout(const Duration(seconds: 35));
+      await _applyCookieMap(WebViewCookieManager(), cas.cookies);
+      if (!mounted) return;
+      setState(() => _error = null);
+      await controller.loadRequest(Uri.parse(_ecodeUrl));
+      _armTimeout();
+    } catch (error) {
+      debugPrint('[ecode] recover failed: $error');
+      if (mounted) {
+        setState(
+          () => _error = 'e码通登录状态已失效，请返回重新登录后再试。',
+        );
+      }
+    }
+  }
+
+  Future<void> _applyCookieMap(
+    WebViewCookieManager manager,
+    Map<String, String> cookieMap,
+  ) async {
+    for (final entry in cookieMap.entries) {
+      final host = entry.key;
+      if (!host.endsWith('neu.edu.cn')) continue;
+      for (final part in entry.value.split(';')) {
+        final index = part.indexOf('=');
+        if (index <= 0) continue;
+        final name = part.substring(0, index).trim();
+        final value = part.substring(index + 1).trim();
+        if (name.isEmpty || value.isEmpty) continue;
+        try {
+          await manager.setCookie(
+            WebViewCookie(name: name, value: value, domain: host, path: '/'),
+          );
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// 诊断：页面加载完后打印当前 URL / 二维码候选数量 / 页面可见文字，
+  /// 便于区分「登录失效」「H5 未渲染」「识别不到二维码」等原因。
+  Future<void> _logDiagnostics(WebViewController controller) async {
+    await Future<void>.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+    try {
+      final url = await controller.currentUrl();
+      final result = await controller.runJavaScriptReturningResult(
+        r"""(function(){
+          try{
+            var cvs=document.querySelectorAll('canvas').length;
+            var imgs=document.querySelectorAll('img').length;
+            var txt=document.body?document.body.innerText.replace(/\s+/g,' ').slice(0,180):'';
+            return 'href='+location.href+' canvas='+cvs+' img='+imgs+' text='+txt;
+          }catch(e){return 'diagerr '+e;}
+        })()""",
+      );
+      debugPrint('[ecode][diag] page=$url js=$result');
+    } catch (error) {
+      debugPrint('[ecode][diag] failed: $error');
+    }
   }
 
   /// 把已有的 CAS 票据注入 pass/webvpn 域，让官方 e码通页面自动 SSO 登录。
