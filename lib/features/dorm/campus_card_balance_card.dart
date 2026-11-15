@@ -13,9 +13,12 @@ import '../../core/auth/auth_session.dart';
 /// 一个离屏 WebView 打开门户（注入当前会话的 neu.edu.cn Cookie 免密），
 /// 轮询页面可见文本，命中「校园卡余额」后取最近数字。
 class CampusCardBalanceCard extends StatefulWidget {
-  const CampusCardBalanceCard({super.key, required this.session});
+  const CampusCardBalanceCard({super.key, required this.session, this.onNetFee});
 
   final AuthSession session;
+
+  /// 从同一张门户主页上同时读到的「网费余额」（可选，回传给余额中心显示）。
+  final ValueChanged<String?>? onNetFee;
 
   @override
   State<CampusCardBalanceCard> createState() => _CampusCardBalanceCardState();
@@ -117,6 +120,22 @@ class _CampusCardBalanceCardState extends State<CampusCardBalanceCard> {
   function clickEye(){
     if (clicked >= 3) return;
     var hit = false;
+    // 先定位「校园卡余额」文字，再点它附近的小图标（门户的眼睛是 svg/i）。
+    var all0 = document.querySelectorAll('body *');
+    for (var z = 0; z < all0.length; z++) {
+      var lab = all0[z];
+      if (lab.children.length === 0 && /(校园卡|一卡通)余额/.test(lab.innerText || '')) {
+        var par = lab.parentElement;
+        if (par) {
+          var kids = par.querySelectorAll('svg,i,img,button,span');
+          for (var y = 0; y < kids.length; y++) {
+            var r0 = kids[y].getBoundingClientRect();
+            if (r0.width > 0 && r0.height > 5) { try { kids[y].click(); hit = true; break; } catch(e){} }
+          }
+        }
+      }
+      if (hit) break;
+    }
     var nodes = document.querySelectorAll('i,svg,img,button,span,a,div');
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
@@ -143,11 +162,14 @@ class _CampusCardBalanceCardState extends State<CampusCardBalanceCard> {
   }
   function tick(){
     tries++;
-    var v = readValue();
-    if (v) { post({value: v}); return; }
+    var t = document.body ? (document.body.innerText || '') : '';
+    var hasCampus = /(?:校园卡余额|一卡通余额|卡余额)[^0-9*]{0,30}[0-9]/.test(t);
+    var hasNet = /(?:网费余额|网费)[^0-9*]{0,30}[0-9]/.test(t);
+    if (hasCampus || hasNet) { post({text: t}); }
+    if (hasCampus) return;
     if (tries <= 8) { clickEye(); }
     if (tries < 45) { setTimeout(tick, 700); return; }
-    post({notfound: true});
+    post({notfound: !hasNet});
   }
   tick();
 })();
@@ -159,7 +181,23 @@ class _CampusCardBalanceCardState extends State<CampusCardBalanceCard> {
     if (!mounted) return;
     try {
       final data = jsonDecode(raw);
-      if (data is Map && data['value'] is String) {
+      if (data is Map && data['text'] is String) {
+        final text = data['text'] as String;
+        final net = RegExp(
+          r'(?:网费余额|网费)[^0-9*]{0,30}([0-9]+(?:\.[0-9]{1,2})?)',
+        ).firstMatch(text)?.group(1);
+        if (net != null) widget.onNetFee?.call(net);
+        final campus = RegExp(
+          r'(?:校园卡余额|一卡通余额|卡余额)[^0-9*]{0,30}([0-9]+(?:\.[0-9]{1,2})?)',
+        ).firstMatch(text)?.group(1);
+        if (campus != null) {
+          setState(() {
+            _value = campus.trim();
+            _loading = false;
+            _error = null;
+          });
+        }
+      } else if (data is Map && data['value'] is String) {
         setState(() {
           _value = (data['value'] as String).trim();
           _loading = false;

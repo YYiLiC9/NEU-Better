@@ -270,7 +270,18 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
                 const SizedBox(height: 22),
               ],
               if (session != null) ...[
-                CampusCardBalanceCard(session: session),
+                CampusCardBalanceCard(
+                  session: session,
+                  onNetFee: (value) {
+                    final parsed = value == null ? null : double.tryParse(value);
+                    if (parsed == null || !mounted) return;
+                    setState(() {
+                      _netBalance = parsed;
+                      _netLoading = false;
+                      _netError = null;
+                    });
+                  },
+                ),
                 const SizedBox(height: 12),
               ],
               _buildNetFeeCard(),
