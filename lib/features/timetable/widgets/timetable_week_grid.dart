@@ -53,6 +53,12 @@ class _WeekGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    final todayWeekStart = weekStart;
+    bool isTodayDay(int day) =>
+        todayWeekStart != null &&
+        day == now.weekday &&
+        !now.isBefore(todayWeekStart) &&
+        now.isBefore(todayWeekStart.add(const Duration(days: 7)));
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -77,7 +83,7 @@ class _WeekGrid extends StatelessWidget {
                         date: weekStart?.add(
                           Duration(days: days.indexOf(day)),
                         ),
-                        isToday: today && day == now.weekday,
+                        isToday: isTodayDay(day),
                       ),
                     ),
                 ],
@@ -163,7 +169,7 @@ class _WeekGrid extends StatelessWidget {
                                       ),
                                 )
                                 .toList(),
-                            isToday: today && day == now.weekday,
+                            isToday: isTodayDay(day),
                             slotHeight: slotHeight,
                             dense: dense,
                             onOpenCourse: onOpenCourse,
@@ -259,6 +265,11 @@ class _DayHeader extends StatelessWidget {
       alignment: Alignment.center,
       padding: const EdgeInsets.only(top: 8),
       decoration: BoxDecoration(
+        color: isToday
+            ? AppColors.campusBlue.withValues(
+                alpha: AppColors.isDark ? 0.14 : 0.08,
+              )
+            : null,
         border: Border(left: BorderSide(color: AppColors.line)),
       ),
       child: FittedBox(
@@ -350,7 +361,11 @@ class _DayColumn extends StatelessWidget {
     final gridHeight = _gridHeightFor(slotHeight);
     return Container(
       decoration: BoxDecoration(
-        color: isToday ? AppColors.campusBlue.withValues(alpha: 0.03) : null,
+        color: isToday
+            ? AppColors.campusBlue.withValues(
+                alpha: AppColors.isDark ? 0.18 : 0.10,
+              )
+            : null,
         border: Border(left: BorderSide(color: AppColors.line)),
       ),
       child: Stack(
