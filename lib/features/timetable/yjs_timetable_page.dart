@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/auth/auth_exception.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/neu_service_session.dart';
@@ -44,8 +45,13 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
       _error = null;
     });
     try {
-      final raw = await _fetchRaw().timeout(
-        const Duration(seconds: 30),
+      // 等待可能正在进行的后台自动同步结束：同一会话的 CAS service ticket
+      // 是一次性的，自动同步与手动同步并发会互相踢掉，表现为“有时同步失败”。
+      for (var i = 0; i < 60 && TimetableSyncService.isSyncing; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+      final raw = await _fetchRawWithRetry().timeout(
+        const Duration(seconds: 45),
         onTimeout: () => throw TimeoutException('同步超时'),
       );
       if (raw == null) {
@@ -103,6 +109,35 @@ class _YjsTimetablePageState extends ConsumerState<YjsTimetablePage> {
         _error = _shortError(error);
       });
     }
+  }
+
+  /// 对网络抖动做有限重试；认证类错误（会话过期/账号异常）不重试。
+  Future<String?> _fetchRawWithRetry() async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await _fetchRaw().timeout(const Duration(seconds: 25));
+      } catch (error) {
+        lastError = error;
+        if (error is SessionExpiredException ||
+            error is AuthException ||
+            error is SecondaryVerificationRequired) {
+          rethrow;
+        }
+        final text = error.toString();
+        final transient =
+            text.contains('SocketException') ||
+            text.contains('Connection') ||
+            text.contains('TimeoutException') ||
+            text.contains('receive timeout') ||
+            text.contains('DioException') ||
+            text.contains('超时');
+        if (!transient || attempt == 3) rethrow;
+        debugPrint('[timetable] sync attempt $attempt failed, retry: $error');
+        await Future<void>.delayed(Duration(milliseconds: 700 * attempt));
+      }
+    }
+    throw lastError ?? const FormatException('同步失败');
   }
 
   Future<String?> _fetchRaw() async {

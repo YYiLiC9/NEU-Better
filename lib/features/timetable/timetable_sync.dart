@@ -15,6 +15,11 @@ import 'timetable_store.dart';
 abstract final class TimetableSyncService {
   static bool _inFlight = false;
 
+  /// 是否有后台自动同步正在进行。交互式同步页可据此避免与自动同步同时
+  /// 走一次 CAS 登录（同一会话的 service ticket 一次性，并发会互相踢掉，
+  /// 表现为“有时同步失败”）。
+  static bool get isSyncing => _inFlight;
+
   /// 用当前登录会话免密同步课表；失败时返回 null，不打断主流程。
   static Future<TimetableData?> syncWithSession(AuthSession session) async {
     if (!session.hasCookies) return null;

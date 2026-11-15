@@ -37,14 +37,22 @@ Future<CourseEditorResult?> showCourseEditor(
   return showDialog<CourseEditorResult>(
     context: context,
     barrierDismissible: true,
-    builder: (_) => _CourseEditorDialog(
-      editing: editing,
-      presetDay: presetDay,
-      presetPeriod: presetPeriod,
-      presetWeek: presetWeek,
-      allWeeks: allWeeks,
-      validate: validate,
-    ),
+    builder: (ctx) {
+      final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
+      return AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(bottom: bottom),
+        child: _CourseEditorDialog(
+          editing: editing,
+          presetDay: presetDay,
+          presetPeriod: presetPeriod,
+          presetWeek: presetWeek,
+          allWeeks: allWeeks,
+          validate: validate,
+        ),
+      );
+    },
   );
 }
 
@@ -210,12 +218,7 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
         child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            16,
-            20,
-            16 + MediaQuery.of(context).viewInsets.bottom,
-          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

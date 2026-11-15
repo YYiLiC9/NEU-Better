@@ -36,15 +36,23 @@ Future<void> showCourseDetail(
   return showDialog<void>(
     context: context,
     barrierDismissible: true,
-    builder: (_) => _CourseDetailDialog(
-      session: session,
-      exam: exam,
-      initialNote: initialNote,
-      onNoteChanged: onNoteChanged,
-      onEdit: onEdit,
-      onDeleteThisCourse: onDeleteThisCourse,
-      onDeleteThisWeek: onDeleteThisWeek,
-    ),
+    builder: (ctx) {
+      final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
+      return AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(bottom: bottom),
+        child: _CourseDetailDialog(
+          session: session,
+          exam: exam,
+          initialNote: initialNote,
+          onNoteChanged: onNoteChanged,
+          onEdit: onEdit,
+          onDeleteThisCourse: onDeleteThisCourse,
+          onDeleteThisWeek: onDeleteThisWeek,
+        ),
+      );
+    },
   );
 }
 
@@ -152,12 +160,7 @@ class _CourseDetailDialogState extends State<_CourseDetailDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 430),
         child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            16,
-            20,
-            16 + MediaQuery.of(context).viewInsets.bottom,
-          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
