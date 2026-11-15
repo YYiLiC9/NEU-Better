@@ -310,6 +310,18 @@ class _HomePageState extends ConsumerState<HomePage>
     ref.read(homeTabProvider.notifier).state = value;
   }
 
+  /// 系统返回（侧滑/返回键）在二级界面时先回一级根，而不是退出应用。
+  /// 优先退出设计模式，其次把首页 section 复位到根卡片。
+  void _handleSystemBack(int section) {
+    if (_designMode) {
+      setState(() => _designMode = false);
+      return;
+    }
+    if (section != 0) {
+      ref.read(homeSectionProvider.notifier).state = 0;
+    }
+  }
+
   /// 主标签切换：直接换到目标页，再整体淡入 + 0.96→1 轻放大（220ms）。
   /// 不做「先淡出到全黑再进」的两段式，避免出现卡顿/闪白。
   Future<void> _animateToTab(int target) async {
@@ -360,19 +372,30 @@ class _HomePageState extends ConsumerState<HomePage>
     ref.listen<int>(homeTabProvider, (previous, next) {
       unawaited(_animateToTab(next));
     });
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      body: SafeArea(
-        child: isWide
-            ? Column(
-                children: [
-                  Expanded(child: _buildDesktop(context)),
-                  _buildStatusBar(context),
-                ],
-              )
-            : _buildMobile(context),
+    final section = ref.watch(homeSectionProvider);
+    // 一级根 = 首页根卡片、非设计模式。二级界面（余额中心详情 / 卡片库 /
+    // 设计模式）时拦截系统返回：先回到一级根，再返回才退出应用。
+    final atHomeRoot = section == 0 && !_designMode;
+    return PopScope(
+      canPop: atHomeRoot,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleSystemBack(section);
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.canvas,
+        body: SafeArea(
+          child: isWide
+              ? Column(
+                  children: [
+                    Expanded(child: _buildDesktop(context)),
+                    _buildStatusBar(context),
+                  ],
+                )
+              : _buildMobile(context),
+        ),
+        bottomNavigationBar: isWide ? null : _buildMobileNav(context),
       ),
-      bottomNavigationBar: isWide ? null : _buildMobileNav(context),
     );
   }
 
@@ -404,43 +427,49 @@ class _HomePageState extends ConsumerState<HomePage>
       (Icons.qr_code_2_outlined, Icons.qr_code_2, 'e码通'),
       (Icons.settings_outlined, Icons.settings, '设置'),
     ];
+    // 底部系统手势条（小白条）安全区：图标行下方补足系统手势高度，
+    // 背景与上分隔线覆盖整块（含底部内边距），总高 = 62 + bottomInset。
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Container(
-      height: 62,
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.line)),
       ),
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++)
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _selectTab(i),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _tab == i ? items[i].$2 : items[i].$1,
-                      size: 22,
-                      color: _tab == i ? AppColors.ink : AppColors.muted,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      items[i].$3,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: _tab == i
-                            ? FontWeight.w700
-                            : FontWeight.w500,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SizedBox(
+        height: 62,
+        child: Row(
+          children: [
+            for (var i = 0; i < items.length; i++)
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _selectTab(i),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _tab == i ? items[i].$2 : items[i].$1,
+                        size: 22,
                         color: _tab == i ? AppColors.ink : AppColors.muted,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Text(
+                        items[i].$3,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: _tab == i
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: _tab == i ? AppColors.ink : AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
