@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../auth/auth_session.dart';
+import 'neu_cas_client.dart';
 import 'neu_service_session.dart';
 
 /// 网费查询异常（余额中心「网费」用）。
@@ -40,6 +41,37 @@ class NetFeeClient {
       'pay.neu.edu.cn',
     );
     return _query(payCookies, session.studentId);
+  }
+
+  /// 用账号密码直接走一次 CAS(service=缴费大厅) 登录后查询；用于会话式
+  /// SSO 在某些账号/节点失败时的兜底。
+  Future<double> query({
+    required String username,
+    required String password,
+    String? studentId,
+  }) async {
+    final cas = await NeuCasClient().login(
+      username: username,
+      password: password,
+      service: payService,
+    );
+    final payCookies = <String, String>{};
+    for (final entry in cas.cookies.entries) {
+      if (entry.key != 'pay.neu.edu.cn' &&
+          !entry.key.endsWith('.pay.neu.edu.cn')) {
+        continue;
+      }
+      for (final part in entry.value.split(';')) {
+        final trimmed = part.trim();
+        final eq = trimmed.indexOf('=');
+        if (eq <= 0 || eq == trimmed.length - 1) continue;
+        payCookies[trimmed.substring(0, eq)] = trimmed.substring(eq + 1);
+      }
+    }
+    final id = (studentId == null || studentId.trim().isEmpty)
+        ? username.trim()
+        : studentId.trim();
+    return _query(payCookies, id);
   }
 
   Future<double> _query(

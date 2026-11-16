@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/app_labels.dart';
+import '../../core/auth/credential_store.dart';
 import '../../core/network/neu_elec_client.dart' show ElectricityQueryException;
 import '../auth/auth_controller.dart';
 import 'electricity_alert.dart';
@@ -99,7 +100,25 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
       });
     }
     try {
-      final value = await NetFeeClient().queryWithSession(session: session);
+      double value;
+      try {
+        value = await NetFeeClient().queryWithSession(session: session);
+      } catch (_) {
+        // 会话式 SSO 在部分账号/节点会失败，用已保存的账号密码兜底。
+        final saved = await const SecureCredentialStore().read();
+        final password = saved?.password;
+        if (saved == null ||
+            password == null ||
+            password.isEmpty ||
+            saved.username.trim() != session.studentId.trim()) {
+          rethrow;
+        }
+        value = await NetFeeClient().query(
+          username: saved.username,
+          password: password,
+          studentId: session.studentId,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _netBalance = value;
