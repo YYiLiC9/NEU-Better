@@ -41,10 +41,16 @@ class UpdateInfo {
   static File packageFile(String version, {required bool android}) {
     final sep = Platform.pathSeparator;
     final name = 'NEU-Better-$version.${android ? 'apk' : 'zip'}';
-    return File(
-      '${Directory.systemTemp.path}$sep'
-      'neu_better_updates$sep$name',
-    );
+    // Android：Directory.systemTemp 实际指向 code_cache，而 FileProvider 的
+    // <cache-path> 只覆盖 cache/；下载到 code_cache 会导致安装时报
+    // "Failed to find configured root that contains .../code_cache/..."。
+    // 因此 Android 统一放到 cache/neu_better_updates（与 file_paths 的
+    // <cache-path> 匹配），Windows 仍用系统临时目录。
+    final base = Platform.isAndroid
+        ? '${Directory.systemTemp.parent.path}${sep}cache$sep'
+              'neu_better_updates'
+        : '${Directory.systemTemp.path}${sep}neu_better_updates';
+    return File('$base$sep$name');
   }
 
   /// 判断本地安装包是否完整可用：[expected] 已知时按字节数比对，否则宽松
