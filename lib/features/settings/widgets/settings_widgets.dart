@@ -171,11 +171,15 @@ class _SwitchRow extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 12),
-        Switch.adaptive(
-          value: value,
-          onChanged: onChanged,
-          activeTrackColor: AppColors.campusBlue,
+        const SizedBox(width: 8),
+        Transform.scale(
+          scale: 0.8,
+          child: Switch.adaptive(
+            value: value,
+            onChanged: onChanged,
+            activeTrackColor: AppColors.campusBlue,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ),
       ],
     );
