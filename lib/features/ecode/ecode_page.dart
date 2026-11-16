@@ -263,7 +263,7 @@ class _EcodePageState extends State<EcodePage> {
       if (controller != null) unawaited(_logDiagnostics(controller));
       setState(
         () => _error =
-            'e码通加载超时。请确认已连接校园网；若登录状态已失效，请返回重新登录后再试。',
+            'e码通加载超时。请检查网络后重试（能访问 ecode.neu.edu.cn 即可，校园网或移动数据均可）；若登录状态已失效，请返回重新登录后再试。',
       );
     });
   }
@@ -447,7 +447,7 @@ class _EcodePageState extends State<EcodePage> {
         }
         if (mounted) {
           setState(
-            () => _error = 'e码通加载失败：请确认已连接校园网，必要时返回重新登录后再试。',
+            () => _error = 'e码通加载失败：请检查网络后重试（校园网或移动数据均可），必要时返回重新登录后再试。',
           );
         }
         return;
@@ -486,7 +486,7 @@ class _EcodePageState extends State<EcodePage> {
 
       if (mounted) {
         setState(
-          () => _error = 'e码通刷新失败：请确认已连接校园网，必要时返回重新登录后再试。',
+          () => _error = 'e码通刷新失败：请检查网络后重试（校园网或移动数据均可），必要时返回重新登录后再试。',
         );
       }
     } finally {
