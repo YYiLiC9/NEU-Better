@@ -183,6 +183,7 @@ class _EcodePageState extends State<EcodePage> {
   Timer? _timeout;
   Timer? _errorTimer;
   bool _recoverTried = false;
+  bool _refreshing = false;
 
   @override
   void initState() {
@@ -200,6 +201,15 @@ class _EcodePageState extends State<EcodePage> {
   }
 
   Future<void> _bootstrap() async {
+    _timeout?.cancel();
+    _errorTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _controller = null;
+        _ready = false;
+        _error = null;
+      });
+    }
     final controller = WebViewController();
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -393,6 +403,7 @@ class _EcodePageState extends State<EcodePage> {
     }
   }
 
+  /// 轻刷新：原地换码（点击二维码/任意处使用）。失败才整体重载。
   Future<void> _reload() async {
     final controller = _controller;
     if (controller == null) return;
@@ -413,6 +424,101 @@ class _EcodePageState extends State<EcodePage> {
     setState(() => _ready = false);
     await controller.reload();
     _armTimeout();
+  }
+
+  /// 兜底强刷新（右上角按钮 / 错误页「重新加载」）：
+  /// 依次尝试 原地换码 → 重载页面 → CAS 重登恢复，每步最多等 3 秒；
+  /// 全部失败才给出可重试的错误，保证“点了刷新一定能把二维码调出来或明确报错”。
+  Future<void> _hardRefresh() async {
+    if (_refreshing || !Platform.isAndroid) return;
+    _timeout?.cancel();
+    _errorTimer?.cancel();
+    setState(() {
+      _refreshing = true;
+      _error = null;
+      _ready = false;
+    });
+    try {
+      if (_controller == null) {
+        await _bootstrap();
+        if (await _waitForQr()) {
+          if (mounted) setState(() => _ready = true);
+          return;
+        }
+        if (mounted) {
+          setState(
+            () => _error = 'e码通加载失败：请确认已连接校园网，必要时返回重新登录后再试。',
+          );
+        }
+        return;
+      }
+
+      final controller = _controller!;
+      // 1) 先尝试原地换码（不重载页面）
+      try {
+        await controller.runJavaScriptReturningResult(
+          '(window.__ecodeRefreshNow && window.__ecodeRefreshNow()) || "none"',
+        );
+      } catch (_) {}
+      if (await _waitForQr()) {
+        if (mounted) setState(() => _ready = true);
+        return;
+      }
+
+      // 2) 重载页面（重注入 Cookie）
+      try {
+        await _injectCookies();
+        await controller.reload();
+        _armTimeout();
+      } catch (_) {}
+      if (await _waitForQr()) {
+        if (mounted) setState(() => _ready = true);
+        return;
+      }
+
+      // 3) 强制重新 CAS 登录恢复（票据可能已过期）
+      _recoverTried = false;
+      await _recoverExpiredSession(controller);
+      if (await _waitForQr()) {
+        if (mounted) setState(() => _ready = true);
+        return;
+      }
+
+      if (mounted) {
+        setState(
+          () => _error = 'e码通刷新失败：请确认已连接校园网，必要时返回重新登录后再试。',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  /// 是否已在 DOM 中识别出二维码（`.ecode-qr` 由净化脚本标记）。
+  Future<bool> _hasQr() async {
+    final controller = _controller;
+    if (controller == null) return false;
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        "!!document.querySelector('.ecode-qr')",
+      );
+      return '$result'.toLowerCase().contains('true');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 轮询等待二维码出现，默认最多 3 秒。
+  Future<bool> _waitForQr({
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (!mounted) return false;
+      if (await _hasQr()) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    return false;
   }
 
   @override
@@ -454,13 +560,22 @@ class _EcodePageState extends State<EcodePage> {
             ),
           ),
           IconButton(
-            tooltip: '刷新二维码',
-            onPressed: _controller == null ? null : _reload,
-            icon: Icon(
-              Icons.refresh_rounded,
-              size: 20,
-              color: AppColors.campusBlue,
-            ),
+            tooltip: '刷新二维码（兜底）',
+            onPressed: !Platform.isAndroid || _refreshing ? null : _hardRefresh,
+            icon: _refreshing
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.campusBlue,
+                    ),
+                  )
+                : Icon(
+                    Icons.refresh_rounded,
+                    size: 20,
+                    color: AppColors.campusBlue,
+                  ),
           ),
         ],
       ),
@@ -513,7 +628,10 @@ class _EcodePageState extends State<EcodePage> {
                     style: TextStyle(color: AppColors.muted, fontSize: 12),
                   ),
                   const SizedBox(height: 16),
-                  FilledButton(onPressed: _reload, child: const Text('重新加载')),
+                  FilledButton(
+                    onPressed: _hardRefresh,
+                    child: const Text('重新加载'),
+                  ),
                 ],
               ),
             ),
