@@ -21,7 +21,7 @@ const List<HomeCardInfo> homeCardCatalog = <HomeCardInfo>[
   HomeCardInfo(
     id: 'dorm',
     name: '余额中心',
-    description: '电费余额、网费余额与校园卡余额（逐步接入）',
+    description: '电费余额、网费余额',
     icon: Icons.account_balance_wallet_outlined,
   ),
   HomeCardInfo(

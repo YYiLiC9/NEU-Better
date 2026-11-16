@@ -10,7 +10,6 @@ import '../auth/auth_controller.dart';
 import 'electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import 'electricity_service.dart';
-import 'campus_card_balance_card.dart';
 import '../../core/network/net_fee_client.dart';
 
 part 'widgets/dorm_cards.dart';
@@ -269,8 +268,6 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authControllerProvider);
-    final session = auth is AuthAuthenticated ? auth.session : null;
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         _compact ? 20 : 36,
@@ -287,21 +284,6 @@ class _DormPowerPageState extends ConsumerState<DormPowerPage> {
               if (!widget.embedded) ...[
                 _buildHeader(),
                 const SizedBox(height: 22),
-              ],
-              if (session != null) ...[
-                CampusCardBalanceCard(
-                  session: session,
-                  onNetFee: (value) {
-                    final parsed = value == null ? null : double.tryParse(value);
-                    if (parsed == null || !mounted) return;
-                    setState(() {
-                      _netBalance = parsed;
-                      _netLoading = false;
-                      _netError = null;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
               ],
               _buildNetFeeCard(),
               const SizedBox(height: 16),

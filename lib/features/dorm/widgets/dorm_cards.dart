@@ -69,7 +69,7 @@ extension _DormPowerCards on _DormPowerPageState {
                 Text(
                   _netError != null && _netBalance == null
                       ? _netError!
-                      : '一号通门户 · 进入自动刷新',
+                      : '缴费服务大厅 · 进入自动刷新',
                   style: TextStyle(fontSize: 10.5, color: AppColors.muted),
                 ),
               ],
