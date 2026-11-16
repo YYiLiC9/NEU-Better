@@ -73,6 +73,18 @@ abstract final class WindowsWindow {
     }
   }
 
+  /// 显示或隐藏主窗口（隐藏即最小化到系统托盘）。
+  static Future<void> setWindowVisible(bool visible) async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _channel.invokeMethod<void>('setWindowVisible', visible);
+    } catch (error) {
+      debugPrint('WindowsWindow.setWindowVisible failed: $error');
+    }
+  }
+
   /// 设置窗口可被拖拽的最小尺寸（逻辑像素）。
   ///
   /// [width]、[height] 以逻辑像素为单位，原生端会按窗口当前 DPI 缩放为物理

@@ -21,7 +21,8 @@ class WindowsStartup {
     try {
       if (enabled) {
         // Run 项里路径含空格必须带引号，否则开机时会被拆成多个参数。
-        final command = '"${Platform.resolvedExecutable}"';
+        // --startup 用于区分“开机自启”与用户手动启动，供自动最小化到托盘判断。
+        final command = '"${Platform.resolvedExecutable}" --startup';
         await Process.start(
           'reg',
           ['add', _runKey, '/v', valueName, '/t', 'REG_SZ', '/d', command, '/f'],

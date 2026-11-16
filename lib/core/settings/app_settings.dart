@@ -32,6 +32,7 @@ class AppSettings {
     this.timetableWeekView = true,
     this.autoUpdate = true,
     this.autoStart = false,
+    this.startMinimizedToTray = false,
   });
 
   final ThemePreference themePreference;
@@ -49,6 +50,9 @@ class AppSettings {
   /// Windows 开机自启动（仅 Windows 生效，注册表 HKCU Run 项）。
   final bool autoStart;
 
+  /// 开机启动时自动隐藏窗口到托盘（仅 Windows 且 autoStart 生效时有意义）。
+  final bool startMinimizedToTray;
+
   AppSettings copyWith({
     ThemePreference? themePreference,
     bool? scheduledTheme,
@@ -60,6 +64,7 @@ class AppSettings {
     bool? timetableWeekView,
     bool? autoUpdate,
     bool? autoStart,
+    bool? startMinimizedToTray,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -72,6 +77,7 @@ class AppSettings {
       timetableWeekView: timetableWeekView ?? this.timetableWeekView,
       autoUpdate: autoUpdate ?? this.autoUpdate,
       autoStart: autoStart ?? this.autoStart,
+      startMinimizedToTray: startMinimizedToTray ?? this.startMinimizedToTray,
     );
   }
 
@@ -87,6 +93,7 @@ class AppSettings {
       'timetableWeekView': timetableWeekView,
       'autoUpdate': autoUpdate,
       'autoStart': autoStart,
+      'startMinimizedToTray': startMinimizedToTray,
     };
   }
 
@@ -113,6 +120,10 @@ class AppSettings {
       ),
       autoUpdate: _parseBool(json['autoUpdate'], defaults.autoUpdate),
       autoStart: _parseBool(json['autoStart'], defaults.autoStart),
+      startMinimizedToTray: _parseBool(
+        json['startMinimizedToTray'],
+        defaults.startMinimizedToTray,
+      ),
     );
   }
 
@@ -257,6 +268,7 @@ class AppSettingsController extends ChangeNotifier {
   bool get timetableWeekView => _settings.timetableWeekView;
   bool get autoStart => _settings.autoStart;
   bool get autoUpdate => _settings.autoUpdate;
+  bool get startMinimizedToTray => _settings.startMinimizedToTray;
   Brightness get platformBrightness => _platformBrightness;
 
   /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
@@ -345,6 +357,12 @@ class AppSettingsController extends ChangeNotifier {
   void setAutoUpdate(bool value) {
     if (_settings.autoUpdate == value) return;
     _settings = _settings.copyWith(autoUpdate: value);
+    _commit();
+  }
+
+  void setStartMinimizedToTray(bool value) {
+    if (_settings.startMinimizedToTray == value) return;
+    _settings = _settings.copyWith(startMinimizedToTray: value);
     _commit();
   }
 

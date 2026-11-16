@@ -7,9 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_notifier/local_notifier.dart';
 
 import 'app/app.dart';
+import 'core/platform/app_launch.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  launchedFromWindowsStartup = args.contains('--startup');
   // 安卓端固定竖屏：手机端只有竖屏操作。
   if (Platform.isAndroid) {
     await SystemChrome.setPreferredOrientations(const [

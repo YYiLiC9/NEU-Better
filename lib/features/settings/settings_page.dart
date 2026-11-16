@@ -219,11 +219,24 @@ class _SettingsDialog extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(13),
                   border: Border.all(color: AppColors.line),
                 ),
-                child: _SwitchRow(
-                  icon: Icons.login_rounded,
-                  title: '开机自启动',
-                  value: settings.autoStart,
-                  onChanged: controller.setAutoStart,
+                child: Column(
+                  children: [
+                    _SwitchRow(
+                      icon: Icons.login_rounded,
+                      title: '开机自启动',
+                      value: settings.autoStart,
+                      onChanged: controller.setAutoStart,
+                    ),
+                    _SwitchRow(
+                      icon: Icons.minimize_rounded,
+                      title: '开机启动时自动最小化到托盘',
+                      value:
+                          settings.startMinimizedToTray && settings.autoStart,
+                      onChanged: settings.autoStart
+                          ? controller.setStartMinimizedToTray
+                          : null,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),

@@ -206,6 +206,23 @@ bool FlutterWindow::OnCreate() {
           return;
         }
 
+        if (call.method_name() == "setWindowVisible") {
+          const auto* visible = std::get_if<bool>(call.arguments());
+          if (visible == nullptr) {
+            result->Error("invalid_arguments",
+                          "setWindowVisible expects a bool");
+            return;
+          }
+          if (*visible) {
+            ShowWindow(GetHandle(), SW_SHOW);
+            SetForegroundWindow(GetHandle());
+          } else {
+            ShowWindow(GetHandle(), SW_HIDE);
+          }
+          result->Success();
+          return;
+        }
+
         if (call.method_name() == "setTrayIconVisible") {
           const auto* visible = std::get_if<bool>(call.arguments());
           if (visible == nullptr) {

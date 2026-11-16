@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/platform/app_launch.dart';
 import '../core/platform/windows_window.dart';
 import '../core/settings/app_settings.dart';
 import '../core/update/update_flow.dart';
@@ -77,7 +78,18 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     unawaited(showUpdateReadyDialog(ctx));
   }
 
+  bool _startupHideApplied = false;
+
   void _applyWindowSettings(AppSettingsController settings) {
+    // 开机自启且开启“启动时最小化到托盘”时，首帧后隐藏主窗口到托盘一次。
+    if (!_startupHideApplied &&
+        Platform.isWindows &&
+        launchedFromWindowsStartup &&
+        settings.startMinimizedToTray &&
+        settings.showTrayIcon) {
+      _startupHideApplied = true;
+      unawaited(WindowsWindow.setWindowVisible(false));
+    }
     unawaited(WindowsWindow.setTrayIconVisible(settings.showTrayIcon));
     unawaited(
       WindowsWindow.setCloseBehavior(
