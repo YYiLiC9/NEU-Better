@@ -31,8 +31,8 @@ abstract final class UpdateInstaller {
     final extractDir = '${temp.path}\\extract';
     final bat = File('${temp.path}\\apply_update.bat');
 
-    // 批处理：等本进程退出 → 解压 zip → 找到解压出来的 neu_better_pro.exe
-    // 所在目录并整体覆盖安装目录 → 重新启动程序。
+    // 批处理：等本进程退出 → 解压 zip → 找到解压出来的 exe 所在目录并
+    // 整体覆盖安装目录 → 重新启动程序（exe 名可能是 NEUBetterPro.exe 或旧名）。
     final script = <String>[
       '@echo off',
       'timeout /t 2 /nobreak >nul',
@@ -40,7 +40,7 @@ abstract final class UpdateInstaller {
           "-LiteralPath '${zip.path}' -DestinationPath '$extractDir' -Force\"",
       'powershell -NoProfile -ExecutionPolicy Bypass -Command "\$src = '
           "Get-ChildItem -Path '$extractDir' -Recurse -Filter "
-          "neu_better_pro.exe | Select-Object -First 1; if (\$src) { Copy-Item "
+          "*.exe | Select-Object -First 1; if (\$src) { Copy-Item "
           "-Path (Join-Path \$src.DirectoryName '*') -Destination '$installDir' "
           '-Recurse -Force }"',
       'start "" "${exe.path}"',

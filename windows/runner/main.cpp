@@ -47,7 +47,13 @@ void EnsureStartMenuShortcut() {
   }
 
   const std::wstring link_path = std::wstring(appdata) +
+      L"\\Microsoft\\Windows\\Start Menu\\Programs\\NEUBetterPro.lnk";
+
+  // Remove the shortcut created by older builds (underscored name) so the
+  // Start Menu only shows the renamed application.
+  const std::wstring legacy_link = std::wstring(appdata) +
       L"\\Microsoft\\Windows\\Start Menu\\Programs\\neu_better_pro.lnk";
+  ::DeleteFileW(legacy_link.c_str());
 
   std::wstring working_dir = exe_path;
   const size_t slash = working_dir.find_last_of(L"\\/");
@@ -69,7 +75,7 @@ void EnsureStartMenuShortcut() {
   // Use the exe's own embedded app icon (frame 0) so the taskbar shows the
   // project logo rather than a blank document glyph.
   shell_link->SetIconLocation(exe_path.c_str(), 0);
-  shell_link->SetDescription(L"NEU Better");
+  shell_link->SetDescription(L"NEUBetterPro");
 
   IPropertyStore* property_store = nullptr;
   hr = shell_link->QueryInterface(IID_IPropertyStore,
@@ -181,7 +187,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                             static_cast<unsigned int>(origin_y));
   Win32Window::Size size(static_cast<unsigned int>(logical_width),
                          static_cast<unsigned int>(logical_height));
-  if (!window.Create(L"NEU Better", origin, size)) {
+  if (!window.Create(L"NEUBetterPro", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
