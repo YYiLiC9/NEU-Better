@@ -33,6 +33,11 @@ class FlutterWindow : public Win32Window {
   void UpdateTrayTooltip(const std::wstring& tooltip);
   // Shows the tray right-click menu (show / exit).
   void ShowTrayMenu(HWND hwnd);
+  // Hard-exits the process without running the Flutter/destroy teardown.
+  // Some third-party IME hooks (e.g. WeType's CrashRpt) crash inside
+  // flutter_windows.dll during WM_DESTROY, which surfaces as an "app has
+  // stopped working" dialog on quit. TerminateProcess avoids that path.
+  void QuitNow();
 
   // The project to run.
   flutter::DartProject project_;
