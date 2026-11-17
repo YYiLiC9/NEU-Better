@@ -144,6 +144,20 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       themeAnimationDuration: const Duration(milliseconds: 200),
       themeAnimationCurve: Curves.easeOutCubic,
+      builder: (context, child) {
+        final scale = settings.fontSizePreference.scale;
+        if (Theme.of(context).platform != TargetPlatform.windows ||
+            scale == 1) {
+          return child!;
+        }
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: _AppTextScaler(media.textScaler, scale),
+          ),
+          child: child!,
+        );
+      },
       // 界面取色走 AppColors 静态令牌（不是 Theme.of），而大量子树以 const
       // 实例化——明暗切换时 Element 因 widget identical 被跳过，烘焙在
       // build 里的旧颜色不会刷新。用随明暗变化的 key 强制重挂载根子树，
@@ -154,4 +168,26 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       ),
     );
   }
+}
+
+final class _AppTextScaler extends TextScaler {
+  const _AppTextScaler(this.systemScaler, this.multiplier);
+
+  final TextScaler systemScaler;
+  final double multiplier;
+
+  @override
+  double scale(double fontSize) => systemScaler.scale(fontSize) * multiplier;
+
+  @override
+  double get textScaleFactor => scale(14) / 14;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _AppTextScaler &&
+      systemScaler == other.systemScaler &&
+      multiplier == other.multiplier;
+
+  @override
+  int get hashCode => Object.hash(systemScaler, multiplier);
 }

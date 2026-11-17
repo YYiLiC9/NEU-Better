@@ -12,6 +12,17 @@ import '../storage/account_scope.dart';
 /// 主题偏好：跟随系统 / 固定浅色 / 固定深色。
 enum ThemePreference { system, light, dark }
 
+enum FontSizePreference {
+  small(0.9),
+  medium(1.0),
+  large(1.1),
+  extraLarge(1.25);
+
+  const FontSizePreference(this.scale);
+
+  final double scale;
+}
+
 /// 每周起始日：周一 / 周日。
 ///
 /// 仅影响课表“显示顺序”和“今天高亮”的排布；底层数据里 [CourseSession.day]
@@ -23,6 +34,7 @@ enum WeekStart { monday, sunday }
 class AppSettings {
   const AppSettings({
     this.themePreference = ThemePreference.system,
+    this.fontSizePreference = FontSizePreference.medium,
     this.scheduledTheme = false,
     this.darkStart = const TimeOfDay(hour: 19, minute: 0),
     this.lightStart = const TimeOfDay(hour: 7, minute: 0),
@@ -36,6 +48,7 @@ class AppSettings {
   });
 
   final ThemePreference themePreference;
+  final FontSizePreference fontSizePreference;
   final bool scheduledTheme;
   final TimeOfDay darkStart;
   final TimeOfDay lightStart;
@@ -55,6 +68,7 @@ class AppSettings {
 
   AppSettings copyWith({
     ThemePreference? themePreference,
+    FontSizePreference? fontSizePreference,
     bool? scheduledTheme,
     TimeOfDay? darkStart,
     TimeOfDay? lightStart,
@@ -68,6 +82,7 @@ class AppSettings {
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
+      fontSizePreference: fontSizePreference ?? this.fontSizePreference,
       scheduledTheme: scheduledTheme ?? this.scheduledTheme,
       darkStart: darkStart ?? this.darkStart,
       lightStart: lightStart ?? this.lightStart,
@@ -84,6 +99,7 @@ class AppSettings {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'themePreference': themePreference.name,
+      'fontSizePreference': fontSizePreference.name,
       'scheduledTheme': scheduledTheme,
       'darkStart': _timeToJson(darkStart),
       'lightStart': _timeToJson(lightStart),
@@ -102,6 +118,7 @@ class AppSettings {
     const defaults = AppSettings();
     return AppSettings(
       themePreference: _parseThemePreference(json['themePreference']),
+      fontSizePreference: _parseFontSizePreference(json['fontSizePreference']),
       scheduledTheme: _parseBool(
         json['scheduledTheme'],
         defaults.scheduledTheme,
@@ -143,6 +160,13 @@ class AppSettings {
       }
     }
     return ThemePreference.system;
+  }
+
+  static FontSizePreference _parseFontSizePreference(Object? value) {
+    for (final preference in FontSizePreference.values) {
+      if (preference.name == value) return preference;
+    }
+    return FontSizePreference.medium;
   }
 
   static bool _parseBool(Object? value, bool fallback) {
@@ -259,6 +283,7 @@ class AppSettingsController extends ChangeNotifier {
 
   AppSettings get settings => _settings;
   ThemePreference get themePreference => _settings.themePreference;
+  FontSizePreference get fontSizePreference => _settings.fontSizePreference;
   bool get scheduledTheme => _settings.scheduledTheme;
   TimeOfDay get darkStart => _settings.darkStart;
   TimeOfDay get lightStart => _settings.lightStart;
@@ -300,6 +325,12 @@ class AppSettingsController extends ChangeNotifier {
   void setThemePreference(ThemePreference preference) {
     if (_settings.themePreference == preference) return;
     _settings = _settings.copyWith(themePreference: preference);
+    _commit();
+  }
+
+  void setFontSizePreference(FontSizePreference preference) {
+    if (_settings.fontSizePreference == preference) return;
+    _settings = _settings.copyWith(fontSizePreference: preference);
     _commit();
   }
 

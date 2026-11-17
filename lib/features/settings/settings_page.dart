@@ -35,6 +35,7 @@ class _SettingsDialog extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
+    const fontSizes = FontSizePreference.values;
 
     return ScrollbarTheme(
       data: ScrollbarThemeData(
@@ -134,6 +135,33 @@ class _SettingsDialog extends ConsumerWidget {
               value: settings.themePreference,
               onChanged: controller.setThemePreference,
             ),
+            if (Theme.of(context).platform == TargetPlatform.windows) ...[
+              const SizedBox(height: 18),
+              const _SectionLabel(icon: Icons.format_size, label: '字体大小'),
+              Row(
+                children: [
+                  const Text('小'),
+                  Expanded(
+                    child: Semantics(
+                      label: '字体大小',
+                      child: Slider(
+                        value: settings.fontSizePreference.index.toDouble(),
+                        max: (fontSizes.length - 1).toDouble(),
+                        divisions: fontSizes.length - 1,
+                        onChanged: (position) => controller.setFontSizePreference(
+                          fontSizes[position.round()],
+                        ),
+                        semanticFormatterCallback: (position) {
+                          final scale = fontSizes[position.round()].scale;
+                          return '${(scale * 100).round()}%';
+                        },
+                      ),
+                    ),
+                  ),
+                  const Text('大'),
+                ],
+              ),
+            ],
             const SizedBox(height: 18),
             const _SectionLabel(
               icon: Icons.calendar_today_outlined,
