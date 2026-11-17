@@ -18,10 +18,13 @@ import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import '../../core/network/mail_client.dart';
+import '../../core/plugins/plugin_models.dart';
+import '../../core/plugins/plugin_service.dart';
 import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
 import '../mail/mail_format.dart';
 import '../mail/mail_page.dart';
+import '../plugins/plugin_runtime_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
 import '../timetable/timetable_store.dart';
@@ -30,6 +33,7 @@ import '../timetable/timetable_schedule.dart';
 import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
 import 'home_layout_store.dart';
+import 'widgets/plugin_card.dart';
 
 part 'widgets/home_card_gallery.dart';
 part 'widgets/home_chrome.dart';
@@ -56,6 +60,20 @@ class _HomePageState extends ConsumerState<HomePage>
     with SingleTickerProviderStateMixin {
   final _elecService = DormElectricityService();
   final _homeLayoutStore = const HomeLayoutStore();
+  final _pluginService = PluginService();
+
+  /// 已安装的远程插件（完整清单）与已安装版本登记。
+  List<PluginManifest> _installedPlugins = const <PluginManifest>[];
+  Map<String, String> _installedPluginVersions = const <String, String>{};
+
+  /// 远程插件目录（卡片库「可选插件」列表）。
+  List<PluginManifest> _catalogPlugins = const <PluginManifest>[];
+  bool _catalogLoading = false;
+  String? _catalogError;
+
+  /// 下载/安装进度（0..1）与失败标记，key 为插件 id。
+  final Map<String, double> _downloadProgress = <String, double>{};
+  final Set<String> _downloadFailed = <String>{};
 
   /// 0 = 首页, 1 = 课表, 2 = e码通, 3 = 设置。
   int get _tab => ref.watch(homeTabProvider);
@@ -96,7 +114,7 @@ class _HomePageState extends ConsumerState<HomePage>
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
     unawaited(ref.read(appSettingsProvider.notifier).reload());
-    unawaited(_loadHomeLayout());
+    unawaited(_bootstrapPlugins());
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
@@ -137,7 +155,7 @@ class _HomePageState extends ConsumerState<HomePage>
       // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电 / 首页布局。
       AccountScope.setAccount(widget.session.studentId);
       unawaited(ref.read(appSettingsProvider.notifier).reload());
-      unawaited(_loadHomeLayout());
+      unawaited(_bootstrapPlugins());
       _loadStatus();
       ref.read(timetableDataProvider.notifier).state = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -147,9 +165,120 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   Future<void> _loadHomeLayout() async {
-    final cards = await _homeLayoutStore.read();
+    final cards = await _homeLayoutStore.read(allowedIds: _allowedCardIds);
     if (!mounted) return;
     setState(() => _homeCards = cards);
+  }
+
+  /// 允许出现在首页的卡片 id：内置 + 已安装插件。
+  Set<String> get _allowedCardIds => <String>{
+    ...builtinHomeCardIds,
+    for (final plugin in _installedPlugins) plugin.id,
+  };
+
+  /// 启动/切账号：先读取已安装插件（决定 allowedIds），再加载首页布局，最后拉目录。
+  Future<void> _bootstrapPlugins() async {
+    try {
+      final installed = await _pluginService.readInstalledManifests();
+      final versions = await _pluginService.installedVersions();
+      if (!mounted) return;
+      setState(() {
+        _installedPlugins = installed;
+        _installedPluginVersions = versions;
+      });
+    } catch (error) {
+      debugPrint('[plugins] load installed failed: $error');
+    }
+    await _loadHomeLayout();
+    await _fetchCatalog();
+  }
+
+  Future<void> _fetchCatalog({bool force = false}) async {
+    if (!mounted) return;
+    setState(() {
+      _catalogLoading = true;
+      _catalogError = null;
+    });
+    try {
+      final catalog = await _pluginService.fetchCatalog(force: force);
+      if (!mounted) return;
+      setState(() {
+        _catalogPlugins = catalog.plugins;
+        _catalogLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _catalogError = error.toString();
+        _catalogLoading = false;
+      });
+    }
+  }
+
+  /// 下载/安装（或更新）远程插件。用分步进度反馈写入过程。
+  Future<void> _downloadPlugin(PluginManifest manifest) async {
+    setState(() {
+      _downloadProgress[manifest.id] = 0.05;
+      _downloadFailed.remove(manifest.id);
+    });
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (mounted) setState(() => _downloadProgress[manifest.id] = 0.4);
+      await _pluginService.install(manifest);
+      if (mounted) setState(() => _downloadProgress[manifest.id] = 0.9);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final installed = await _pluginService.readInstalledManifests();
+      final versions = await _pluginService.installedVersions();
+      if (!mounted) return;
+      setState(() {
+        _downloadProgress.remove(manifest.id);
+        _installedPlugins = installed;
+        _installedPluginVersions = versions;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _downloadProgress.remove(manifest.id);
+        _downloadFailed.add(manifest.id);
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('安装失败：$error')),
+      );
+    }
+  }
+
+  /// 卸载插件：删插件文件 + registry 登记 + 首页卡片。
+  Future<void> _uninstallPlugin(String id) async {
+    try {
+      await _pluginService.uninstall(id);
+      final installed = await _pluginService.readInstalledManifests();
+      final versions = await _pluginService.installedVersions();
+      if (!mounted) return;
+      setState(() {
+        _installedPlugins = installed;
+        _installedPluginVersions = versions;
+        _downloadProgress.remove(id);
+        _downloadFailed.remove(id);
+        _homeCards = <HomeCardLayout>[
+          for (final card in _homeCards)
+            if (card.id != id) card,
+        ];
+      });
+      await _saveHomeLayout();
+    } catch (error) {
+      debugPrint('[plugins] uninstall failed: $error');
+    }
+  }
+
+  void _openPlugin(PluginManifest manifest) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PluginRuntimePage(
+          manifest: manifest,
+          session: widget.session,
+        ),
+      ),
+    );
   }
 
   Future<void> _saveHomeLayout() async {
@@ -599,8 +728,20 @@ class _HomePageState extends ConsumerState<HomePage>
     } else if (section == 2) {
       content = HomeCardGallery(
         cards: _homeCards,
+        builtins: homeCardCatalog,
+        plugins: _catalogPlugins,
+        installedVersions: _installedPluginVersions,
+        downloading: _downloadProgress,
+        failed: _downloadFailed,
+        catalogLoading: _catalogLoading,
+        catalogError: _catalogError,
         onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
         onAdd: _addCard,
+        onDeleteBuiltin: _deleteCard,
+        onDownload: _downloadPlugin,
+        onDeletePlugin: (id) => unawaited(_uninstallPlugin(id)),
+        onUpdate: _downloadPlugin,
+        onRetryCatalog: () => unawaited(_fetchCatalog(force: true)),
       );
     } else {
       content = _buildHomeOverview();
@@ -739,6 +880,15 @@ class _HomePageState extends ConsumerState<HomePage>
           onOpen: _openDormDetail,
         ),
       );
+    }
+    for (final plugin in _installedPlugins) {
+      if (plugin.id == id) {
+        return PluginCard(
+          size: size,
+          manifest: plugin,
+          onTap: () => _openPlugin(plugin),
+        );
+      }
     }
     if (id == 'mail') {
       return _MailCard(

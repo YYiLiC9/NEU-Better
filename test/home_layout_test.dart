@@ -124,6 +124,23 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  test('HomeLayoutStore filters ids to allowedIds (installed plugins)', () async {
+    final dir = await Directory.systemTemp.createTemp('home_layout_test6_');
+    final file = File('${dir.path}/home_layout.json');
+    await file.writeAsString(
+      '{"order":["dorm","library","mail"],"sizes":{"library":"s2x2"}}',
+    );
+    final store = HomeLayoutStore(candidates: [file]);
+    final allowed = <String>{'dorm', 'mail', 'library'};
+    final read = await store.read(allowedIds: allowed);
+    expect(read.map((c) => c.id).toList(), ['dorm', 'library', 'mail']);
+    expect(read[1].size, HomeCardSize.s2x2);
+
+    final narrow = await store.read(allowedIds: <String>{'dorm', 'mail'});
+    expect(narrow.map((c) => c.id).toList(), ['dorm', 'mail']);
+    await dir.delete(recursive: true);
+  });
+
   testWidgets('card gallery disables added cards and adds missing', (
     tester,
   ) async {

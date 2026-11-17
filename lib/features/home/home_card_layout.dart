@@ -69,7 +69,7 @@ class HomeCardLayout {
   int get hashCode => Object.hash(id, size);
 }
 
-/// 默认首页布局：全部 1×1，顺序 [dorm, notify, mail]。
+/// 默认首页布局：全部 1×1，顺序 [dorm, notify, mail]（新闻改为可选插件）。
 List<HomeCardLayout> defaultHomeCards() => const <HomeCardLayout>[
   HomeCardLayout(id: 'dorm', size: HomeCardSize.s1x1),
   HomeCardLayout(id: 'notify', size: HomeCardSize.s1x1),
