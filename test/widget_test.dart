@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/app/app.dart';
@@ -117,38 +118,49 @@ void main() {
     expect(find.text('saved-secret'), findsOneWidget);
   });
 
-  testWidgets('M1 gate restores a saved session into the home page', (
-    tester,
-  ) async {
-    // 默认测试视口宽 800 > 断点 760，会走桌面侧栏布局。
+  testWidgets(
+    'M1 gate restores a saved session into the home page',
+    (tester) async {
+      // 默认测试视口宽 800 > 断点 760，会走桌面侧栏布局。
+      final session = AuthSession(
+        studentId: '20260001',
+        displayName: '测试同学',
+        cookies: const {'pass.neu.edu.cn': 'JSESSIONID=abc'},
+        createdAt: DateTime.utc(2026, 11, 8, 8),
+        source: 'cas',
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionStoreProvider.overrideWithValue(_TestSessionStore(session)),
+            credentialStoreProvider.overrideWithValue(_TestCredentialStore()),
+          ],
+          child: const NeuBetterApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final session = AuthSession(
-      studentId: '20260001',
-      displayName: '测试同学',
-      cookies: const {'pass.neu.edu.cn': 'JSESSIONID=abc'},
-      createdAt: DateTime.utc(2026, 11, 8, 8),
-      source: 'cas',
-    );
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          sessionStoreProvider.overrideWithValue(_TestSessionStore(session)),
-          credentialStoreProvider.overrideWithValue(_TestCredentialStore()),
-        ],
-        child: const NeuBetterApp(),
-      ),
-    );
-    await tester.pumpAndSettle();
+      expect(
+        find.text('e码通'),
+        defaultTargetPlatform == TargetPlatform.android
+            ? findsOneWidget
+            : findsNothing,
+      );
 
-    // 登录后默认落在「首页」，需切到「课表」标签再断言课表内容。
-    await tester.tap(find.text('课表'));
-    await tester.pumpAndSettle();
+      // 登录后默认落在「首页」，需切到「课表」标签再断言课表内容。
+      await tester.tap(find.text('课表'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('我的课表'), findsOneWidget);
-    // 恢复旧会话且无本地缓存时不再显示示例课表，而是空课表占位。
-    expect(find.text('暂无课表数据'), findsOneWidget);
-    expect(find.text('测试同学'), findsWidgets);
-  });
+      expect(find.text('我的课表'), findsOneWidget);
+      // 恢复旧会话且无本地缓存时不再显示示例课表，而是空课表占位。
+      expect(find.text('暂无课表数据'), findsOneWidget);
+      expect(find.text('测试同学'), findsWidgets);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
 
   testWidgets('logout returns from the home page to the login page', (
     tester,

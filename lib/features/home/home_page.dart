@@ -514,6 +514,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   Widget _buildDesktop(BuildContext context) {
+    final showEcode = defaultTargetPlatform == TargetPlatform.android;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -542,12 +543,13 @@ class _HomePageState extends ConsumerState<HomePage>
                 active: _tab == 1,
                 onTap: () => _selectTab(1),
               ),
-              _NavItem(
-                icon: Icons.qr_code_2_outlined,
-                label: 'e码通',
-                active: _tab == 2,
-                onTap: () => _selectTab(2),
-              ),
+              if (showEcode)
+                _NavItem(
+                  icon: Icons.qr_code_2_outlined,
+                  label: 'e码通',
+                  active: _tab == 2,
+                  onTap: () => _selectTab(2),
+                ),
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -563,14 +565,16 @@ class _HomePageState extends ConsumerState<HomePage>
         Expanded(
           child: _wrapTabFade(
             IndexedStack(
-              index: _displayedTab,
+              index: !showEcode && _displayedTab > 1 ? 0 : _displayedTab,
               children: [
                 _buildHomeTab(),
                 TimetablePage(),
-                (_ecodeVisited || _tab == 2)
-                    ? EcodePage(session: widget.session)
-                    : const SizedBox.shrink(),
-                const SizedBox.shrink(),
+                if (showEcode) ...[
+                  (_ecodeVisited || _tab == 2)
+                      ? EcodePage(session: widget.session)
+                      : const SizedBox.shrink(),
+                  const SizedBox.shrink(),
+                ],
               ],
             ),
           ),
