@@ -414,7 +414,13 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
                   const Spacer(),
                   TextButton.icon(
                     onPressed: _total == 0 ? null : _showDetails,
-                    icon: const Icon(Icons.list_alt_rounded, size: 16),
+                    icon: Icon(
+                      Icons.article_outlined,
+                      size: 16,
+                      color: _total == 0
+                          ? AppColors.faint
+                          : AppColors.campusBlue,
+                    ),
                     label: const Text('查看详情'),
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.campusBlue,
