@@ -247,6 +247,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     });
     // 同步到桌面小部件（今日课程），用合并后的展示数据。
     unawaited(TimetableWidgetService.sync(_data));
+    unawaited(_migrateNoteKeys());
   }
 
   /// 提交覆盖层改动：重算展示数据、写内存 Provider、落盘、刷小部件。
@@ -280,19 +281,26 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     final notes = await const CourseNoteStore().read();
     if (!mounted || notes.isEmpty) return;
     setState(() => _courseNotes = notes);
+    unawaited(_migrateNoteKeys());
   }
 
   Future<void> _openCourse(CourseSession session) {
     return showCourseDetail(
       context,
       session: session,
-      initialNote: _courseNotes[session.id] ?? '',
-      onNoteChanged: (text) => _saveNote(session.id, text),
+      initialNote: _noteFor(session),
+      onNoteChanged: (text) => _saveNote(session, text),
       onEdit: () => _editCourse(session),
       onDeleteThisCourse: () => _deleteCourse(session, allWeeks: true),
       onDeleteThisWeek: () => _deleteCourse(session, allWeeks: false),
     );
   }
+
+  /// 备注按「课程名」共享；兼容旧数据里以课程 id 为键的备注。
+  String _noteFor(CourseSession session) =>
+      _courseNotes[courseNameKey(session)] ??
+      _courseNotes[session.id] ??
+      '';
 
   Future<void> _openExam(ExamEntry exam) {
     return showCourseDetail(context, exam: exam);
@@ -335,6 +343,9 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       presetDay: day,
       presetPeriod: period,
       presetWeek: _week,
+      totalWeeks: _data.totalWeeks,
+      dayOrder: _orderedDaysFor(ref.read(appSettingsProvider).weekStart),
+      weekStartFor: _weekStartFor,
       allWeeks: {for (var i = 1; i <= _data.totalWeeks; i++) i},
       validate: (draft, scope, week) => _validateDraft(draft, null),
     );
@@ -352,21 +363,25 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     final isUser = session.id.startsWith('user-');
     final targetKey = isUser ? '' : _targetKeyFor(session);
     final allWeeks = isUser ? {...session.weeks} : _officialWeeksFor(targetKey);
+    final oldName = session.name.trim();
     final result = await showCourseEditor(
       context,
       editing: session,
       presetWeek: _week,
+      totalWeeks: _data.totalWeeks,
+      dayOrder: _orderedDaysFor(ref.read(appSettingsProvider).weekStart),
+      weekStartFor: _weekStartFor,
       allWeeks: allWeeks.isEmpty ? {...session.weeks} : allWeeks,
-      validate: (draft, scope, week) => _validateDraft(draft, session),
+      validate: (draft, scope, week) =>
+          _validateDraft(draft, session, scope: scope, sourceWeek: week),
     );
     if (result == null || !mounted) return;
+    final newName = result.session.name.trim();
     if (isUser) {
       _commitOverlay(
         _overlay.replaceAdded(result.session.copyWith(id: session.id)),
       );
-      return;
-    }
-    if (result.scope == 'all') {
+    } else if (result.scope == 'all') {
       _commitOverlay(
         _overlay.modify(
           targetKey: targetKey,
@@ -375,16 +390,36 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         ),
       );
     } else {
-      final week = result.week ?? _week;
+      final sourceWeek = result.week ?? _week;
+      final targetWeek = result.targetWeek ?? sourceWeek;
       _commitOverlay(
         _overlay.modify(
           targetKey: targetKey,
           scope: 'week',
-          week: week,
-          replacement: result.session.copyWith(weeks: {week}),
+          week: sourceWeek,
+          replacement: result.session.copyWith(weeks: {targetWeek}),
         ),
       );
+      if (targetWeek != sourceWeek && mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('已移动到第 $targetWeek 周')),
+        );
+      }
     }
+    if (newName != oldName) {
+      _migrateNoteName(oldName, newName);
+    }
+  }
+
+  /// 课程改名时把旧名备注搬到新名（新名已有备注则不覆盖）。
+  Future<void> _migrateNoteName(String oldName, String newName) async {
+    final oldKey = oldName;
+    if (oldKey == newName || !_courseNotes.containsKey(oldKey)) return;
+    final next = Map<String, String>.from(_courseNotes);
+    final value = next.remove(oldKey)!;
+    if ((next[newName] ?? '').trim().isEmpty) next[newName] = value;
+    if (mounted) setState(() => _courseNotes = next);
+    await const CourseNoteStore().save(next);
   }
 
   Future<void> _deleteCourse(
@@ -414,37 +449,55 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    final nameKey = courseNameKey(session);
+    if (allWeeks) {
+      // 「删除本课程」= 同名课程在所有周的所有安排一并删除。
+      var overlay = _overlay;
+      final originalKeys = <String>{};
+      for (final item in _data.sessions) {
+        if (courseNameKey(item) != nameKey) continue;
+        if (item.id.startsWith('user-')) {
+          overlay = overlay.removeAdded(item.id);
+        } else {
+          originalKeys.add(_targetKeyFor(item));
+        }
+      }
+      for (final key in originalKeys) {
+        overlay = overlay.delete(targetKey: key, scope: 'all');
+      }
+      _commitOverlay(overlay);
+      return;
+    }
     if (session.id.startsWith('user-')) {
-      _commitOverlay(
-        allWeeks
-            ? _overlay.removeAdded(session.id)
-            : _overlay.removeAddedWeek(session.id, _week),
-      );
+      _commitOverlay(_overlay.removeAddedWeek(session.id, _week));
       return;
     }
     final targetKey = _targetKeyFor(session);
     _commitOverlay(
-      _overlay.delete(
-        targetKey: targetKey,
-        scope: allWeeks ? 'all' : 'week',
-        week: allWeeks ? null : _week,
-      ),
+      _overlay.delete(targetKey: targetKey, scope: 'week', week: _week),
     );
   }
 
   /// 编辑时的冲突校验：先排除正在编辑的课程，再交给纯函数 [findConflicts]。
   Future<List<CourseConflict>> _validateDraft(
     CourseSession draft,
-    CourseSession? editing,
-  ) async {
+    CourseSession? editing, {
+    String scope = 'all',
+    int? sourceWeek,
+  }) async {
     final base = <CourseSession>[];
     for (final item in _data.sessions) {
-      if (editing != null) {
-        if (item.id == editing.id) continue; // 自建课程按 id 排除
-        if (!editing.id.startsWith('user-') &&
-            courseKey(item) == _targetKeyFor(editing)) {
-          continue; // 官方课程按指纹排除
+      if (editing != null && item.id == editing.id) {
+        // 官方课程「仅本周」：保留除源周外的其余周，避免把源周自己当冲突。
+        if (scope == 'week' &&
+            sourceWeek != null &&
+            !editing.id.startsWith('user-')) {
+          final remaining = item.weeks.where((w) => w != sourceWeek).toSet();
+          if (remaining.isNotEmpty) {
+            base.add(item.copyWith(weeks: remaining));
+          }
         }
+        continue;
       }
       base.add(item);
     }
@@ -457,14 +510,34 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     );
   }
 
-  Future<void> _saveNote(String id, String text) async {
+  Future<void> _saveNote(CourseSession session, String text) async {
     final trimmed = text.trim();
+    final nameKey = courseNameKey(session);
     final next = Map<String, String>.from(_courseNotes);
+    next.remove(session.id); // 清掉旧的按 id 键
     if (trimmed.isEmpty) {
-      next.remove(id);
+      next.remove(nameKey);
     } else {
-      next[id] = trimmed;
+      next[nameKey] = trimmed;
     }
+    if (mounted) setState(() => _courseNotes = next);
+    await const CourseNoteStore().save(next);
+  }
+
+  /// 把旧的「按课程 id」备注键迁移为「按课程名」键（同一门课共享备注）。
+  Future<void> _migrateNoteKeys() async {
+    if (_courseNotes.isEmpty) return;
+    final next = Map<String, String>.from(_courseNotes);
+    var changed = false;
+    for (final session in _data.sessions) {
+      final id = session.id;
+      if (!next.containsKey(id)) continue;
+      final value = next.remove(id)!;
+      final nameKey = courseNameKey(session);
+      changed = true;
+      if ((next[nameKey] ?? '').trim().isEmpty) next[nameKey] = value;
+    }
+    if (!changed) return;
     if (mounted) setState(() => _courseNotes = next);
     await const CourseNoteStore().save(next);
   }

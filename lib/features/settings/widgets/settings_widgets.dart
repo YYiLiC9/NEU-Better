@@ -262,6 +262,19 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
   void initState() {
     super.initState();
     _refresh();
+    // 课表页在别处改了本地覆盖层时，设置页常驻（IndexedStack）不会重建，
+    // 这里监听通知，及时刷新计数，避免显示“0 处”的过期数据。
+    courseOverridesChanged.addListener(_onOverridesChanged);
+  }
+
+  @override
+  void dispose() {
+    courseOverridesChanged.removeListener(_onOverridesChanged);
+    super.dispose();
+  }
+
+  void _onOverridesChanged() {
+    if (mounted) _refresh();
   }
 
   Future<Set<String>> _officialKeys() async {
@@ -340,6 +353,15 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
     await _refresh();
   }
 
+  Future<void> _showDetails() async {
+    final overlay = await const CourseOverrideStore().read();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _OverlayDetailsDialog(overlay: overlay),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final summary = _loading
@@ -390,6 +412,39 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
                       ),
                     ),
                   const Spacer(),
+                  TextButton(
+                    onPressed: _total == 0 ? null : _showDetails,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.campusBlue,
+                      disabledForegroundColor: AppColors.faint,
+                      textStyle: const TextStyle(fontSize: 11.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: Center(
+                            child: Text(
+                              '≡',
+                              style: TextStyle(
+                                fontSize: 18,
+                                height: 1,
+                                fontWeight: FontWeight.w700,
+                                color: _total == 0
+                                    ? AppColors.faint
+                                    : AppColors.campusBlue,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text('查看详情'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   TextButton.icon(
                     onPressed: _total == 0 ? null : _clearAll,
                     icon: const Icon(Icons.delete_sweep_outlined, size: 16),
@@ -406,6 +461,189 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 课表本地修改详情：列出新增 / 修改 / 删除的具体内容。
+class _OverlayDetailsDialog extends StatelessWidget {
+  const _OverlayDetailsDialog({required this.overlay});
+
+  final TimetableOverlay overlay;
+
+  static const _dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+  static String _dayName(int day) =>
+      (day >= 1 && day <= 7) ? _dayNames[day - 1] : '周?';
+
+  static String _weeksText(Set<int> weeks) {
+    final sorted = weeks.toList()..sort();
+    if (sorted.isEmpty) return '无';
+    final parts = <String>[];
+    var start = sorted.first;
+    var prev = sorted.first;
+    for (var i = 1; i < sorted.length; i++) {
+      final w = sorted[i];
+      if (w == prev + 1) {
+        prev = w;
+        continue;
+      }
+      parts.add(start == prev ? '第$start周' : '第$start–$prev周');
+      start = w;
+      prev = w;
+    }
+    parts.add(start == prev ? '第$start周' : '第$start–$prev周');
+    return parts.join('、');
+  }
+
+  /// targetKey = `name|day|startPeriod|endPeriod`
+  static (String, int, int, int) _parseKey(String key) {
+    final parts = key.split('|');
+    final name = parts.isNotEmpty ? parts[0] : key;
+    final day = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    final start = parts.length > 2 ? int.tryParse(parts[2]) ?? 0 : 0;
+    final end = parts.length > 3 ? int.tryParse(parts[3]) ?? 0 : 0;
+    return (name, day, start, end);
+  }
+
+  String _sessionLine(CourseSession s) {
+    final room = s.room.trim();
+    final teacher = s.teacher.trim();
+    final extra = [
+      if (room.isNotEmpty) room,
+      if (teacher.isNotEmpty) teacher,
+    ].join(' · ');
+    return '${_dayName(s.day)} 第${s.startPeriod}–${s.endPeriod}节'
+        '${extra.isEmpty ? '' : ' · $extra'}'
+        '${_weeksText(s.weeks).isEmpty ? '' : ' · ${_weeksText(s.weeks)}'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+    if (overlay.added.isNotEmpty) {
+      children.add(_group('新增课程', overlay.added.map((s) => _item(
+            Icons.add_circle_outline_rounded,
+            AppColors.campusBlue,
+            s.name,
+            _sessionLine(s),
+          ))));
+    }
+    if (overlay.modified.isNotEmpty) {
+      children.add(_group('修改课程', overlay.modified.map((m) {
+        final (name, day, start, end) = _parseKey(m.targetKey);
+        final scope = m.scope == 'all'
+            ? '所有周'
+            : (m.week == null ? '仅本周' : '仅第${m.week}周');
+        return _item(
+          Icons.edit_outlined,
+          const Color(0xFFB26A00),
+          name,
+          '原：${_dayName(day)} 第$start–$end节（$scope）\n'
+              '现：${_sessionLine(m.replacement)}',
+        );
+      })));
+    }
+    if (overlay.deleted.isNotEmpty) {
+      children.add(_group('删除课程', overlay.deleted.map((d) {
+        final (name, day, start, end) = _parseKey(d.targetKey);
+        final scope = d.scope == 'all'
+            ? '所有周'
+            : (d.week == null ? '仅本周' : '仅第${d.week}周');
+        return _item(
+          Icons.remove_circle_outline_rounded,
+          AppColors.danger,
+          name,
+          '${_dayName(day)} 第$start–$end节（$scope）',
+        );
+      })));
+    }
+
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: const Text('课表修改详情'),
+      content: SizedBox(
+        width: 460,
+        child: overlay.isEmpty
+            ? const Text('暂无本地课表修改。')
+            : ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 460),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: children,
+                ),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+
+  Widget _group(String title, Iterable<Widget> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 6),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        ...items,
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
+  Widget _item(IconData icon, Color color, String title, String detail) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: AppColors.ink,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  style: TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

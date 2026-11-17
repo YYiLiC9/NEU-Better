@@ -98,6 +98,37 @@ void main() {
       expect(replacements.single.weeks, {2});
     });
 
+    test('仅本周修改可换到别的周与别的星期（调课）', () {
+      final overlay = TimetableOverlay.empty.modify(
+        targetKey: '高级算法|1|1|2',
+        scope: 'week',
+        week: 2,
+        replacement: _session(
+          id: 's1',
+          name: '高级算法',
+          day: 3,
+          start: 5,
+          end: 6,
+          weeks: {5},
+        ),
+      );
+      final merged = applyOverlay(official, overlay);
+      final originals = merged.sessions.where(
+        (s) => s.name == '高级算法' && s.day == 1,
+      );
+      final moved = merged.sessions.where(
+        (s) => s.name == '高级算法' && s.day == 3,
+      );
+      expect(originals.single.weeks, {1, 3});
+      expect(moved.single.weeks, {5});
+      expect(moved.single.startPeriod, 5);
+      expect(moved.single.endPeriod, 6);
+    });
+
+    test('courseNameKey 按课程名（去空白）归组', () {
+      expect(courseNameKey(_session(id: 'x', name: '  高级算法 ')), '高级算法');
+    });
+
     test('所有周修改整条替换', () {      final overlay = TimetableOverlay.empty.modify(
         targetKey: '高级算法|1|1|2',
         scope: 'all',
@@ -280,6 +311,9 @@ void main() {
               presetDay: 2,
               presetPeriod: 3,
               presetWeek: 1,
+              totalWeeks: 16,
+              dayOrder: const [1, 2, 3, 4, 5, 6, 7],
+              weekStartFor: (week) => null,
               allWeeks: {1, 2, 3},
               validate: (draft, scope, week) async => const [],
             ),
@@ -311,6 +345,9 @@ void main() {
               presetDay: 2,
               presetPeriod: 3,
               presetWeek: 1,
+              totalWeeks: 16,
+              dayOrder: const [1, 2, 3, 4, 5, 6, 7],
+              weekStartFor: (week) => null,
               allWeeks: {1, 2, 3},
               validate: (draft, scope, week) async => [
                 const CourseConflict(

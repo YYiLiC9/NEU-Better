@@ -12,6 +12,11 @@ import 'timetable_models.dart';
 String courseKey(CourseSession session) =>
     '${session.name}|${session.day}|${session.startPeriod}|${session.endPeriod}';
 
+/// 「同一门课程」的身份键：按课程名（去首尾空格）。
+/// 同名但不同时间格/不同周的安排，视为同一门课程的不同安排（备注共享、
+/// 「删除本课程」一并删除、统计只算一门）。
+String courseNameKey(CourseSession session) => session.name.trim();
+
 /// 覆盖层：对官方课表的本地修改。
 class TimetableOverlay {
   const TimetableOverlay({
@@ -313,7 +318,8 @@ TimetableData applyOverlay(
       }
       final remaining = session.weeks.where((w) => w != week).toSet();
       if (remaining.isNotEmpty) next.add(session.copyWith(weeks: remaining));
-      next.add(mod.replacement.copyWith(weeks: {week}));
+      // 目标周由 replacement.weeks 决定（源周≠目标周时即“调课到别的周”）。
+      next.add(mod.replacement);
     }
     sessions = next;
   }
