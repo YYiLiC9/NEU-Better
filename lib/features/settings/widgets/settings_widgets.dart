@@ -422,12 +422,16 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.list,
-                          size: 16,
-                          color: _total == 0
-                              ? AppColors.faint
-                              : AppColors.campusBlue,
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: Icon(
+                            Icons.visibility_outlined,
+                            size: 16,
+                            color: _total == 0
+                                ? AppColors.faint
+                                : AppColors.campusBlue,
+                          ),
                         ),
                         const SizedBox(width: 6),
                         const Text('查看详情'),
