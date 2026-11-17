@@ -425,7 +425,9 @@ class _DayColumn extends StatelessWidget {
               child: _CourseCard(
                 session: session,
                 dense: dense,
-                hasNote: notedCourseIds.contains(session.id),
+                hasNote:
+                    notedCourseIds.contains(courseNameKey(session)) ||
+                    notedCourseIds.contains(session.id),
                 onTap: onOpenCourse == null
                     ? null
                     : () => onOpenCourse!(session),

@@ -6,13 +6,19 @@ class CourseEditorResult {
     required this.session,
     required this.scope,
     this.week,
+    this.targetWeek,
   });
 
   final CourseSession session;
 
   /// `all` 或 `week`（新增 / 编辑自建课程时恒为 `all`，忽略）。
   final String scope;
+
+  /// 官方课程「仅本周」时的源周。
   final int? week;
+
+  /// 官方课程「仅本周」时的目标周（可≠源周，用于调课）。
+  final int? targetWeek;
 }
 
 /// 打开「新增 / 编辑课程」表单。
@@ -26,6 +32,9 @@ Future<CourseEditorResult?> showCourseEditor(
   int? presetDay,
   int? presetPeriod,
   int? presetWeek,
+  required int totalWeeks,
+  required List<int> dayOrder,
+  required DateTime? Function(int week) weekStartFor,
   required Set<int> allWeeks,
   required Future<List<CourseConflict>> Function(
     CourseSession draft,
@@ -48,6 +57,9 @@ Future<CourseEditorResult?> showCourseEditor(
           presetDay: presetDay,
           presetPeriod: presetPeriod,
           presetWeek: presetWeek,
+          totalWeeks: totalWeeks,
+          dayOrder: dayOrder,
+          weekStartFor: weekStartFor,
           allWeeks: allWeeks,
           validate: validate,
         ),
@@ -62,6 +74,9 @@ class _CourseEditorDialog extends StatefulWidget {
     this.presetDay,
     this.presetPeriod,
     this.presetWeek,
+    required this.totalWeeks,
+    required this.dayOrder,
+    required this.weekStartFor,
     required this.allWeeks,
     required this.validate,
   });
@@ -70,6 +85,9 @@ class _CourseEditorDialog extends StatefulWidget {
   final int? presetDay;
   final int? presetPeriod;
   final int? presetWeek;
+  final int totalWeeks;
+  final List<int> dayOrder;
+  final DateTime? Function(int week) weekStartFor;
   final Set<int> allWeeks;
   final Future<List<CourseConflict>> Function(
     CourseSession draft,
@@ -91,6 +109,7 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
   late int _end;
   late Set<int> _weeks;
   late String _scope;
+  late int _targetWeek;
 
   List<CourseConflict> _conflicts = const [];
   bool _checking = false;
@@ -119,6 +138,7 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
     _start = editing?.startPeriod ?? widget.presetPeriod ?? 1;
     _end = editing?.endPeriod ?? widget.presetPeriod ?? 1;
     final presetWeek = widget.presetWeek ?? 1;
+    _targetWeek = presetWeek;
     if (editing == null) {
       _scope = 'all';
       _weeks = {presetWeek};
@@ -146,7 +166,7 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
     if (_editingOfficial) {
       weeks = _scope == 'all'
           ? {...widget.allWeeks}
-          : {widget.presetWeek ?? 1};
+          : {_targetWeek};
     } else {
       weeks = {..._weeks};
     }
@@ -201,6 +221,7 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
         session: _buildCandidate(),
         scope: _editingOfficial ? _scope : 'all',
         week: _editingOfficial && _scope == 'week' ? widget.presetWeek : null,
+        targetWeek: _editingOfficial && _scope == 'week' ? _targetWeek : null,
       ),
     );
   }
@@ -301,6 +322,30 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
                 ),
                 const SizedBox(height: 14),
               ],
+              if (_editingOfficial && _scope == 'week') ...[
+                _label('目标周（可改到别的周，实现调课）'),
+                const SizedBox(height: 6),
+                _targetWeekDropdown(),
+                const SizedBox(height: 12),
+              ],
+              _label('星期'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final day in widget.dayOrder)
+                    _DayPickerChip(
+                      label: _weekdays[day - 1],
+                      active: _day == day,
+                      onTap: () {
+                        setState(() => _day = day);
+                        _scheduleValidate();
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
               _label('课程名 *'),
               const SizedBox(height: 6),
               _textField(
@@ -456,6 +501,46 @@ class _CourseEditorDialogState extends State<_CourseEditorDialog> {
     );
   }
 
+  Widget _targetWeekDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _targetWeek,
+          isExpanded: true,
+          isDense: true,
+          style: TextStyle(color: AppColors.ink, fontSize: 13),
+          items: [
+            for (var week = 1; week <= widget.totalWeeks; week++)
+              DropdownMenuItem<int>(
+                value: week,
+                child: Text(_weekLabel(week)),
+              ),
+          ],
+          onChanged: (next) {
+            if (next != null) {
+              setState(() => _targetWeek = next);
+              _scheduleValidate();
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  String _weekLabel(int week) {
+    final start = widget.weekStartFor(week);
+    if (start == null) return '第$week周';
+    final end = start.add(const Duration(days: 6));
+    String f(DateTime d) => '${d.month}/${d.day}';
+    return '第$week周（${f(start)}–${f(end)}）';
+  }
+
   Widget _conflictPanel() {
     if (_checking) {
       return Row(
@@ -558,6 +643,44 @@ class _WeekChip extends StatelessWidget {
           style: TextStyle(
             color: active ? Colors.white : AppColors.muted,
             fontSize: 11,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DayPickerChip extends StatelessWidget {
+  const _DayPickerChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? AppColors.campusBlue : AppColors.canvas,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active ? AppColors.campusBlue : AppColors.line,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? Colors.white : AppColors.muted,
+            fontSize: 11.5,
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),

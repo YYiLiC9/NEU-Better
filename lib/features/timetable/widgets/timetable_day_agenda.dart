@@ -91,7 +91,9 @@ class _DayAgenda extends StatelessWidget {
           for (final session in sessions) ...[
             _AgendaCard(
               session: session,
-              hasNote: notedCourseIds.contains(session.id),
+              hasNote:
+                  notedCourseIds.contains(courseNameKey(session)) ||
+                  notedCourseIds.contains(session.id),
               onTap: onOpenCourse == null
                   ? null
                   : () => onOpenCourse!(session),
