@@ -363,11 +363,15 @@ void FlutterWindow::ShowTrayMenu(HWND hwnd) {
     ShowWindow(hwnd, SW_RESTORE);
     SetForegroundWindow(hwnd);
   } else if (command == kTrayExitCommand) {
-    // Quit even when the close button would normally hide to the tray: clear
-    // the minimize flag and post WM_CLOSE so the normal teardown runs.
-    minimize_on_close_ = false;
-    PostMessage(hwnd, WM_CLOSE, 0, 0);
+    // Exit without the WM_DESTROY path: third-party IME hooks can crash the
+    // Flutter view teardown, so terminate the process directly.
+    QuitNow();
   }
+}
+
+void FlutterWindow::QuitNow() {
+  RemoveTrayIcon();
+  ::TerminateProcess(::GetCurrentProcess(), 0);
 }
 
 void FlutterWindow::OnDestroy() {
@@ -419,6 +423,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     return 0;
   }
 
+  // Handle WM_CLOSE before handing it to Flutter/plugins: hiding to the tray
+  // when configured, otherwise hard-exit (avoids a flaky teardown crash caused
+  // by third-party IME hooks).
+  if (message == WM_CLOSE) {
+    if (minimize_on_close_) {
+      ShowWindow(hwnd, SW_HIDE);
+      return 0;
+    }
+    QuitNow();
+    return 0;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -427,13 +443,6 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     if (result) {
       return *result;
     }
-  }
-
-  // Closing the window hides it to the notification area instead of quitting
-  // while that behavior is enabled (the default; Dart may change it at runtime).
-  if (message == WM_CLOSE && minimize_on_close_) {
-    ShowWindow(hwnd, SW_HIDE);
-    return 0;
   }
 
   switch (message) {
