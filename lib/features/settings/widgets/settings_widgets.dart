@@ -262,6 +262,19 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
   void initState() {
     super.initState();
     _refresh();
+    // 课表页在别处改了本地覆盖层时，设置页常驻（IndexedStack）不会重建，
+    // 这里监听通知，及时刷新计数，避免显示“0 处”的过期数据。
+    courseOverridesChanged.addListener(_onOverridesChanged);
+  }
+
+  @override
+  void dispose() {
+    courseOverridesChanged.removeListener(_onOverridesChanged);
+    super.dispose();
+  }
+
+  void _onOverridesChanged() {
+    if (mounted) _refresh();
   }
 
   Future<Set<String>> _officialKeys() async {
