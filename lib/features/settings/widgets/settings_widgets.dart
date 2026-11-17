@@ -425,12 +425,18 @@ class _CourseOverlaySectionState extends State<_CourseOverlaySection> {
                         SizedBox(
                           width: 16,
                           height: 16,
-                          child: Icon(
-                            Icons.visibility_outlined,
-                            size: 16,
-                            color: _total == 0
-                                ? AppColors.faint
-                                : AppColors.campusBlue,
+                          child: Center(
+                            child: Text(
+                              '≡',
+                              style: TextStyle(
+                                fontSize: 18,
+                                height: 1,
+                                fontWeight: FontWeight.w700,
+                                color: _total == 0
+                                    ? AppColors.faint
+                                    : AppColors.campusBlue,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 6),
