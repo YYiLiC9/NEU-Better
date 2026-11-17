@@ -8,6 +8,7 @@ import '../../core/settings/app_settings.dart';
 import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
 import '../timetable/course_override_store.dart';
+import '../timetable/timetable_models.dart';
 import '../timetable/timetable_overlay.dart';
 import '../timetable/timetable_store.dart';
 
