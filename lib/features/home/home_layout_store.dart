@@ -25,33 +25,42 @@ class HomeLayoutStore {
   List<File> get _legacy =>
       candidates != null ? const <File>[] : AccountScope.legacyFiles(_fileName);
 
-  Future<List<HomeCardLayout>> read() async {
+  /// 读取布局。仅保留 [allowedIds] 内的 id（缺省=内置卡片）；
+  /// 已卸载插件等未知 id 会被过滤掉。
+  Future<List<HomeCardLayout>> read({Set<String>? allowedIds}) async {
+    final allowed = allowedIds ?? builtinHomeCardIds;
     for (final file in _primary) {
-      final layout = await _tryRead(file);
+      final layout = await _tryRead(file, allowed);
       if (layout != null) return layout;
     }
     for (final file in _legacy) {
-      final layout = await _tryRead(file);
+      final layout = await _tryRead(file, allowed);
       if (layout != null) {
         await save(layout);
         return layout;
       }
     }
-    return defaultHomeCards();
+    return <HomeCardLayout>[
+      for (final card in defaultHomeCards())
+        if (allowed.contains(card.id)) card,
+    ];
   }
 
-  Future<List<HomeCardLayout>?> _tryRead(File file) async {
+  Future<List<HomeCardLayout>?> _tryRead(
+    File file,
+    Set<String> allowed,
+  ) async {
     try {
       if (!await file.exists()) return null;
       final decoded = jsonDecode(await file.readAsString());
-      return _normalize(decoded);
+      return _normalize(decoded, allowed);
     } catch (error) {
       debugPrint('[home_layout] read failed at ${file.path}: $error');
       return null;
     }
   }
 
-  List<HomeCardLayout>? _normalize(Object? decoded) {
+  List<HomeCardLayout>? _normalize(Object? decoded, Set<String> allowed) {
     if (decoded is! Map) return null;
 
     final sizes = <String, HomeCardSize>{};
@@ -60,7 +69,7 @@ class HomeLayoutStore {
       sizesRaw.forEach((key, value) {
         final id = key?.toString() ?? '';
         final size = HomeCardLayout.sizeByName(value);
-        if (knownHomeCardIds.contains(id) && size != null) sizes[id] = size;
+        if (allowed.contains(id) && size != null) sizes[id] = size;
       });
     }
 
@@ -71,7 +80,7 @@ class HomeLayoutStore {
     if (hasOrder) {
       for (final entry in orderRaw) {
         final id = entry?.toString() ?? '';
-        if (knownHomeCardIds.contains(id) && !ids.contains(id)) ids.add(id);
+        if (allowed.contains(id) && !ids.contains(id)) ids.add(id);
       }
     } else if (sizes.isNotEmpty) {
       // 无 order 但有 sizes：以 sizes 的键顺序作为顺序。

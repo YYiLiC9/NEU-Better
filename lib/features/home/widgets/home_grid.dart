@@ -479,8 +479,31 @@ BoxDecoration _homeCardDecoration() => BoxDecoration(
   border: Border.all(color: AppColors.line),
 );
 
-String _formatKwh(double? value) {
-  if (value == null) return '--';
+Widget _cardGlyph(String id, IconData icon, double size) {
+  if (id == 'news') {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.campusBlue.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(size * 0.28),
+      ),
+      child: Text(
+        '闻',
+        style: TextStyle(
+          fontSize: size * 0.62,
+          height: 1,
+          fontWeight: FontWeight.w700,
+          color: AppColors.campusBlue,
+        ),
+      ),
+    );
+  }
+  return Icon(icon, size: size, color: AppColors.muted);
+}
+
+String _formatKwh(double? value) {  if (value == null) return '--';
   if (value == value.truncateToDouble()) return value.truncate().toString();
   return value.toStringAsFixed(1);
 }
@@ -943,7 +966,7 @@ class _PlaceholderCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 18, color: AppColors.muted),
+                  _cardGlyph(id, icon, 18),
                   const SizedBox(height: 5),
                   Text(
                     name,
@@ -971,7 +994,7 @@ class _PlaceholderCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: 22, color: AppColors.muted),
+                    _cardGlyph(id, icon, 22),
                     const SizedBox(height: 14),
                     Text(
                       name,
