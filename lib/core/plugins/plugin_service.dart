@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../storage/account_scope.dart';
+import 'campus_network_plugin.dart';
 import 'plugin_models.dart';
 import 'plugin_registry.dart';
 
@@ -70,6 +71,21 @@ class PluginService {
         ];
 
   Future<PluginCatalog> fetchCatalog({bool force = false}) async {
+    final catalog = await _fetchCatalog(force: force);
+    return PluginCatalog(
+      version: catalog.version,
+      plugins: [
+        if (_supportsCampusNetwork) campusNetworkPlugin,
+        for (final manifest in catalog.plugins)
+          if (manifest.id != campusNetworkPluginId) manifest,
+      ],
+    );
+  }
+
+  bool get _supportsCampusNetwork =>
+      defaultTargetPlatform == TargetPlatform.windows;
+
+  Future<PluginCatalog> _fetchCatalog({required bool force}) async {
     if (!force) {
       final cached = await _readCache();
       if (cached != null) return _mergeBundled(cached);
@@ -175,6 +191,10 @@ class PluginService {
     await _registry.load();
     final result = <PluginManifest>[];
     for (final id in _registry.installedIds) {
+      if (id == campusNetworkPluginId) {
+        if (_supportsCampusNetwork) result.add(campusNetworkPlugin);
+        continue;
+      }
       final manifest = await _readInstalledManifest(id);
       if (manifest != null) result.add(manifest);
     }
@@ -199,6 +219,11 @@ class PluginService {
   }
 
   Future<void> install(PluginManifest manifest) async {
+    if (manifest.id == campusNetworkPluginId) {
+      if (!_supportsCampusNetwork) throw PluginException('网络连接仅支持 Windows');
+      await _registry.install(campusNetworkPluginId, campusNetworkPlugin.version);
+      return;
+    }
     final payload = jsonEncode(manifest.toJson());
     var written = false;
     for (final file in _pluginFiles(manifest.id)) {
