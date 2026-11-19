@@ -125,11 +125,12 @@ abstract final class AppColors {
 }
 
 abstract final class AppTheme {
-  static const _windowsFontFamily = 'NEU Noto Sans SC';
+  static const windowsBundledFontFamily = 'NEU Noto Sans SC';
+  static const windowsSystemFontFamily = 'Segoe UI Variable Text';
   static const _windowsFontDirectory = 'assets/fonts/noto-sans-sc';
 
   static Future<void> loadWindowsFont() async {
-    final loader = FontLoader(_windowsFontFamily)
+    final loader = FontLoader(windowsBundledFontFamily)
       ..addFont(rootBundle.load('$_windowsFontDirectory/NotoSansSC-VF.ttf'));
     await loader.load();
     LicenseRegistry.addLicense(() async* {
@@ -139,11 +140,16 @@ abstract final class AppTheme {
     });
   }
 
-  static ThemeData get light => _build(_lightPalette, Brightness.light);
+  static ThemeData get light => forBrightness(Brightness.light);
 
-  static ThemeData get dark => _build(_darkPalette, Brightness.dark);
+  static ThemeData get dark => forBrightness(Brightness.dark);
 
-  static ThemeData _build(_Palette palette, Brightness brightness) {
+  static ThemeData forBrightness(
+    Brightness brightness, {
+    String? windowsFontFamily,
+  }) {
+    final isDark = brightness == Brightness.dark;
+    final palette = isDark ? _darkPalette : _lightPalette;
     final scheme = ColorScheme.fromSeed(
       seedColor: palette.campusBlue,
       brightness: brightness,
@@ -151,7 +157,6 @@ abstract final class AppTheme {
     );
 
     final isWindows = defaultTargetPlatform == TargetPlatform.windows;
-    final isDark = brightness == Brightness.dark;
     final onPrimary = isDark ? const Color(0xFF08131F) : Colors.white;
     // 数字统一等宽（tabular figures）：时间、周次、电量等数值在卡片里
     // 不会因比例数字宽度抖动。
@@ -163,9 +168,16 @@ abstract final class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: palette.canvas,
       splashFactory: InkSparkle.splashFactory,
-      fontFamily: isWindows ? _windowsFontFamily : null,
+      fontFamily: isWindows
+          ? windowsFontFamily ?? windowsBundledFontFamily
+          : null,
       fontFamilyFallback: isWindows
-          ? const ['Microsoft YaHei UI', 'Segoe UI Emoji']
+          ? const [
+              'Segoe UI',
+              'Microsoft YaHei UI',
+              'Microsoft YaHei',
+              'Segoe UI Emoji',
+            ]
           : const <String>[],
       textTheme: TextTheme(
         displaySmall: TextStyle(

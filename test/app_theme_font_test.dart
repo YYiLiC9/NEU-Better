@@ -1,9 +1,55 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/app/theme/app_theme.dart';
+import 'package:neu_better_pro/app/theme/windows_font_library.dart';
+import 'package:neu_better_pro/core/settings/app_font.dart';
+import 'package:neu_better_pro/core/settings/app_settings.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'imported TrueType remains loadable after removing the original',
+    () async {
+      final folder = await Directory.systemTemp.createTemp('neu_font_test_');
+      addTearDown(() => folder.delete(recursive: true));
+      final source = await File('assets/fonts/noto-sans-sc/NotoSansSC-VF.ttf')
+          .copy('${folder.path}/Example.TTF');
+      List<File> storedFiles(String id) => [
+        File('${folder.path}/saved/$id.font'),
+      ];
+      final library = WindowsFontLibrary(files: storedFiles);
+      final font = await library.importFile(source);
+      await source.delete();
+      expect(font.name, 'Example.TTF');
+
+      final userSettings = AppSettings(
+        fontPreference: AppFontPreference.imported,
+        importedFont: font,
+      );
+      final restored = AppSettings.fromJson(userSettings.toJson());
+      expect(restored.fontPreference, AppFontPreference.imported);
+      final newLibrary = WindowsFontLibrary(files: storedFiles);
+      expect(
+        await newLibrary.load(restored.importedFont!.id),
+        'NEU Imported ${font.id}',
+      );
+      final damaged = await File('${folder.path}/Broken.otf')
+          .writeAsString('Not a font');
+      await expectLater(library.importFile(damaged), throwsFormatException);
+      expect(
+        AppSettings.fromJson({
+          'fontPreference': 'imported',
+          'importedFont': {'id': '../x', 'name': 'x.otf'},
+        }).fontPreference,
+        AppFontPreference.bundled,
+      );
+    },
+  );
+
   testWidgets('Windows theme renders Chinese and Latin in the bundled font', (
     tester,
   ) async {

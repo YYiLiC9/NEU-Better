@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/app/app.dart';
 import 'package:neu_better_pro/app/theme/app_theme.dart';
+import 'package:neu_better_pro/app/theme/windows_font_library.dart';
 import 'package:neu_better_pro/core/auth/auth_session.dart';
+import 'package:neu_better_pro/core/settings/app_font.dart';
 import 'package:neu_better_pro/core/settings/app_settings.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
 import 'package:neu_better_pro/features/timetable/timetable_models.dart';
@@ -34,6 +36,20 @@ class _SignedIn extends AuthController {
   );
 }
 
+class _TestFontLibrary extends WindowsFontLibrary {
+  static final font = ImportedAppFont(id: 'a' * 64, name: 'Custom.otf');
+  bool invalid = false;
+
+  @override
+  Future<ImportedAppFont> pickAndImport() async {
+    if (invalid) throw const FormatException('无效字体');
+    return font;
+  }
+
+  @override
+  Future<String> load(String id) async => 'Test font $id';
+}
+
 void main() {
   test('Missing and invalid font sizes use medium', () {
     for (final json in <Map<String, dynamic>>[
@@ -47,6 +63,71 @@ void main() {
       );
     }
   });
+
+  testWidgets('Windows changes and restores the whole app font', (
+    tester,
+  ) async {
+    final store = _MemorySettingsStore();
+    final library = _TestFontLibrary();
+
+    Future<AppSettingsController> startApp() async {
+      final controller = AppSettingsController(
+        store: store,
+        initial: await store.read(),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appSettingsProvider.overrideWith((_) => controller),
+            authControllerProvider.overrideWith(_SignedIn.new),
+            windowsFontLibraryProvider.overrideWithValue(library),
+          ],
+          child: const NeuBetterApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return controller;
+    }
+
+    String? homeFont() =>
+        Theme.of(tester.element(find.text('首页', skipOffstage: false)))
+            .textTheme
+            .bodyMedium!
+            .fontFamily;
+
+    final controller = await startApp();
+    expect(homeFont(), AppTheme.windowsBundledFontFamily);
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('系统默认'));
+    await tester.pumpAndSettle();
+    expect(homeFont(), AppTheme.windowsSystemFontFamily);
+
+    library.invalid = true;
+    await tester.tap(find.text('从文件导入'));
+    await tester.pumpAndSettle();
+    expect(find.text('无效字体'), findsOneWidget);
+    expect(homeFont(), AppTheme.windowsSystemFontFamily);
+
+    library.invalid = false;
+    await tester.tap(find.text('从文件导入'));
+    await tester.pumpAndSettle();
+    final importedFamily = 'Test font ${_TestFontLibrary.font.id}';
+    expect(homeFont(), importedFamily);
+    expect(find.text('Custom.otf'), findsOneWidget);
+    await tester.tap(find.text('内置字体'));
+    await tester.pumpAndSettle();
+    expect(homeFont(), AppTheme.windowsBundledFontFamily);
+    await tester.tap(find.text('已导入'));
+    await tester.pumpAndSettle();
+    expect(homeFont(), importedFamily);
+    await controller.flush();
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await startApp();
+    expect(homeFont(), importedFamily);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
 
   testWidgets('Windows font slider scales the app and saves each stop', (
     tester,

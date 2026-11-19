@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/windows_startup.dart';
 import '../storage/account_scope.dart';
+import 'app_font.dart';
 
 /// 主题偏好：跟随系统 / 固定浅色 / 固定深色。
 enum ThemePreference { system, light, dark }
@@ -34,6 +35,8 @@ enum WeekStart { monday, sunday }
 class AppSettings {
   const AppSettings({
     this.themePreference = ThemePreference.system,
+    this.fontPreference = AppFontPreference.bundled,
+    this.importedFont,
     this.fontSizePreference = FontSizePreference.medium,
     this.scheduledTheme = false,
     this.darkStart = const TimeOfDay(hour: 19, minute: 0),
@@ -48,6 +51,8 @@ class AppSettings {
   });
 
   final ThemePreference themePreference;
+  final AppFontPreference fontPreference;
+  final ImportedAppFont? importedFont;
   final FontSizePreference fontSizePreference;
   final bool scheduledTheme;
   final TimeOfDay darkStart;
@@ -68,6 +73,8 @@ class AppSettings {
 
   AppSettings copyWith({
     ThemePreference? themePreference,
+    AppFontPreference? fontPreference,
+    ImportedAppFont? importedFont,
     FontSizePreference? fontSizePreference,
     bool? scheduledTheme,
     TimeOfDay? darkStart,
@@ -82,6 +89,8 @@ class AppSettings {
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
+      fontPreference: fontPreference ?? this.fontPreference,
+      importedFont: importedFont ?? this.importedFont,
       fontSizePreference: fontSizePreference ?? this.fontSizePreference,
       scheduledTheme: scheduledTheme ?? this.scheduledTheme,
       darkStart: darkStart ?? this.darkStart,
@@ -99,6 +108,8 @@ class AppSettings {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'themePreference': themePreference.name,
+      'fontPreference': fontPreference.name,
+      if (importedFont != null) 'importedFont': importedFont!.toJson(),
       'fontSizePreference': fontSizePreference.name,
       'scheduledTheme': scheduledTheme,
       'darkStart': _timeToJson(darkStart),
@@ -116,8 +127,15 @@ class AppSettings {
   /// 容错解析：任何字段缺失或类型错误都回退到默认值，绝不抛出。
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     const defaults = AppSettings();
+    final importedFont = ImportedAppFont.fromJson(json['importedFont']);
     return AppSettings(
       themePreference: _parseThemePreference(json['themePreference']),
+      fontPreference: switch (json['fontPreference']) {
+        'system' => AppFontPreference.system,
+        'imported' when importedFont != null => AppFontPreference.imported,
+        _ => AppFontPreference.bundled,
+      },
+      importedFont: importedFont,
       fontSizePreference: _parseFontSizePreference(json['fontSizePreference']),
       scheduledTheme: _parseBool(
         json['scheduledTheme'],
@@ -283,6 +301,8 @@ class AppSettingsController extends ChangeNotifier {
 
   AppSettings get settings => _settings;
   ThemePreference get themePreference => _settings.themePreference;
+  AppFontPreference get fontPreference => _settings.fontPreference;
+  ImportedAppFont? get importedFont => _settings.importedFont;
   FontSizePreference get fontSizePreference => _settings.fontSizePreference;
   bool get scheduledTheme => _settings.scheduledTheme;
   TimeOfDay get darkStart => _settings.darkStart;
@@ -325,6 +345,23 @@ class AppSettingsController extends ChangeNotifier {
   void setThemePreference(ThemePreference preference) {
     if (_settings.themePreference == preference) return;
     _settings = _settings.copyWith(themePreference: preference);
+    _commit();
+  }
+
+  void setFontPreference(AppFontPreference preference) {
+    if (_settings.fontPreference == preference ||
+        (preference == AppFontPreference.imported && importedFont == null)) {
+      return;
+    }
+    _settings = _settings.copyWith(fontPreference: preference);
+    _commit();
+  }
+
+  void setImportedFont(ImportedAppFont font) {
+    _settings = _settings.copyWith(
+      fontPreference: AppFontPreference.imported,
+      importedFont: font,
+    );
     _commit();
   }
 

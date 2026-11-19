@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/theme/windows_font_library.dart';
+import '../../core/settings/app_font.dart';
 import '../../core/settings/app_settings.dart';
+import '../../core/storage/account_scope.dart';
 import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
 import '../timetable/course_override_store.dart';
@@ -13,6 +16,7 @@ import '../timetable/timetable_overlay.dart';
 import '../timetable/timetable_store.dart';
 
 part 'widgets/settings_widgets.dart';
+part 'widgets/font_settings.dart';
 
 /// 以居中小对话框形式打开设置（右上角有关闭按钮）。
 ///
@@ -136,6 +140,10 @@ class _SettingsDialog extends ConsumerWidget {
               onChanged: controller.setThemePreference,
             ),
             if (Theme.of(context).platform == TargetPlatform.windows) ...[
+              const SizedBox(height: 18),
+              const _SectionLabel(icon: Icons.font_download_outlined, label: '界面字体'),
+              const SizedBox(height: 8),
+              const _FontSettings(),
               const SizedBox(height: 18),
               const _SectionLabel(icon: Icons.format_size, label: '字体大小'),
               Row(

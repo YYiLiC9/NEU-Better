@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/app_launch.dart';
 import '../core/platform/windows_window.dart';
+import '../core/settings/app_font.dart';
 import '../core/settings/app_settings.dart';
 import '../core/update/update_flow.dart';
 import '../core/update/update_manager.dart';
 import '../features/auth/auth_gate.dart';
 import 'theme/app_theme.dart';
+import 'theme/windows_font_library.dart';
 
 /// 根导航 key：供启动时的自动更新检查在没有 BuildContext 的情况下弹窗。
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -128,6 +131,16 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final isDark = settings.isDarkNow;
+    final importedFont = settings.importedFont;
+    String? windowsFontFamily;
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      windowsFontFamily = switch (settings.fontPreference) {
+        AppFontPreference.system => AppTheme.windowsSystemFontFamily,
+        AppFontPreference.imported when importedFont != null =>
+          ref.watch(importedFontFamilyProvider(importedFont.id)).value,
+        _ => null,
+      };
+    }
     AppColors.setDark(isDark);
 
     ref.listen<AppSettingsController>(
@@ -139,8 +152,14 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       navigatorKey: _rootNavigatorKey,
       title: 'NEU Better',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppTheme.forBrightness(
+        Brightness.light,
+        windowsFontFamily: windowsFontFamily,
+      ),
+      darkTheme: AppTheme.forBrightness(
+        Brightness.dark,
+        windowsFontFamily: windowsFontFamily,
+      ),
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       themeAnimationDuration: const Duration(milliseconds: 200),
       themeAnimationCurve: Curves.easeOutCubic,
