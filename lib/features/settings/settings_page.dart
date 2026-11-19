@@ -212,11 +212,17 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
           children: [
             const _SectionLabel(icon: Icons.palette_outlined, label: '主题'),
             const SizedBox(height: 10),
+            const SizedBox(height: 10),
             _ThemeModeSelector(
               value: controller.themePreference,
               onChanged: controller.setThemePreference,
             ),
-            const SizedBox(height: 24),
+          ],
+        );
+      case 1:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             const _SectionLabel(
               icon: Icons.calendar_today_outlined,
               label: '每周起始日',
@@ -226,12 +232,9 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
               value: controller.weekStart,
               onChanged: controller.setWeekStart,
             ),
+            const SizedBox(height: 24),
+            const _CourseOverlaySection(),
           ],
-        );
-      case 1:
-        return const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [_CourseOverlaySection()],
         );
       case 2:
         return Column(
@@ -242,12 +245,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
               label: '系统通知',
             ),
             const SizedBox(height: 10),
-            const _NotificationSettingsEntry(),
-            const SizedBox(height: 10),
-            Text(
-              '可分别开关校园通知、寝室用电提醒、邮件与插件通知。',
-              style: TextStyle(fontSize: 11, color: AppColors.faint, height: 1.5),
-            ),
+            const NotificationSettingsContent(),
           ],
         );
       default:

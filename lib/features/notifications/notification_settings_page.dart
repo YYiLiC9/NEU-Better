@@ -29,7 +29,7 @@ class NotificationSettingsPage extends ConsumerWidget {
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-        children: const [_NotificationSettingsContent()],
+        children: const [NotificationSettingsContent()],
       ),
     );
   }
@@ -117,7 +117,7 @@ Future<void> showNotificationSettingsDialog(BuildContext context) {
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(right: 14),
-                child: const _NotificationSettingsContent(),
+                child: const NotificationSettingsContent(),
               ),
             ),
           ],
@@ -127,8 +127,8 @@ Future<void> showNotificationSettingsDialog(BuildContext context) {
   );
 }
 
-class _NotificationSettingsContent extends ConsumerWidget {
-  const _NotificationSettingsContent();
+class NotificationSettingsContent extends ConsumerWidget {
+  const NotificationSettingsContent({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
