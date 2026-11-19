@@ -205,7 +205,25 @@ class PluginService {
     for (final file in _pluginFiles(id)) {
       try {
         if (!await file.exists()) continue;
-        return PluginManifest.fromJson(jsonDecode(await file.readAsString()));
+        final raw = jsonDecode(await file.readAsString());
+        if (raw is Map<String, dynamic>) {
+          // 已安装清单可能保留旧版占位描述，读取时就地迁移并回写一次。
+          if (id == 'news') {
+            final desc = (raw['description'] ?? '').toString();
+            if (desc.trim().isEmpty || desc.contains('即将上线')) {
+              raw['description'] = '东大校刊 · 校内通知与要闻';
+              try {
+                await file.writeAsString(jsonEncode(raw), flush: true);
+              } catch (error) {
+                debugPrint('[plugin_service] migrate news description failed: $error');
+              }
+            }
+          }
+          return PluginManifest.fromJson(raw);
+        }
+        return PluginManifest.fromJson(
+          Map<String, dynamic>.from(raw as Map),
+        );
       } catch (error) {
         debugPrint('[plugin_service] manifest read failed at ${file.path}: $error');
       }
