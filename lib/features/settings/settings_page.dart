@@ -8,6 +8,7 @@ import '../../core/settings/app_settings.dart';
 import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
 import '../timetable/course_override_store.dart';
+import '../notifications/notification_settings_page.dart';
 import '../timetable/timetable_models.dart';
 import '../timetable/timetable_overlay.dart';
 import '../timetable/timetable_store.dart';
@@ -146,6 +147,13 @@ class _SettingsDialog extends ConsumerWidget {
             ),
             const SizedBox(height: 18),
             const _CourseOverlaySection(),
+            const SizedBox(height: 16),
+            const _SectionLabel(
+              icon: Icons.notifications_active_outlined,
+              label: '通知',
+            ),
+            const SizedBox(height: 10),
+            const _NotificationSettingsEntry(),
             const SizedBox(height: 16),
             const _SectionLabel(
               icon: Icons.system_update_alt_rounded,
@@ -357,6 +365,13 @@ class MobileSettingsPage extends ConsumerWidget {
         ),
         const SizedBox(height: 20),
         const _CourseOverlaySection(),
+        const SizedBox(height: 20),
+        const _SectionLabel(
+          icon: Icons.notifications_active_outlined,
+          label: '通知',
+        ),
+        const SizedBox(height: 10),
+        const _NotificationSettingsEntry(),
         const SizedBox(height: 20),
         const _SectionLabel(
           icon: Icons.system_update_alt_rounded,
