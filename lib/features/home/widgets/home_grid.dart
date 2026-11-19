@@ -872,7 +872,7 @@ class _MailCard extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                '暂无未读',
+                '无未读',
                 style: TextStyle(fontSize: 12, color: AppColors.faint),
               ),
             ),
@@ -953,7 +953,7 @@ class _NotifyCard extends StatelessWidget {
   final List<AppNotification> recent;
   final VoidCallback? onOpen;
 
-  String get _unreadText => unread > 0 ? '未读 $unread 条' : '暂无未读';
+  String get _unreadText => unread > 0 ? '未读 $unread 条' : '无未读';
 
   @override
   Widget build(BuildContext context) {
@@ -1070,7 +1070,7 @@ class _NotifyCard extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                '暂无未读',
+                '无未读',
                 style: TextStyle(fontSize: 12, color: AppColors.faint),
               ),
             ),

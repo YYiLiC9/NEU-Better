@@ -43,6 +43,12 @@ const List<HomeCardInfo> homeCardCatalog = <HomeCardInfo>[
     description: '校园邮箱（只读收件箱）',
     icon: Icons.mail_outline_rounded,
   ),
+  HomeCardInfo(
+    id: 'news',
+    name: '新闻',
+    description: '东大校刊 · 号外',
+    icon: Icons.newspaper_rounded,
+  ),
 ];
 
 /// 按 id 取内置卡片信息；未知 id 返回 null。

@@ -162,7 +162,7 @@ void main() {
 
     expect(find.text('余额中心'), findsWidgets);
     expect(find.text('已添加'), findsOneWidget);
-    expect(find.text('添加'), findsNWidgets(2));
+    expect(find.text('添加'), findsNWidgets(3));
 
     await tester.tap(find.text('添加').first);
     expect(added, 'notify');

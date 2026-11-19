@@ -4,7 +4,7 @@
     {
       "id": "news",
       "name": "新闻",
-      "description": "校园新闻（即将上线）",
+      "description": "东大校刊 · 校内通知与要闻",
       "version": "1.0.0",
       "minAppVersion": "0.3.1",
       "rendererVersion": 1,
