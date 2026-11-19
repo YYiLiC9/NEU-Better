@@ -19,6 +19,7 @@ import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import '../../core/network/mail_client.dart';
+import '../../core/plugins/campus_network_plugin.dart';
 import '../../core/network/neu_service_session.dart';
 import '../../core/plugins/plugin_models.dart';
 import '../../core/plugins/plugin_service.dart';
@@ -27,6 +28,7 @@ import '../ecode/ecode_page.dart';
 import '../../core/network/notification_client.dart';
 import '../mail/mail_format.dart';
 import '../mail/mail_page.dart';
+import '../plugins/campus_network_page.dart';
 import '../notifications/notification_models.dart';
 import '../notifications/notification_dispatch.dart';
 import '../notifications/notification_page.dart';
@@ -41,6 +43,7 @@ import '../timetable/timetable_schedule.dart';
 import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
 import 'home_layout_store.dart';
+import 'widgets/campus_network_card.dart';
 import 'widgets/plugin_card.dart';
 
 part 'widgets/home_card_gallery.dart';
@@ -304,10 +307,9 @@ class _HomePageState extends ConsumerState<HomePage>
   void _openPlugin(PluginManifest manifest) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PluginRuntimePage(
-          manifest: manifest,
-          session: widget.session,
-        ),
+        builder: (_) => manifest.id == campusNetworkPluginId
+            ? const CampusNetworkPage()
+            : PluginRuntimePage(manifest: manifest, session: widget.session),
       ),
     );
   }
@@ -917,6 +919,9 @@ class _HomePageState extends ConsumerState<HomePage>
     }
     for (final plugin in _installedPlugins) {
       if (plugin.id == id) {
+        if (id == campusNetworkPluginId) {
+          return CampusNetworkCard(size: size, onTap: () => _openPlugin(plugin));
+        }
         return PluginCard(
           size: size,
           manifest: plugin,

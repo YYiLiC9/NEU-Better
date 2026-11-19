@@ -6,17 +6,19 @@ import '../../../core/plugins/plugin_models.dart';
 import '../home_card_layout.dart';
 
 /// 首页上的「可选插件」卡片（原生渲染，无 WebView）。
-/// 1×1 只显示图标 + 名称；2×2/2×4 增加简述。
+/// 1×1 显示图标和名称；2×2/2×4 可显示详情，默认呈现简述。
 class PluginCard extends StatelessWidget {
   const PluginCard({
     super.key,
     required this.size,
     required this.manifest,
+    this.expandedContent,
     this.onTap,
   });
 
   final HomeCardSize size;
   final PluginManifest manifest;
+  final Widget? expandedContent;
   final VoidCallback? onTap;
 
   IconData get _icon => resolvePluginIcon(manifest.icon);
@@ -109,7 +111,10 @@ class PluginCard extends StatelessWidget {
                         color: AppColors.ink,
                       ),
                     ),
-                    if (subtitle.isNotEmpty) ...[
+                    if (expandedContent != null) ...[
+                      const SizedBox(height: 4),
+                      expandedContent!,
+                    ] else if (subtitle.isNotEmpty) ...[
                       const SizedBox(height: 3),
                       Text(
                         subtitle,

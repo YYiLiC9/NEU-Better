@@ -1,3 +1,7 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+
 #include "flutter_window.h"
 
 #include <shobjidl.h>
@@ -297,6 +301,36 @@ bool FlutterWindow::OnCreate() {
           }
           SetMinimumSize(*width, *height);
           result->Success();
+          return;
+        }
+
+        if (call.method_name() == "interfaceCounters") {
+          const auto* address = std::get_if<std::string>(call.arguments());
+          IN_ADDR destination{};
+          if (address == nullptr ||
+              InetPtonA(AF_INET, address->c_str(), &destination) != 1) {
+            result->Error("invalid_arguments", "Expected an IPv4 address");
+            return;
+          }
+          DWORD index = 0;
+          MIB_IF_ROW2 row{};
+          if (GetBestInterface(destination.S_un.S_addr, &index) != NO_ERROR) {
+            result->Error("network_interface", "No route to gateway");
+            return;
+          }
+          row.InterfaceIndex = index;
+          if (GetIfEntry2(&row) != NO_ERROR || row.OperStatus != IfOperStatusUp) {
+            result->Error("network_interface", "Interface counters unavailable");
+            return;
+          }
+          result->Success(flutter::EncodableValue(flutter::EncodableMap{
+              {flutter::EncodableValue("id"),
+               flutter::EncodableValue(std::to_string(row.InterfaceLuid.Value))},
+              {flutter::EncodableValue("received"),
+               flutter::EncodableValue(static_cast<int64_t>(row.InOctets))},
+              {flutter::EncodableValue("sent"),
+               flutter::EncodableValue(static_cast<int64_t>(row.OutOctets))},
+          }));
           return;
         }
 
