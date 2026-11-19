@@ -34,6 +34,10 @@ import '../notifications/notification_dispatch.dart';
 import '../notifications/notification_page.dart';
 import '../notifications/notification_poller.dart';
 import '../notifications/notification_store.dart';
+import '../../core/models/news_models.dart';
+import '../../core/network/news_client.dart';
+import '../news/news_page.dart';
+import '../news/news_store.dart';
 import '../plugins/plugin_runtime_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
@@ -44,6 +48,7 @@ import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
 import 'home_layout_store.dart';
 import 'widgets/campus_network_card.dart';
+import 'widgets/news_card.dart';
 import 'widgets/plugin_card.dart';
 
 part 'widgets/home_card_gallery.dart';
@@ -110,6 +115,10 @@ class _HomePageState extends ConsumerState<HomePage>
   NotificationPoller? _notifyPoller;
   bool _notifyPollerStarted = false;
 
+  /// 首页「新闻」卡片展示用（best-effort 拉取，失败不影响首页）。
+  int _newsUnread = 0;
+  List<NewsItem> _newsLatest = const <NewsItem>[];
+
   /// e码通页首次进入后常驻（保留 WebView 状态），避免来回切换时重建/闪烁。
   bool _ecodeVisited = false;
 
@@ -150,6 +159,7 @@ class _HomePageState extends ConsumerState<HomePage>
       // 通知/邮件摘要与轮询不依赖课表同步，先启动，避免课表网络失败阻断它们。
       unawaited(_loadMailSummary());
       unawaited(_loadNotifySummary());
+      unawaited(_loadNewsSummary());
       unawaited(_startNotificationPoller());
       unawaited(_syncNotificationBackground());
       await _ensureTimetable();
@@ -917,18 +927,8 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
       );
     }
-    for (final plugin in _installedPlugins) {
-      if (plugin.id == id) {
-        if (id == campusNetworkPluginId) {
-          return CampusNetworkCard(size: size, onTap: () => _openPlugin(plugin));
-        }
-        return PluginCard(
-          size: size,
-          manifest: plugin,
-          onTap: () => _openPlugin(plugin),
-        );
-      }
-    }
+    // 内置卡片优先于远程插件：远程目录里可能存在同名（如 id=news）的旧插件，
+    // 内置原生新闻卡必须优先渲染，避免被旧插件占位页覆盖。
     if (id == 'mail') {
       return _MailCard(
         size: size,
@@ -944,6 +944,26 @@ class _HomePageState extends ConsumerState<HomePage>
         recent: _notifyRecent,
         onOpen: _openNotifications,
       );
+    }
+    if (id == 'news') {
+      return NewsCard(
+        size: size,
+        unread: _newsUnread,
+        latest: _newsLatest,
+        onOpen: _openNews,
+      );
+    }
+    for (final plugin in _installedPlugins) {
+      if (plugin.id == id) {
+        if (id == campusNetworkPluginId) {
+          return CampusNetworkCard(size: size, onTap: () => _openPlugin(plugin));
+        }
+        return PluginCard(
+          size: size,
+          manifest: plugin,
+          onTap: () => _openPlugin(plugin),
+        );
+      }
     }
     return _PlaceholderCard(id: id, size: size);
   }
@@ -1019,6 +1039,38 @@ class _HomePageState extends ConsumerState<HomePage>
       });
     } catch (_) {
       // 静默失败：通知卡显示「点开查看通知」，不影响其它功能。
+    }
+  }
+
+  /// 打开新闻插件页；返回后刷新首页新闻卡摘要。
+  void _openNews() {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(builder: (_) => const NewsPage()),
+        )
+        .whenComplete(() {
+      if (mounted) unawaited(_loadNewsSummary());
+    });
+  }
+
+  /// best-effort 拉取新闻摘要供首页卡片展示；失败静默。
+  Future<void> _loadNewsSummary() async {
+    try {
+      final store = const NewsStore();
+      final prefs = await store.readPrefs();
+      final cid = prefs.selectedCids.isEmpty
+          ? NewsPrefs.internalNoticeId
+          : prefs.selectedCids.first;
+      final client = NewsClient();
+      final result = await client.list(cid, page: 1, pageSize: 20);
+      if (!mounted) return;
+      final unread = result.items.where((item) => !item.hasRead).length;
+      setState(() {
+        _newsUnread = unread;
+        _newsLatest = result.items.take(2).toList(growable: false);
+      });
+    } catch (_) {
+      // 静默失败：新闻卡显示「点开查看新闻」，不影响其它功能。
     }
   }
 

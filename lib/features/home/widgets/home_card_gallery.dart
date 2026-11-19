@@ -48,6 +48,12 @@ class HomeCardGallery extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 远程目录里若存在与内置卡片同 id 的旧插件（例如 id=news 的占位新闻插件），
+    // 不再重复展示，避免内置卡与插件行同名混淆。
+    final pluginList = <PluginManifest>[
+      for (final plugin in plugins)
+        if (!builtins.any((info) => info.id == plugin.id)) plugin,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -76,7 +82,7 @@ class HomeCardGallery extends StatelessWidget {
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            itemCount: builtins.length + plugins.length + 1,
+            itemCount: builtins.length + pluginList.length + 1,
             separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               if (index < builtins.length) {
@@ -85,7 +91,7 @@ class HomeCardGallery extends StatelessWidget {
               }
               final pluginIndex = index - builtins.length - 1;
               if (pluginIndex < 0) return _buildCatalogHeader(context);
-              return _buildPluginItem(context, plugins[pluginIndex]);
+              return _buildPluginItem(context, pluginList[pluginIndex]);
             },
           ),
         ),

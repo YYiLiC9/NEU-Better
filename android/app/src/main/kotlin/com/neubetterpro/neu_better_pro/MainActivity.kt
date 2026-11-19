@@ -70,6 +70,20 @@ class MainActivity : FlutterActivity() {
                     Log.d(LOG_TAG, "getPendingOpenDorm -> $pending")
                     result.success(pending)
                 }
+                // 用系统默认浏览器打开外部链接（新闻「查看原文」等）。
+                "openUrl" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    try {
+                        if (url.isNotEmpty()) {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                        }
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("open_url_failed", error.message, null)
+                    }
+                }
                 // 插件/校园通知：使用 plugin_notify_v1 渠道发系统通知（带提示音）。
                 "showPluginNotification" -> {
                     val title = call.argument<String>("title") ?: "通知"
