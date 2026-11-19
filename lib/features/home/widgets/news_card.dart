@@ -35,14 +35,14 @@ class NewsCard extends StatelessWidget {
     );
     final wrapped = Stack(
       children: [
-        card,
-        if (unread > 0)
+        Positioned.fill(child: card),
+        if (!compact && unread > 0)
           Positioned(
-            top: compact ? 6 : 8,
-            right: compact ? 6 : 8,
+            top: 8,
+            right: 8,
             child: Container(
-              width: compact ? 6 : 7,
-              height: compact ? 6 : 7,
+              width: 7,
+              height: 7,
               decoration: BoxDecoration(
                 color: AppColors.nowRed,
                 shape: BoxShape.circle,
