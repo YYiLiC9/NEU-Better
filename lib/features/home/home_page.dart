@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/app_labels.dart';
+import '../../core/plugins/plugin_icon_resolver.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/platform/windows_window.dart';

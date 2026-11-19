@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../core/plugins/plugin_icon_resolver.dart';
+import '../../core/plugins/plugin_models.dart';
+import '../../core/plugins/plugin_service.dart';
 import '../../core/settings/app_settings.dart';
 
 /// 二级「通知设置」：按来源开关系统通知。
@@ -127,11 +130,55 @@ Future<void> showNotificationSettingsDialog(BuildContext context) {
   );
 }
 
-class NotificationSettingsContent extends ConsumerWidget {
+class NotificationSettingsContent extends ConsumerStatefulWidget {
   const NotificationSettingsContent({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationSettingsContent> createState() =>
+      _NotificationSettingsContentState();
+}
+
+class _NotificationSettingsContentState
+    extends ConsumerState<NotificationSettingsContent> {
+  Map<String, PluginManifest> _plugins = const <String, PluginManifest>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPlugins();
+  }
+
+  Future<void> _loadPlugins() async {
+    try {
+      final list = await PluginService().readInstalledManifests();
+      if (!mounted) return;
+      setState(() {
+        _plugins = <String, PluginManifest>{
+          for (final plugin in list) plugin.id: plugin,
+        };
+      });
+    } catch (error) {
+      debugPrint('[notify-settings] load plugins failed: $error');
+    }
+  }
+
+  _SourceItem _pluginSource(String key) {
+    final id = key.substring('plugin:'.length);
+    final plugin = _plugins[id];
+    final rawName = plugin?.name.trim() ?? '';
+    final name = rawName.isEmpty ? id : rawName;
+    final desc = plugin?.description.trim() ?? '';
+    return _SourceItem(
+      key,
+      '$name通知',
+      desc.isEmpty ? '来自插件 $name 的通知' : desc,
+      resolvePluginIcon(plugin?.icon),
+      badge: plugin?.icon?.type == 'text' ? plugin!.icon!.value : null,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
 
@@ -140,13 +187,7 @@ class NotificationSettingsContent extends ConsumerWidget {
       const _SourceItem('dorm', '寝室用电提醒', '电量低于提醒线时提醒', Icons.bolt_outlined),
       const _SourceItem('mail', '新邮件提醒', '收件箱有新邮件时提醒', Icons.mail_outline_rounded),
       for (final key in settings.notifySources.keys)
-        if (key.startsWith('plugin:'))
-          _SourceItem(
-            key,
-            '插件通知 · ${key.substring('plugin:'.length)}',
-            '来自插件 ${key.substring('plugin:'.length)} 的通知',
-            Icons.extension_outlined,
-          ),
+        if (key.startsWith('plugin:')) _pluginSource(key),
     ];
 
     return Column(
@@ -173,11 +214,29 @@ class NotificationSettingsContent extends ConsumerWidget {
                   onChanged: (value) =>
                       controller.setNotifyEnabled(sources[i].key, value),
                   activeTrackColor: AppColors.campusBlue,
-                  secondary: Icon(
-                    sources[i].icon,
-                    size: 19,
-                    color: AppColors.muted,
-                  ),
+                  secondary: sources[i].badge != null
+                      ? Container(
+                          width: 22,
+                          height: 22,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppColors.campusBlue.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            sources[i].badge!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.campusBlue,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          sources[i].icon,
+                          size: 19,
+                          color: AppColors.muted,
+                        ),
                   title: Text(
                     sources[i].title,
                     style: TextStyle(
@@ -208,10 +267,11 @@ class NotificationSettingsContent extends ConsumerWidget {
 }
 
 class _SourceItem {
-  const _SourceItem(this.key, this.title, this.subtitle, this.icon);
+  const _SourceItem(this.key, this.title, this.subtitle, this.icon, {this.badge});
 
   final String key;
   final String title;
   final String subtitle;
   final IconData icon;
+  final String? badge;
 }
