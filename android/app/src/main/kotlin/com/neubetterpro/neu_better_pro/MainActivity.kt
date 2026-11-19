@@ -81,6 +81,32 @@ class MainActivity : FlutterActivity() {
                         result.error("show_failed", error.message, null)
                     }
                 }
+                // 后台轮询「校园通知」：保存 personal cookie 与基线，并安排 15 分钟闹钟。
+                "setBackgroundNotify" -> {
+                    val cookie = call.argument<String>("cookie") ?: ""
+                    val last = call.argument<Int>("last") ?: 0
+                    try {
+                        if (cookie.isEmpty()) {
+                            NotifyPollPrefs.save(this, false, "", last)
+                            NotifyPollScheduler.cancel(this)
+                        } else {
+                            NotifyPollPrefs.save(this, true, cookie, last)
+                            NotifyPollScheduler.schedule(this)
+                        }
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("bg_notify_failed", error.message, null)
+                    }
+                }
+                "disableBackgroundNotify" -> {
+                    try {
+                        NotifyPollPrefs.setEnabled(this, false)
+                        NotifyPollScheduler.cancel(this)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("bg_notify_failed", error.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

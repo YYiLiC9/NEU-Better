@@ -41,3 +41,30 @@ abstract final class SystemNotification {
     debugPrint('[notify] system notification not supported on this platform');
   }
 }
+
+/// Android「校园通知」后台轮询（15 分钟闹钟）配置：同步 personal cookie 与基线。
+abstract final class NotificationBackground {
+  static const MethodChannel _channel = MethodChannel('neu_better/notifications');
+
+  static Future<void> sync({
+    required bool enabled,
+    required String? cookie,
+    int last = 0,
+  }) async {
+    if (!Platform.isAndroid) return;
+    try {
+      if (enabled && (cookie ?? '').isNotEmpty) {
+        await _channel.invokeMethod<bool>('setBackgroundNotify', {
+          'cookie': cookie,
+          'last': last,
+        });
+      } else {
+        await _channel.invokeMethod<bool>('disableBackgroundNotify');
+      }
+    } on MissingPluginException catch (error) {
+      debugPrint('[notify] background channel unavailable: $error');
+    } catch (error) {
+      debugPrint('[notify] background sync failed: $error');
+    }
+  }
+}

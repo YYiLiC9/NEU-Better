@@ -18,6 +18,7 @@ import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import '../../core/network/mail_client.dart';
+import '../../core/network/neu_service_session.dart';
 import '../../core/plugins/plugin_models.dart';
 import '../../core/plugins/plugin_service.dart';
 import '../dorm/electricity_service.dart';
@@ -26,6 +27,7 @@ import '../../core/network/notification_client.dart';
 import '../mail/mail_format.dart';
 import '../mail/mail_page.dart';
 import '../notifications/notification_models.dart';
+import '../notifications/notification_dispatch.dart';
 import '../notifications/notification_page.dart';
 import '../notifications/notification_poller.dart';
 import '../notifications/notification_store.dart';
@@ -145,6 +147,7 @@ class _HomePageState extends ConsumerState<HomePage>
       unawaited(_loadMailSummary());
       unawaited(_loadNotifySummary());
       unawaited(_startNotificationPoller());
+      unawaited(_syncNotificationBackground());
       await _ensureTimetable();
     });
     // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
@@ -1000,7 +1003,6 @@ class _HomePageState extends ConsumerState<HomePage>
     }
   }
 
-  /// 启动前台/托盘轮询（Android 后台常驻本期未实现，进程结束即停止）。
   Future<void> _startNotificationPoller() async {
     if (_notifyPollerStarted) return;
     _notifyPollerStarted = true;
@@ -1019,6 +1021,30 @@ class _HomePageState extends ConsumerState<HomePage>
     } catch (error) {
       debugPrint('[notify] start poller failed: $error');
       _notifyPollerStarted = false;
+    }
+  }
+
+  /// 同步 Android 后台轮询配置：把 personal.neu.edu.cn 的 cookie 与当前基线交给原生，
+  /// 由原生 15 分钟闹钟在应用退出后继续检查「校园通知」。
+  Future<void> _syncNotificationBackground() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final enabled = ref
+          .read(appSettingsProvider.notifier)
+          .notifyEnabled('campus');
+      final cookie = NeuServiceSession.cookieHeaderFor(
+        NeuServiceSession.parseCookieJar(widget.session.cookies),
+        'personal.neu.edu.cn',
+      );
+      final store = NotificationStore();
+      await store.load();
+      await NotificationBackground.sync(
+        enabled: enabled,
+        cookie: cookie,
+        last: store.lastNoRead,
+      );
+    } catch (error) {
+      debugPrint('[notify] sync background failed: $error');
     }
   }
 

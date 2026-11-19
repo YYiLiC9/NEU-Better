@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
     <!-- 自动更新：下载 apk 后调用系统安装器。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- 通知后台轮询：开机恢复闹钟。 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- 邮件附件保存到「下载」：Android 9 及以下需写外部存储权限（10+ 走 MediaStore 免权限）。 -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
     <application
@@ -45,6 +47,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!-- 通知后台轮询（15 分钟一次，无额外依赖）。 -->
+        <receiver
+            android:name=".NotifyPollReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".NotifyBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
         <!-- 桌面小部件：2×2 与 2×4 两种规格。 -->
         <receiver
             android:name=".TimetableWidget2x2Provider"
