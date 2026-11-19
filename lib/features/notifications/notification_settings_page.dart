@@ -183,7 +183,12 @@ class _NotificationSettingsContentState
     final controller = ref.read(appSettingsProvider.notifier);
 
     final sources = <_SourceItem>[
-      const _SourceItem('campus', '校园通知', '个人门户消息中心的新通知', Icons.campaign_outlined),
+      const _SourceItem(
+        'campus',
+        '校园通知',
+        '个人门户消息中心的新通知',
+        Icons.notifications_none_rounded,
+      ),
       const _SourceItem('dorm', '寝室用电提醒', '电量低于提醒线时提醒', Icons.bolt_outlined),
       const _SourceItem('mail', '新邮件提醒', '收件箱有新邮件时提醒', Icons.mail_outline_rounded),
       for (final key in settings.notifySources.keys)
