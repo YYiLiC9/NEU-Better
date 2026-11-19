@@ -4,6 +4,9 @@
 
 #include "flutter_window.h"
 
+#include <shobjidl.h>
+#include <wrl/client.h>
+
 #include <cstdint>
 #include <cwchar>
 #include <optional>
@@ -14,8 +17,36 @@
 #include "flutter/method_channel.h"
 #include "flutter/standard_method_codec.h"
 #include "resource.h"
+#include "utils.h"
 
 namespace {
+
+HRESULT PickFontFile(HWND owner, std::string& path) {
+  Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+  HRESULT status = CoCreateInstance(CLSID_FileOpenDialog, nullptr,
+                                    CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(dialog.GetAddressOf()));
+  if (FAILED(status)) return status;
+  const COMDLG_FILTERSPEC filters[] = {{L"Fonts (*.ttf, *.otf)", L"*.ttf;*.otf"}};
+  status = dialog->SetFileTypes(1, filters);
+  if (FAILED(status)) return status;
+  FILEOPENDIALOGOPTIONS options;
+  status = dialog->GetOptions(&options);
+  if (FAILED(status)) return status;
+  status = dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+  if (FAILED(status)) return status;
+  status = dialog->Show(owner);
+  if (FAILED(status)) return status;
+  Microsoft::WRL::ComPtr<IShellItem> item;
+  status = dialog->GetResult(item.GetAddressOf());
+  if (FAILED(status)) return status;
+  PWSTR selected = nullptr;
+  status = item->GetDisplayName(SIGDN_FILESYSPATH, &selected);
+  if (FAILED(status)) return status;
+  path = Utf8FromUtf16(selected);
+  CoTaskMemFree(selected);
+  return path.empty() ? E_FAIL : S_OK;
+}
 
 constexpr UINT kTrayCallbackMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
@@ -300,6 +331,19 @@ bool FlutterWindow::OnCreate() {
               {flutter::EncodableValue("sent"),
                flutter::EncodableValue(static_cast<int64_t>(row.OutOctets))},
           }));
+          return;
+        }
+
+        if (call.method_name() == "pickFontFile") {
+          std::string path;
+          const HRESULT status = PickFontFile(GetHandle(), path);
+          if (status == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+            result->Success();
+          } else if (FAILED(status)) {
+            result->Error("font_file_dialog", "Unable to select a font file");
+          } else {
+            result->Success(flutter::EncodableValue(path));
+          }
           return;
         }
 
