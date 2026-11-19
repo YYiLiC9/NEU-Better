@@ -269,10 +269,6 @@ class _NewsPageState extends State<NewsPage> {
   }
 
   Widget _buildMasthead() {
-    final now = DateTime.now();
-    const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
-    final dateText =
-        '${now.year}年${now.month}月${now.day}日 · 星期${weekdays[now.weekday - 1]}';
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
       child: Column(
@@ -357,20 +353,6 @@ class _NewsPageState extends State<NewsPage> {
           const Divider(color: NewsPalette.ink, height: 1, thickness: 1.2),
           const SizedBox(height: 2),
           const Divider(color: NewsPalette.ink, height: 1, thickness: 0.4),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Text(
-                dateText,
-                style: newsSans(fontSize: 11, color: NewsPalette.inkSoft),
-              ),
-              const Spacer(),
-              Text(
-                '第 ${_visibleItems.length} 则',
-                style: newsSans(fontSize: 11, color: NewsPalette.inkSoft),
-              ),
-            ],
-          ),
         ],
       ),
     );
