@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/app_labels.dart';
+import '../../core/plugins/plugin_icon_resolver.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/platform/windows_window.dart';
@@ -18,12 +19,19 @@ import '../dorm/dorm_page.dart';
 import '../dorm/electricity_alert.dart';
 import '../../core/electricity/electricity_models.dart';
 import '../../core/network/mail_client.dart';
+import '../../core/network/neu_service_session.dart';
 import '../../core/plugins/plugin_models.dart';
 import '../../core/plugins/plugin_service.dart';
 import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
+import '../../core/network/notification_client.dart';
 import '../mail/mail_format.dart';
 import '../mail/mail_page.dart';
+import '../notifications/notification_models.dart';
+import '../notifications/notification_dispatch.dart';
+import '../notifications/notification_page.dart';
+import '../notifications/notification_poller.dart';
+import '../notifications/notification_store.dart';
 import '../plugins/plugin_runtime_page.dart';
 import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
@@ -93,6 +101,12 @@ class _HomePageState extends ConsumerState<HomePage>
   int _mailUnread = 0;
   List<MailSummary> _mailRecent = const [];
 
+  /// 首页「通知」卡片展示用（best-effort 拉取，失败不影响首页）。
+  int _notifyUnread = 0;
+  List<AppNotification> _notifyRecent = const [];
+  NotificationPoller? _notifyPoller;
+  bool _notifyPollerStarted = false;
+
   /// e码通页首次进入后常驻（保留 WebView 状态），避免来回切换时重建/闪烁。
   bool _ecodeVisited = false;
 
@@ -130,8 +144,12 @@ class _HomePageState extends ConsumerState<HomePage>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _runDailyElectricityCheck();
-      await _ensureTimetable();
+      // 通知/邮件摘要与轮询不依赖课表同步，先启动，避免课表网络失败阻断它们。
       unawaited(_loadMailSummary());
+      unawaited(_loadNotifySummary());
+      unawaited(_startNotificationPoller());
+      unawaited(_syncNotificationBackground());
+      await _ensureTimetable();
     });
     // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
     // 用户点开 e码通时二维码通常已渲染好，实现「点进去就显示」。
@@ -186,11 +204,20 @@ class _HomePageState extends ConsumerState<HomePage>
         _installedPlugins = installed;
         _installedPluginVersions = versions;
       });
+      _syncPluginNotifySources(installed);
     } catch (error) {
       debugPrint('[plugins] load installed failed: $error');
     }
     await _loadHomeLayout();
     await _fetchCatalog();
+  }
+
+  /// 让「设置 → 通知」里为每个已安装插件出现一个通知开关（默认关）。
+  void _syncPluginNotifySources(Iterable<PluginManifest> plugins) {
+    final controller = ref.read(appSettingsProvider.notifier);
+    for (final plugin in plugins) {
+      controller.ensureNotifySource('plugin:${plugin.id}');
+    }
   }
 
   Future<void> _fetchCatalog({bool force = false}) async {
@@ -235,6 +262,9 @@ class _HomePageState extends ConsumerState<HomePage>
         _installedPlugins = installed;
         _installedPluginVersions = versions;
       });
+      ref
+          .read(appSettingsProvider.notifier)
+          .ensureNotifySource('plugin:${manifest.id}');
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -264,6 +294,7 @@ class _HomePageState extends ConsumerState<HomePage>
             if (card.id != id) card,
         ];
       });
+      ref.read(appSettingsProvider.notifier).removeNotifySource('plugin:$id');
       await _saveHomeLayout();
     } catch (error) {
       debugPrint('[plugins] uninstall failed: $error');
@@ -367,6 +398,7 @@ class _HomePageState extends ConsumerState<HomePage>
   void dispose() {
     NotificationRouter.openDormSignal.removeListener(_handleOpenDorm);
     dormPrefsChanged.removeListener(_loadStatus);
+    _notifyPoller?.stop();
     _tabFade.dispose();
     super.dispose();
   }
@@ -399,6 +431,8 @@ class _HomePageState extends ConsumerState<HomePage>
     final prefs = await _elecService.loadPrefs();
     if (!DormElectricityService.isLow(reading, prefs.alertThreshold)) return;
     if (!mounted) return;
+    // 设置 → 通知：用电提醒总开关（关闭后不再弹系统/应用内提醒）。
+    if (!ref.read(appSettingsProvider.notifier).notifyEnabled('dorm')) return;
     await DormAlertPresenter.present(
       context,
       reading: reading,
@@ -898,6 +932,14 @@ class _HomePageState extends ConsumerState<HomePage>
         onOpen: _openMail,
       );
     }
+    if (id == 'notify') {
+      return _NotifyCard(
+        size: size,
+        unread: _notifyUnread,
+        recent: _notifyRecent,
+        onOpen: _openNotifications,
+      );
+    }
     return _PlaceholderCard(id: id, size: size);
   }
 
@@ -942,6 +984,81 @@ class _HomePageState extends ConsumerState<HomePage>
       });
     } catch (_) {
       // 静默失败：首页卡片显示「点开查看邮件」，不影响其它功能。
+    }
+  }
+
+  void _openNotifications() {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => NotificationPage(session: widget.session),
+          ),
+        )
+        .whenComplete(() {
+      // 返回首页时刷新通知卡（进入列表已尽力标记已读）。
+      if (mounted) unawaited(_loadNotifySummary());
+    });
+  }
+
+  /// best-effort 拉取通知摘要供首页卡片展示；失败静默。
+  Future<void> _loadNotifySummary() async {
+    try {
+      final client = NotificationClient.fromSession(widget.session);
+      final counts = await client.counts();
+      final items = await client.list(page: 1);
+      if (!mounted) return;
+      final unread = items.where((n) => !n.read).toList(growable: false);
+      setState(() {
+        _notifyRecent = unread.take(2).toList(growable: false);
+        _notifyUnread = counts.noRead;
+      });
+    } catch (_) {
+      // 静默失败：通知卡显示「点开查看通知」，不影响其它功能。
+    }
+  }
+
+  Future<void> _startNotificationPoller() async {
+    if (_notifyPollerStarted) return;
+    _notifyPollerStarted = true;
+    try {
+      final client = NotificationClient.fromSession(widget.session);
+      final store = NotificationStore();
+      await store.load();
+      final poller = NotificationPoller(
+        client: client,
+        store: store,
+        notifyEnabled: (key) =>
+            ref.read(appSettingsProvider.notifier).notifyEnabled(key),
+      );
+      _notifyPoller = poller;
+      poller.startForegroundPolling();
+    } catch (error) {
+      debugPrint('[notify] start poller failed: $error');
+      _notifyPollerStarted = false;
+    }
+  }
+
+  /// 同步 Android 后台轮询配置：把 personal.neu.edu.cn 的 cookie 与当前基线交给原生，
+  /// 由原生 15 分钟闹钟在应用退出后继续检查「校园通知」。
+  Future<void> _syncNotificationBackground() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final enabled = ref
+          .read(appSettingsProvider.notifier)
+          .notifyEnabled('campus');
+      final cookie = NeuServiceSession.cookieHeaderFor(
+        NeuServiceSession.parseCookieJar(widget.session.cookies),
+        'personal.neu.edu.cn',
+      );
+      final store = NotificationStore();
+      await store.load();
+      await NotificationBackground.sync(
+        enabled: enabled,
+        cookie: cookie,
+        last: store.lastNoRead,
+      );
+    } catch (error) {
+      debugPrint('[notify] sync background failed: $error');
     }
   }
 

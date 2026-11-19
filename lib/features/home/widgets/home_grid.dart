@@ -940,6 +940,194 @@ class _MailCard extends StatelessWidget {
   }
 }
 
+class _NotifyCard extends StatelessWidget {
+  const _NotifyCard({
+    required this.size,
+    required this.unread,
+    required this.recent,
+    this.onOpen,
+  });
+
+  final HomeCardSize size;
+  final int unread;
+  final List<AppNotification> recent;
+  final VoidCallback? onOpen;
+
+  String get _unreadText => unread > 0 ? '未读 $unread 条' : '暂无未读';
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = size == HomeCardSize.s1x1;
+    final card = Container(
+      padding: EdgeInsets.all(compact ? 8 : 16),
+      decoration: _homeCardDecoration(),
+      child: compact ? _buildCompact() : _buildDetailed(),
+    );
+    final onOpen = this.onOpen;
+    if (onOpen == null) return card;
+    return GestureDetector(
+      onTap: onOpen,
+      behavior: HitTestBehavior.opaque,
+      child: card,
+    );
+  }
+
+  Widget _buildCompact() {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.notifications_none_rounded,
+              size: 18, color: AppColors.muted),
+          const SizedBox(height: 5),
+          Text(
+            '通知',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.ink,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailed() {
+    final wide = size == HomeCardSize.s2x4;
+    final notes = recent.take(2).toList(growable: false);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double designWidth;
+        final double designHeight;
+        if (wide && constraints.maxHeight > 0) {
+          designHeight = constraints.maxHeight * 1.16;
+          designWidth =
+              constraints.maxWidth * (designHeight / constraints.maxHeight);
+        } else {
+          designWidth = wide ? constraints.maxWidth : 150.0;
+          designHeight = wide ? 122.0 : 150.0;
+        }
+        return FittedBox(
+          fit: BoxFit.contain,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: designWidth,
+            height: designHeight,
+            child: _buildDetailedBody(wide, notes),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailedBody(bool wide, List<AppNotification> notes) {
+    final header = Row(
+      children: [
+        Icon(Icons.notifications_none_rounded, size: 18, color: AppColors.muted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            '通知',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: wide ? 14 : 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.ink,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: unread > 0
+                ? AppColors.campusBlue.withValues(alpha: 0.12)
+                : AppColors.line.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            _unreadText,
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w600,
+              color: unread > 0 ? AppColors.campusBlue : AppColors.muted,
+            ),
+          ),
+        ),
+      ],
+    );
+
+    if (notes.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          Expanded(
+            child: Center(
+              child: Text(
+                '暂无未读',
+                style: TextStyle(fontSize: 12, color: AppColors.faint),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        header,
+        for (final note in notes) _noteBlock(note, wide: wide),
+      ],
+    );
+  }
+
+  Widget _noteBlock(AppNotification note, {required bool wide}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          note.title.isEmpty ? '(无标题)' : note.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: wide ? 13 : 12.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.ink,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _sourceLine(note),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: wide ? 10 : 9.5, color: AppColors.muted),
+        ),
+      ],
+    );
+  }
+
+  String _sourceLine(AppNotification note) {
+    final source = note.sourceName.isEmpty ? '通知' : note.sourceName;
+    final when = _time(note.time);
+    return when.isEmpty ? source : '$source · $when';
+  }
+
+  static String _time(DateTime? time) {
+    if (time == null) return '';
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(time.month)}-${two(time.day)} ${two(time.hour)}:${two(time.minute)}';
+  }
+}
+
 class _PlaceholderCard extends StatelessWidget {
   const _PlaceholderCard({required this.id, required this.size});
 

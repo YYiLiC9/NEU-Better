@@ -34,7 +34,7 @@ const List<HomeCardInfo> homeCardCatalog = <HomeCardInfo>[
   HomeCardInfo(
     id: 'notify',
     name: '通知',
-    description: '校园通知与公告（即将上线）',
+    description: '校园通知与公告',
     icon: Icons.notifications_none_rounded,
   ),
   HomeCardInfo(

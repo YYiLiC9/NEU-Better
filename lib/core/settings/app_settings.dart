@@ -48,6 +48,7 @@ class AppSettings {
     this.autoUpdate = true,
     this.autoStart = false,
     this.startMinimizedToTray = false,
+    this.notifySources = const <String, bool>{},
   });
 
   final ThemePreference themePreference;
@@ -71,6 +72,10 @@ class AppSettings {
   /// 开机启动时自动隐藏窗口到托盘（仅 Windows 且 autoStart 生效时有意义）。
   final bool startMinimizedToTray;
 
+  /// 系统通知来源开关：`campus` / `dorm` / `mail` / `plugin:<id>`。
+  /// 缺省未写入时：内置来源（campus/dorm/mail）默认开，插件来源默认关。
+  final Map<String, bool> notifySources;
+
   AppSettings copyWith({
     ThemePreference? themePreference,
     AppFontPreference? fontPreference,
@@ -86,6 +91,7 @@ class AppSettings {
     bool? autoUpdate,
     bool? autoStart,
     bool? startMinimizedToTray,
+    Map<String, bool>? notifySources,
   }) {
     return AppSettings(
       themePreference: themePreference ?? this.themePreference,
@@ -102,6 +108,7 @@ class AppSettings {
       autoUpdate: autoUpdate ?? this.autoUpdate,
       autoStart: autoStart ?? this.autoStart,
       startMinimizedToTray: startMinimizedToTray ?? this.startMinimizedToTray,
+      notifySources: notifySources ?? this.notifySources,
     );
   }
 
@@ -121,6 +128,7 @@ class AppSettings {
       'autoUpdate': autoUpdate,
       'autoStart': autoStart,
       'startMinimizedToTray': startMinimizedToTray,
+      'notifySources': notifySources,
     };
   }
 
@@ -159,7 +167,19 @@ class AppSettings {
         json['startMinimizedToTray'],
         defaults.startMinimizedToTray,
       ),
+      notifySources: _parseNotifySources(json['notifySources']),
     );
+  }
+
+  static Map<String, bool> _parseNotifySources(Object? value) {
+    if (value is! Map) return const <String, bool>{};
+    final result = <String, bool>{};
+    for (final entry in value.entries) {
+      final key = entry.key.toString().trim();
+      if (key.isEmpty) continue;
+      if (entry.value is bool) result[key] = entry.value as bool;
+    }
+    return result;
   }
 
   static WeekStart _parseWeekStart(Object? value) {
@@ -315,6 +335,39 @@ class AppSettingsController extends ChangeNotifier {
   bool get autoUpdate => _settings.autoUpdate;
   bool get startMinimizedToTray => _settings.startMinimizedToTray;
   Brightness get platformBrightness => _platformBrightness;
+
+  Map<String, bool> get notifySources => _settings.notifySources;
+
+  /// 指定来源的系统通知是否开启（内置来源默认开、插件来源默认关）。
+  bool notifyEnabled(String key) {
+    return _settings.notifySources[key] ?? !key.startsWith('plugin:');
+  }
+
+  void setNotifyEnabled(String key, bool value) {
+    if (notifyEnabled(key) == value) return;
+    final next = Map<String, bool>.from(_settings.notifySources);
+    next[key] = value;
+    _settings = _settings.copyWith(notifySources: next);
+    _commit();
+  }
+
+  /// 确保某来源在设置里有一项（插件安装后使用；默认关闭，避免新插件默认打扰）。
+  void ensureNotifySource(String key, {bool enabled = false}) {
+    if (_settings.notifySources.containsKey(key)) return;
+    final next = Map<String, bool>.from(_settings.notifySources);
+    next[key] = enabled;
+    _settings = _settings.copyWith(notifySources: next);
+    _commit();
+  }
+
+  /// 移除某来源（插件卸载后使用）。
+  void removeNotifySource(String key) {
+    if (!_settings.notifySources.containsKey(key)) return;
+    final next = Map<String, bool>.from(_settings.notifySources);
+    next.remove(key);
+    _settings = _settings.copyWith(notifySources: next);
+    _commit();
+  }
 
   /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
   bool get isDarkNow => isDarkNowAt(DateTime.now());
