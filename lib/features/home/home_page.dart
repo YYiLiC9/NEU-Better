@@ -946,9 +946,12 @@ class _HomePageState extends ConsumerState<HomePage>
       );
     }
     if (id == 'news') {
+      final notifyOn = ref
+          .watch(appSettingsProvider)
+          .notifyEnabled('plugin:news');
       return NewsCard(
         size: size,
-        unread: _newsUnread,
+        unread: notifyOn ? _newsUnread : 0,
         latest: _newsLatest,
         onOpen: _openNews,
       );
@@ -1063,8 +1066,11 @@ class _HomePageState extends ConsumerState<HomePage>
           : prefs.selectedCids.first;
       final client = NewsClient();
       final result = await client.list(cid, page: 1, pageSize: 20);
+      final readIds = await store.readReadIds();
       if (!mounted) return;
-      final unread = result.items.where((item) => !item.hasRead).length;
+      final unread = result.items
+          .where((item) => !item.hasRead && !readIds.contains(item.id))
+          .length;
       setState(() {
         _newsUnread = unread;
         _newsLatest = result.items.take(2).toList(growable: false);

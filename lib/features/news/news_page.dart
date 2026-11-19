@@ -190,6 +190,20 @@ class _NewsPageState extends State<NewsPage> {
     }
   }
 
+  Future<void> _clearUnread() async {
+    final ids = <String>{..._readIds};
+    for (final list in _itemsByCid.values) {
+      for (final item in list) {
+        ids.add(item.id);
+      }
+    }
+    setState(() => _readIds = ids);
+    await _store.saveReadIds(ids);
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(const SnackBar(content: Text('已清除未读')));
+  }
+
   Future<void> _openSections() async {
     final result = await Navigator.of(context).push<List<String>>(
       MaterialPageRoute<List<String>>(
@@ -307,6 +321,21 @@ class _NewsPageState extends State<NewsPage> {
                     ),
                   ],
                 ),
+              ),
+              TextButton(
+                key: const Key('news-clear-unread'),
+                onPressed: _clearUnread,
+                style: TextButton.styleFrom(
+                  foregroundColor: NewsPalette.inkSoft,
+                  minimumSize: const Size(0, 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Text('清除未读'),
               ),
               IconButton(
                 key: const Key('news-settings'),
