@@ -102,35 +102,36 @@ class NotificationClient {
     return parseIndex(root);
   }
 
-  /// 标记已读。阶段0 未确认接口，先试 GET `?log_id=`，再试 POST json；失败不抛。
+  /// 标记已读：实测接口为 PUT `/frontend/msg/read?ucs_id=<log_id>`。
   Future<bool> markRead(List<int> logIds) async {
     if (logIds.isEmpty) return true;
+    var allOk = true;
     for (final id in logIds) {
       try {
-        final body = await _getJson('/read', query: {'log_id': '$id'});
-        final root = _asMap(body);
-        if (_asInt(root['e']) == 0) return true;
-      } catch (_) {
-        // 继续尝试 POST。
-      }
-      try {
-        final response = await _dio.post<String>(
+        var response = await _dio.put<String>(
           '$_base/read',
-          data: jsonEncode({'log_id': id}),
-          options: Options(
-            headers: {
-              ..._headers,
-              'Content-Type': 'application/json; charset=utf-8',
-            },
-          ),
+          queryParameters: {'ucs_id': '$id'},
+          options: Options(headers: _headers),
         );
+        if (_looksExpired(response)) {
+          await _refreshSession();
+          response = await _dio.put<String>(
+            '$_base/read',
+            queryParameters: {'ucs_id': '$id'},
+            options: Options(headers: _headers),
+          );
+        }
         final root = _asMap(_decode(response.data));
-        if (_asInt(root['e']) == 0) return true;
+        if (_asInt(root['e']) != 0) {
+          debugPrint('[notify] markRead $id -> ${response.data}');
+          allOk = false;
+        }
       } catch (error) {
         debugPrint('[notify] markRead failed for $id: $error');
+        allOk = false;
       }
     }
-    return false;
+    return allOk;
   }
 
   Future<Object?> _getJson(String path, {Map<String, String>? query}) async {

@@ -680,14 +680,15 @@ class _NotificationSettingsEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.canvas,
+        borderRadius: BorderRadius.circular(13),
         border: Border.all(color: AppColors.line),
       ),
       child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        contentPadding: EdgeInsets.zero,
         leading: Icon(
           Icons.notifications_active_outlined,
           size: 20,
@@ -706,11 +707,17 @@ class _NotificationSettingsEntry extends StatelessWidget {
           style: TextStyle(fontSize: 11, color: AppColors.muted),
         ),
         trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.faint),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => const NotificationSettingsPage(),
-          ),
-        ),
+        onTap: () {
+          if (Platform.isWindows) {
+            showNotificationSettingsDialog(context);
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const NotificationSettingsPage(),
+              ),
+            );
+          }
+        },
       ),
     );
   }
