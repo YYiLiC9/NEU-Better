@@ -265,45 +265,27 @@ class _NewsPageState extends State<NewsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              IconButton(
+              TextButton.icon(
                 key: const Key('news-back'),
                 onPressed: () => Navigator.of(context).maybePop(),
-                tooltip: '返回',
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints.tightFor(
-                  width: 32,
-                  height: 32,
-                ),
-                icon: const Icon(
-                  Icons.arrow_back_rounded,
-                  size: 20,
-                  color: NewsPalette.inkSoft,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '东大校刊',
-                      style: newsSerif(fontSize: 27, height: 1.05),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '号外 · NEU BETTER',
-                      style: newsSans(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: NewsPalette.red,
-                      ),
-                    ),
-                  ],
+                icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                label: const Text('返回'),
+                style: TextButton.styleFrom(
+                  foregroundColor: NewsPalette.inkSoft,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 30),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: newsSans(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
+              const Spacer(),
               IconButton(
                 key: const Key('news-settings'),
                 onPressed: _openSections,
@@ -316,7 +298,18 @@ class _NewsPageState extends State<NewsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 2),
+          Text('东大校刊', style: newsSerif(fontSize: 27, height: 1.05)),
+          const SizedBox(height: 3),
+          Text(
+            '号外 · NEU BETTER',
+            style: newsSans(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: NewsPalette.red,
+            ),
+          ),
+          const SizedBox(height: 8),
           const Divider(color: NewsPalette.ink, height: 1, thickness: 1.2),
           const SizedBox(height: 2),
           const Divider(color: NewsPalette.ink, height: 1, thickness: 0.4),
