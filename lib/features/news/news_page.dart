@@ -328,8 +328,12 @@ class _NewsPageState extends State<NewsPage> {
                 style: TextButton.styleFrom(
                   foregroundColor: NewsPalette.inkSoft,
                   minimumSize: const Size(0, 32),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  side: const BorderSide(color: NewsPalette.hairline, width: 1),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   textStyle: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
