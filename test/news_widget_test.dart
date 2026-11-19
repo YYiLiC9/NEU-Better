@@ -153,8 +153,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('未读 8 条'), findsOneWidget);
+    // 只显示最新一条，不再显示未读条数文字（未读仅右上角红点）。
+    expect(find.text('未读 8 条'), findsNothing);
     expect(find.text('新闻标题一'), findsOneWidget);
-    expect(find.text('新闻标题二'), findsOneWidget);
+    expect(find.text('新闻标题二'), findsNothing);
+    expect(find.text('摘要一'), findsOneWidget);
   });
 }

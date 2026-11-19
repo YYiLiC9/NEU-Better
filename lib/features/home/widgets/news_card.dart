@@ -5,7 +5,8 @@ import '../../../core/models/news_models.dart';
 import '../home_card_layout.dart';
 
 /// 首页「新闻」内置插件卡：1×1 显示「闻」字徽标 + 名称；
-/// 2×2 / 2×4 显示未读数量 + 最近两条标题（2×4 追加第二条摘要）。
+/// 2×2 / 2×4 只展示最近的一条新闻（标题多行 + 摘要 + 来源日期），
+/// 有未读时仅在右上角显示一个小红点。
 class NewsCard extends StatelessWidget {
   const NewsCard({
     super.key,
@@ -20,26 +21,42 @@ class NewsCard extends StatelessWidget {
   final List<NewsItem> latest;
   final VoidCallback? onOpen;
 
-  String get _unreadText => unread > 0 ? '未读 $unread 条' : '暂无未读';
-
   @override
   Widget build(BuildContext context) {
     final compact = size == HomeCardSize.s1x1;
     final card = Container(
-      padding: EdgeInsets.all(compact ? 8 : 16),
+      padding: EdgeInsets.all(compact ? 8 : 14),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.line),
       ),
-      child: compact ? _buildCompact() : _buildDetailed(),
+      child: compact ? _buildCompact() : _buildDetailedBody(size == HomeCardSize.s2x4),
+    );
+    final wrapped = Stack(
+      children: [
+        card,
+        if (unread > 0)
+          Positioned(
+            top: compact ? 6 : 8,
+            right: compact ? 6 : 8,
+            child: Container(
+              width: compact ? 6 : 7,
+              height: compact ? 6 : 7,
+              decoration: BoxDecoration(
+                color: AppColors.nowRed,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
     );
     final onOpen = this.onOpen;
-    if (onOpen == null) return card;
+    if (onOpen == null) return wrapped;
     return GestureDetector(
       onTap: onOpen,
       behavior: HitTestBehavior.opaque,
-      child: card,
+      child: wrapped,
     );
   }
 
@@ -87,72 +104,23 @@ class NewsCard extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailed() {
-    final wide = size == HomeCardSize.s2x4;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final double designWidth;
-        final double designHeight;
-        if (wide && constraints.maxHeight > 0) {
-          designHeight = constraints.maxHeight * 1.16;
-          designWidth =
-              constraints.maxWidth * (designHeight / constraints.maxHeight);
-        } else {
-          designWidth = wide ? constraints.maxWidth : 150.0;
-          designHeight = wide ? 122.0 : 150.0;
-        }
-        return FittedBox(
-          fit: BoxFit.contain,
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: designWidth,
-            height: designHeight,
-            child: _buildDetailedBody(wide),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildDetailedBody(bool wide) {
-    final items = latest.take(2).toList(growable: false);
     final header = Row(
       children: [
         _buildGlyph(wide ? 20 : 18),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            '新闻',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: wide ? 14 : 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.ink,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            color: unread > 0
-                ? AppColors.campusBlue.withValues(alpha: 0.12)
-                : AppColors.line.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            _unreadText,
-            style: TextStyle(
-              fontSize: 9.5,
-              fontWeight: FontWeight.w600,
-              color: unread > 0 ? AppColors.campusBlue : AppColors.muted,
-            ),
+        const SizedBox(width: 7),
+        Text(
+          '新闻',
+          style: TextStyle(
+            fontSize: wide ? 14 : 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.ink,
           ),
         ),
       ],
     );
 
+    final items = latest.take(1).toList(growable: false);
     if (items.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,46 +138,47 @@ class NewsCard extends StatelessWidget {
       );
     }
 
+    final item = items.first;
+    final meta =
+        '${item.cname.isEmpty ? '新闻' : item.cname} · ${item.shortDate}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         header,
-        for (final item in items) _newsBlock(item, wide: wide),
-      ],
-    );
-  }
-
-  Widget _newsBlock(NewsItem item, {required bool wide}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
+        SizedBox(height: wide ? 10 : 8),
         Text(
           item.title.isEmpty ? '(无标题)' : item.title,
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: wide ? 13 : 12.5,
+            fontSize: wide ? 15 : 13.5,
+            height: 1.32,
             fontWeight: FontWeight.w600,
             color: AppColors.ink,
           ),
         ),
-        if (wide && item.desc.isNotEmpty) ...[
-          const SizedBox(height: 2),
+        if (item.desc.isNotEmpty) ...[
+          const SizedBox(height: 5),
           Text(
             item.desc,
-            maxLines: 1,
+            maxLines: wide ? 3 : 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 10, color: AppColors.muted),
+            style: TextStyle(
+              fontSize: wide ? 10.5 : 9.8,
+              height: 1.45,
+              color: AppColors.muted,
+            ),
           ),
         ],
-        const SizedBox(height: 2),
+        const SizedBox(height: 6),
         Text(
-          '${item.cname.isEmpty ? '新闻' : item.cname} · ${item.shortDate}',
+          meta,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: wide ? 10 : 9.5, color: AppColors.muted),
+          style: TextStyle(
+            fontSize: wide ? 10 : 9.5,
+            color: AppColors.faint,
+          ),
         ),
       ],
     );

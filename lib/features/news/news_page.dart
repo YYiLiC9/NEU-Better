@@ -271,12 +271,19 @@ class _NewsPageState extends State<NewsPage> {
                 key: const Key('news-back'),
                 onPressed: () => Navigator.of(context).maybePop(),
                 tooltip: '返回',
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
+                ),
                 icon: const Icon(
                   Icons.arrow_back_rounded,
                   size: 20,
                   color: NewsPalette.inkSoft,
                 ),
               ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -509,26 +516,41 @@ class _NewsPageState extends State<NewsPage> {
             ),
             const SizedBox(height: 6),
             if (item.firstPic != null) ...[
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Image.network(
-                  item.firstPic!,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return Container(color: NewsPalette.hairline);
-                  },
-                  errorBuilder: (context, error, stack) => Container(
-                    color: NewsPalette.hairline,
-                    child: const Center(
-                      child: Icon(
-                        Icons.image_not_supported_outlined,
-                        size: 26,
-                        color: NewsPalette.inkSoft,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth < 460
+                      ? constraints.maxWidth
+                      : 460.0;
+                  final height = (width * 9 / 16).clamp(0.0, 250.0);
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: SizedBox(
+                        width: width,
+                        height: height,
+                        child: Image.network(
+                          item.firstPic!,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return Container(color: NewsPalette.hairline);
+                          },
+                          errorBuilder: (context, error, stack) => Container(
+                            color: NewsPalette.hairline,
+                            child: const Center(
+                              child: Icon(
+                                Icons.image_not_supported_outlined,
+                                size: 26,
+                                color: NewsPalette.inkSoft,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
               const SizedBox(height: 10),
             ],
