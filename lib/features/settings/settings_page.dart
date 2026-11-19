@@ -5,7 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/theme/windows_font_library.dart';
+import '../../core/settings/app_font.dart';
 import '../../core/settings/app_settings.dart';
+import '../../core/storage/account_scope.dart';
 import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
 import '../timetable/course_override_store.dart';
@@ -15,6 +18,7 @@ import '../timetable/timetable_overlay.dart';
 import '../timetable/timetable_store.dart';
 
 part 'widgets/settings_widgets.dart';
+part 'widgets/font_settings.dart';
 
 /// 以居中小对话框形式打开设置（右上角有关闭按钮）。
 Future<void> showSettingsDialog(BuildContext context) {
@@ -205,6 +209,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
   }
 
   Widget _buildPane(AppSettingsController controller) {
+    const fontSizes = FontSizePreference.values;
     switch (_category) {
       case 0:
         return Column(
@@ -217,6 +222,43 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
               value: controller.themePreference,
               onChanged: controller.setThemePreference,
             ),
+            if (Theme.of(context).platform == TargetPlatform.windows) ...[
+              const SizedBox(height: 18),
+              const _SectionLabel(
+                icon: Icons.font_download_outlined,
+                label: '界面字体',
+              ),
+              const SizedBox(height: 8),
+              const _FontSettings(),
+              const SizedBox(height: 18),
+              const _SectionLabel(icon: Icons.format_size, label: '字体大小'),
+              Row(
+                children: [
+                  const Text('小'),
+                  Expanded(
+                    child: Semantics(
+                      label: '字体大小',
+                      child: Slider(
+                        value: controller.settings.fontSizePreference.index
+                            .toDouble(),
+                        max: (fontSizes.length - 1).toDouble(),
+                        divisions: fontSizes.length - 1,
+                        onChanged: (position) =>
+                            controller.setFontSizePreference(
+                              fontSizes[position.round()],
+                            ),
+                        semanticFormatterCallback: (position) {
+                          final scale = fontSizes[position.round()].scale;
+                          return '${(scale * 100).round()}%';
+                        },
+                      ),
+                    ),
+                  ),
+                  const Text('大'),
+                ],
+              ),
+            ],
+            const SizedBox(height: 18),
           ],
         );
       case 1:

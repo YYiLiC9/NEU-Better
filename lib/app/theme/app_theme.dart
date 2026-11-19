@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// 浅色 / 深色两套令牌值。界面只通过 [AppColors] 取色，
 /// 由 `AppColors.setDark` 在应用根部统一切换。
@@ -124,34 +125,38 @@ abstract final class AppColors {
 }
 
 abstract final class AppTheme {
-  static ThemeData get light => _build(_lightPalette, Brightness.light);
+  static const windowsBundledFontFamily = 'NEU Noto Sans SC';
+  static const windowsSystemFontFamily = 'Segoe UI Variable Text';
+  static const _windowsFontDirectory = 'assets/fonts/noto-sans-sc';
 
-  static ThemeData get dark => _build(_darkPalette, Brightness.dark);
+  static Future<void> loadWindowsFont() async {
+    final loader = FontLoader(windowsBundledFontFamily)
+      ..addFont(rootBundle.load('$_windowsFontDirectory/NotoSansSC-VF.ttf'));
+    await loader.load();
+    LicenseRegistry.addLicense(() async* {
+      yield LicenseEntryWithLineBreaks(const [
+        'Noto Sans SC',
+      ], await rootBundle.loadString('$_windowsFontDirectory/OFL.txt'));
+    });
+  }
 
-  static ThemeData _build(_Palette palette, Brightness brightness) {
+  static ThemeData get light => forBrightness(Brightness.light);
+
+  static ThemeData get dark => forBrightness(Brightness.dark);
+
+  static ThemeData forBrightness(
+    Brightness brightness, {
+    String? windowsFontFamily,
+  }) {
+    final isDark = brightness == Brightness.dark;
+    final palette = isDark ? _darkPalette : _lightPalette;
     final scheme = ColorScheme.fromSeed(
       seedColor: palette.campusBlue,
       brightness: brightness,
       surface: palette.surface,
     );
 
-    // Windows 优先 Segoe UI Variable Text（Win11 系统字体，数字等宽观感更
-    // 整齐），缺省时逐级回落到 Segoe UI 与雅黑；明确列出 fallback 避免中文
-    // 与拉丁字符落到不同字体上。
-    const windowsFontStack = <String>[
-      'Segoe UI Variable Text',
-      'Segoe UI',
-      'Microsoft YaHei UI',
-      'Microsoft YaHei',
-    ];
-    final fontFamily = defaultTargetPlatform == TargetPlatform.windows
-        ? windowsFontStack.first
-        : null;
-    final List<String> fontFamilyFallback = defaultTargetPlatform ==
-            TargetPlatform.windows
-        ? windowsFontStack.skip(1).toList()
-        : const <String>[];
-    final isDark = brightness == Brightness.dark;
+    final isWindows = defaultTargetPlatform == TargetPlatform.windows;
     final onPrimary = isDark ? const Color(0xFF08131F) : Colors.white;
     // 数字统一等宽（tabular figures）：时间、周次、电量等数值在卡片里
     // 不会因比例数字宽度抖动。
@@ -163,12 +168,21 @@ abstract final class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: palette.canvas,
       splashFactory: InkSparkle.splashFactory,
-      fontFamily: fontFamily,
-      fontFamilyFallback: fontFamilyFallback,
+      fontFamily: isWindows
+          ? windowsFontFamily ?? windowsBundledFontFamily
+          : null,
+      fontFamilyFallback: isWindows
+          ? const [
+              'Segoe UI',
+              'Microsoft YaHei UI',
+              'Microsoft YaHei',
+              'Segoe UI Emoji',
+            ]
+          : const <String>[],
       textTheme: TextTheme(
         displaySmall: TextStyle(
           color: palette.ink,
-          fontSize: 42,
+          fontSize: isWindows ? 40 : 42,
           height: 1.18,
           fontWeight: FontWeight.w600,
           letterSpacing: -0.8,
@@ -183,7 +197,7 @@ abstract final class AppTheme {
         ),
         titleMedium: TextStyle(
           color: palette.ink,
-          fontSize: 15,
+          fontSize: isWindows ? 16 : 15,
           height: 1.4,
           fontWeight: FontWeight.w500,
           fontFeatures: numericFeatures,
@@ -191,7 +205,7 @@ abstract final class AppTheme {
         bodyMedium: TextStyle(
           color: palette.muted,
           fontSize: 14,
-          height: 1.7,
+          height: isWindows ? 1.55 : 1.7,
           fontWeight: FontWeight.w400,
           fontFeatures: numericFeatures,
         ),
@@ -251,8 +265,8 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(11),
           ),
-          textStyle: const TextStyle(
-            fontSize: 13,
+          textStyle: TextStyle(
+            fontSize: isWindows ? 14 : 13,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
           ),
