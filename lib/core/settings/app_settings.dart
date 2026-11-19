@@ -306,6 +306,24 @@ class AppSettingsController extends ChangeNotifier {
     _commit();
   }
 
+  /// 确保某来源在设置里有一项（插件安装后使用；默认关闭，避免新插件默认打扰）。
+  void ensureNotifySource(String key, {bool enabled = false}) {
+    if (_settings.notifySources.containsKey(key)) return;
+    final next = Map<String, bool>.from(_settings.notifySources);
+    next[key] = enabled;
+    _settings = _settings.copyWith(notifySources: next);
+    _commit();
+  }
+
+  /// 移除某来源（插件卸载后使用）。
+  void removeNotifySource(String key) {
+    if (!_settings.notifySources.containsKey(key)) return;
+    final next = Map<String, bool>.from(_settings.notifySources);
+    next.remove(key);
+    _settings = _settings.copyWith(notifySources: next);
+    _commit();
+  }
+
   /// 当前实际应使用的明暗状态（跟随系统 / 浅色 / 深色三选一）。
   bool get isDarkNow => isDarkNowAt(DateTime.now());
 

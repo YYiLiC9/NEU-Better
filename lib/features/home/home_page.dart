@@ -203,11 +203,20 @@ class _HomePageState extends ConsumerState<HomePage>
         _installedPlugins = installed;
         _installedPluginVersions = versions;
       });
+      _syncPluginNotifySources(installed);
     } catch (error) {
       debugPrint('[plugins] load installed failed: $error');
     }
     await _loadHomeLayout();
     await _fetchCatalog();
+  }
+
+  /// 让「设置 → 通知」里为每个已安装插件出现一个通知开关（默认关）。
+  void _syncPluginNotifySources(Iterable<PluginManifest> plugins) {
+    final controller = ref.read(appSettingsProvider.notifier);
+    for (final plugin in plugins) {
+      controller.ensureNotifySource('plugin:${plugin.id}');
+    }
   }
 
   Future<void> _fetchCatalog({bool force = false}) async {
@@ -252,6 +261,9 @@ class _HomePageState extends ConsumerState<HomePage>
         _installedPlugins = installed;
         _installedPluginVersions = versions;
       });
+      ref
+          .read(appSettingsProvider.notifier)
+          .ensureNotifySource('plugin:${manifest.id}');
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -281,6 +293,7 @@ class _HomePageState extends ConsumerState<HomePage>
             if (card.id != id) card,
         ];
       });
+      ref.read(appSettingsProvider.notifier).removeNotifySource('plugin:$id');
       await _saveHomeLayout();
     } catch (error) {
       debugPrint('[plugins] uninstall failed: $error');
