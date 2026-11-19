@@ -672,3 +672,153 @@ class _Footnote extends StatelessWidget {
     );
   }
 }
+
+/// 「通知」二级设置入口（桌面弹窗与手机内嵌共用）。
+class _NotificationSettingsEntry extends StatelessWidget {
+  const _NotificationSettingsEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(
+          Icons.notifications_active_outlined,
+          size: 20,
+          color: AppColors.muted,
+        ),
+        title: Text(
+          '通知',
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.ink,
+          ),
+        ),
+        subtitle: Text(
+          '系统通知与来源开关',
+          style: TextStyle(fontSize: 11, color: AppColors.muted),
+        ),
+        trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.faint),
+        onTap: () {
+          if (Platform.isWindows) {
+            showNotificationSettingsDialog(context);
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const NotificationSettingsPage(),
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+}
+
+/// 桌面设置左侧分类项。
+class _SettingsNavItem extends StatefulWidget {
+  const _SettingsNavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_SettingsNavItem> createState() => _SettingsNavItemState();
+}
+
+class _SettingsNavItemState extends State<_SettingsNavItem> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final bg = selected
+        ? AppColors.campusBlue.withValues(alpha: AppColors.isDark ? 0.20 : 0.10)
+        : (_hover ? AppColors.line.withValues(alpha: 0.45) : Colors.transparent);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.icon,
+                size: 18,
+                color: selected ? AppColors.campusBlue : AppColors.muted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: selected ? AppColors.campusBlue : AppColors.ink,
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 设置分组卡：小标题 + 统一容器（canvas 底、14 圆角、1px 线）。
+class _SettingsGroupCard extends StatelessWidget {
+  const _SettingsGroupCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel(icon: icon, label: title),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+          decoration: BoxDecoration(
+            color: AppColors.canvas,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: AppColors.line),
+          ),
+          child: child,
+        ),
+      ],
+    );
+  }
+}

@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
@@ -11,6 +12,7 @@ import '../../core/storage/account_scope.dart';
 import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
 import '../timetable/course_override_store.dart';
+import '../notifications/notification_settings_page.dart';
 import '../timetable/timetable_models.dart';
 import '../timetable/timetable_overlay.dart';
 import '../timetable/timetable_store.dart';
@@ -19,9 +21,6 @@ part 'widgets/settings_widgets.dart';
 part 'widgets/font_settings.dart';
 
 /// 以居中小对话框形式打开设置（右上角有关闭按钮）。
-///
-/// 设置项很少（外观 + 窗口行为），整页跳转显得过重，因此用 Dialog 承载；
-/// 点击遮罩或右上角 × 均可关闭。
 Future<void> showSettingsDialog(BuildContext context) {
   final isDark = AppColors.isDark;
   return showDialog<void>(
@@ -32,116 +31,203 @@ Future<void> showSettingsDialog(BuildContext context) {
   );
 }
 
-class _SettingsDialog extends ConsumerWidget {
+/// 桌面设置：左侧分类 + 右侧内容的两栏小窗。
+class _SettingsDialog extends ConsumerStatefulWidget {
   const _SettingsDialog();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(appSettingsProvider);
-    final controller = ref.read(appSettingsProvider.notifier);
-    const fontSizes = FontSizePreference.values;
+  ConsumerState<_SettingsDialog> createState() => _SettingsDialogState();
+}
 
-    return ScrollbarTheme(
-      data: ScrollbarThemeData(
-        thickness: const WidgetStatePropertyAll(4),
-        radius: const Radius.circular(2),
-        thumbColor: WidgetStatePropertyAll(
-          AppColors.muted.withValues(alpha: 0.45),
-        ),
-        trackColor: const WidgetStatePropertyAll(Colors.transparent),
-      ),
-      child: Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        width: 560,
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
-        ),
-        padding: const EdgeInsets.fromLTRB(22, 18, 8, 16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.line),
-          boxShadow: AppColors.isDark
-              ? null
-              : const [
-                  BoxShadow(
-                    color: Color(0x140B2E5C),
-                    blurRadius: 32,
-                    offset: Offset(0, 16),
-                  ),
-                ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 头部：调色板徽标 + 标题 + 右上角关闭（固定，不随内容滚动）。
-            Row(
-              children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: AppColors.campusBlue.withValues(
-                      alpha: AppColors.isDark ? 0.22 : 0.10,
-                    ),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Icon(
-                    Icons.settings_outlined,
-                    size: 16,
-                    color: AppColors.campusBlue,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '设置',
-                  style: TextStyle(
-                    color: AppColors.ink,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Spacer(),
-                Tooltip(
-                  message: '关闭',
-                  waitDuration: const Duration(milliseconds: 500),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => Navigator.of(context).pop(),
-                    child: Padding(
-                      padding: const EdgeInsets.all(5),
-                      child: Icon(
-                        Icons.close_rounded,
-                        size: 17,
-                        color: AppColors.muted,
+class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
+  int _category = 0;
+
+  static const _categories = <(IconData, String)>[
+    (Icons.palette_outlined, '外观'),
+    (Icons.calendar_month_outlined, '课表'),
+    (Icons.notifications_active_outlined, '通知'),
+    (Icons.settings_outlined, '通用'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(appSettingsProvider);
+    final controller = ref.read(appSettingsProvider.notifier);
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: 760,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.84,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.line),
+              boxShadow: AppColors.isDark
+                  ? null
+                  : const [
+                      BoxShadow(
+                        color: Color(0x140B2E5C),
+                        blurRadius: 32,
+                        offset: Offset(0, 16),
                       ),
-                    ),
+                    ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 固定头部
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 16, 12, 0),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: AppColors.campusBlue.withValues(
+                            alpha: AppColors.isDark ? 0.22 : 0.10,
+                          ),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Icon(
+                          Icons.settings_outlined,
+                          size: 16,
+                          color: AppColors.campusBlue,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '设置',
+                        style: TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Tooltip(
+                        message: '关闭',
+                        waitDuration: const Duration(milliseconds: 500),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => Navigator.of(context).pop(),
+                          child: Padding(
+                            padding: const EdgeInsets.all(5),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 17,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Divider(height: 1, color: AppColors.line),
+                Flexible(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // 左：分类导航
+                      SizedBox(
+                        width: 168,
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: ListView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                children: [
+                                  for (var i = 0; i < _categories.length; i++)
+                                    _SettingsNavItem(
+                                      icon: _categories[i].$1,
+                                      label: _categories[i].$2,
+                                      selected: _category == i,
+                                      onTap: () => setState(() => _category = i),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+                              child: _Footnote(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      VerticalDivider(width: 1, color: AppColors.line),
+                      // 右：当前分类内容
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 140),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeIn,
+                          // 默认 Stack 居中会让内容在视口内垂直居中；改为左上对齐，
+                          // 让每个分类的内容都从顶部开始排。
+                          layoutBuilder: (currentChild, previousChildren) =>
+                              Stack(
+                                alignment: Alignment.topLeft,
+                                children: [...previousChildren, ?currentChild],
+                              ),
+                          child: SingleChildScrollView(
+                            key: ValueKey<int>(_category),
+                            padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 520),
+                              child: _buildPane(controller),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(right: 14),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _SectionLabel(
-                      icon: Icons.palette_outlined,
-                      label: '主题',
-                    ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPane(AppSettingsController controller) {
+    const fontSizes = FontSizePreference.values;
+    switch (_category) {
+      case 0:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionLabel(icon: Icons.palette_outlined, label: '主题'),
+            const SizedBox(height: 10),
             const SizedBox(height: 10),
             _ThemeModeSelector(
-              value: settings.themePreference,
+              value: controller.themePreference,
               onChanged: controller.setThemePreference,
             ),
             if (Theme.of(context).platform == TargetPlatform.windows) ...[
               const SizedBox(height: 18),
-              const _SectionLabel(icon: Icons.font_download_outlined, label: '界面字体'),
+              const _SectionLabel(
+                icon: Icons.font_download_outlined,
+                label: '界面字体',
+              ),
               const SizedBox(height: 8),
               const _FontSettings(),
               const SizedBox(height: 18),
@@ -153,12 +239,14 @@ class _SettingsDialog extends ConsumerWidget {
                     child: Semantics(
                       label: '字体大小',
                       child: Slider(
-                        value: settings.fontSizePreference.index.toDouble(),
+                        value: controller.settings.fontSizePreference.index
+                            .toDouble(),
                         max: (fontSizes.length - 1).toDouble(),
                         divisions: fontSizes.length - 1,
-                        onChanged: (position) => controller.setFontSizePreference(
-                          fontSizes[position.round()],
-                        ),
+                        onChanged: (position) =>
+                            controller.setFontSizePreference(
+                              fontSizes[position.round()],
+                            ),
                         semanticFormatterCallback: (position) {
                           final scale = fontSizes[position.round()].scale;
                           return '${(scale * 100).round()}%';
@@ -171,40 +259,55 @@ class _SettingsDialog extends ConsumerWidget {
               ),
             ],
             const SizedBox(height: 18),
+          ],
+        );
+      case 1:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             const _SectionLabel(
               icon: Icons.calendar_today_outlined,
               label: '每周起始日',
             ),
             const SizedBox(height: 10),
             _WeekStartSelector(
-              value: settings.weekStart,
+              value: controller.weekStart,
               onChanged: controller.setWeekStart,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 24),
             const _CourseOverlaySection(),
-            const SizedBox(height: 16),
+          ],
+        );
+      case 2:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             const _SectionLabel(
-              icon: Icons.system_update_alt_rounded,
-              label: '更新',
+              icon: Icons.notifications_active_outlined,
+              label: '系统通知',
             ),
             const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.canvas,
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(color: AppColors.line),
-              ),
+            const NotificationSettingsContent(),
+          ],
+        );
+      default:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SettingsGroupCard(
+              title: '更新',
+              icon: Icons.system_update_alt_rounded,
               child: Column(
                 children: [
                   _SwitchRow(
                     icon: Icons.autorenew_rounded,
                     title: '自动检查更新（来源 GitHub）',
-                    value: settings.autoUpdate,
+                    value: controller.autoUpdate,
                     onChanged: controller.setAutoUpdate,
                   ),
+                  Divider(height: 1, color: AppColors.line),
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Row(
                       children: [
                         Icon(
@@ -221,118 +324,91 @@ class _SettingsDialog extends ConsumerWidget {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: () =>
+                              checkForUpdates(context, manual: true),
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text('检查更新'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.campusBlue,
+                            textStyle: const TextStyle(fontSize: 12),
+                          ),
+                        ),
                       ],
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () => checkForUpdates(context, manual: true),
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                      label: const Text('检查更新'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.campusBlue,
-                        textStyle: const TextStyle(fontSize: 12),
-                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
             if (Platform.isWindows) ...[
-              const _SectionLabel(
+              const SizedBox(height: 24),
+              _SettingsGroupCard(
+                title: '启动',
                 icon: Icons.power_settings_new_outlined,
-                label: '启动',
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.canvas,
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: AppColors.line),
-                ),
                 child: Column(
                   children: [
                     _SwitchRow(
                       icon: Icons.login_rounded,
                       title: '开机自启动',
-                      value: settings.autoStart,
+                      value: controller.autoStart,
                       onChanged: controller.setAutoStart,
                     ),
+                    Divider(height: 1, color: AppColors.line),
                     _SwitchRow(
                       icon: Icons.minimize_rounded,
                       title: '开机启动时自动最小化到托盘',
-                      value:
-                          settings.startMinimizedToTray && settings.autoStart,
-                      onChanged: settings.autoStart
+                      value: controller.startMinimizedToTray &&
+                          controller.autoStart,
+                      onChanged: controller.autoStart
                           ? controller.setStartMinimizedToTray
                           : null,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-            ],
-            const _SectionLabel(
-              icon: Icons.desktop_windows_outlined,
-              label: '窗口',
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.canvas,
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: Column(
-                children: [
-                  _SwitchRow(
-                    icon: Icons.notifications_active_outlined,
-                    title: '显示托盘栏图标',
-                    value: settings.showTrayIcon,
-                    onChanged: (value) {
-                      controller.setShowTrayIcon(value);
-                      if (!value && settings.minimizeOnClose) {
-                        controller.setMinimizeOnClose(false);
-                      }
-                    },
-                  ),
-                  _SwitchRow(
-                    icon: Icons.picture_in_picture_rounded,
-                    title: '关闭窗口时最小化到托盘',
-                    value: settings.minimizeOnClose && settings.showTrayIcon,
-                    onChanged: settings.showTrayIcon
-                        ? controller.setMinimizeOnClose
-                        : null,
-                  ),
-                ],
-              ),
-            ),
-                    const SizedBox(height: 14),
-                    const _Footnote(),
+              const SizedBox(height: 24),
+              _SettingsGroupCard(
+                title: '窗口',
+                icon: Icons.desktop_windows_outlined,
+                child: Column(
+                  children: [
+                    _SwitchRow(
+                      icon: Icons.notifications_active_outlined,
+                      title: '显示托盘栏图标',
+                      value: controller.showTrayIcon,
+                      onChanged: (value) {
+                        controller.setShowTrayIcon(value);
+                        if (!value && controller.minimizeOnClose) {
+                          controller.setMinimizeOnClose(false);
+                        }
+                      },
+                    ),
+                    Divider(height: 1, color: AppColors.line),
+                    _SwitchRow(
+                      icon: Icons.picture_in_picture_rounded,
+                      title: '关闭窗口时最小化到托盘',
+                      value:
+                          controller.minimizeOnClose && controller.showTrayIcon,
+                      onChanged: controller.showTrayIcon
+                          ? controller.setMinimizeOnClose
+                          : null,
+                    ),
                   ],
                 ),
               ),
-            ),
+            ],
           ],
-        ),
-      ),
-      ),
-    );
+        );
+    }
   }
 }
 
-/// 手机端内嵌设置页：作为底部导航「设置」的第三项常驻主界面。
+/// 手机端内嵌设置页：作为底部导航「设置」的常驻主界面。
 ///
 /// 与桌面弹窗 [_SettingsDialog] 的差异：
 /// - 不含「窗口」相关设置（托盘图标/最小化到托盘是 Windows 桌面能力）；
-/// - 保留「外观」，并在底部提供「退出登录」按钮（退出入口从顶部移到这里）。
+/// - 保留「外观」，并在底部提供「退出登录」按钮。
 class MobileSettingsPage extends ConsumerWidget {
   const MobileSettingsPage({super.key, required this.onLogout});
 
@@ -393,6 +469,13 @@ class MobileSettingsPage extends ConsumerWidget {
         ),
         const SizedBox(height: 20),
         const _CourseOverlaySection(),
+        const SizedBox(height: 20),
+        const _SectionLabel(
+          icon: Icons.notifications_active_outlined,
+          label: '通知',
+        ),
+        const SizedBox(height: 10),
+        const _NotificationSettingsEntry(),
         const SizedBox(height: 20),
         const _SectionLabel(
           icon: Icons.system_update_alt_rounded,

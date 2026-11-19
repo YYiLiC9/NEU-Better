@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.media.AudioAttributes
 import android.content.Context
 import android.content.ClipData
 import android.content.ContentValues
@@ -39,6 +40,7 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ensureElectricityAlertChannel()
+        ensurePluginNotifyChannel()
         requestNotificationPermissionIfNeeded()
     }
 
@@ -67,6 +69,43 @@ class MainActivity : FlutterActivity() {
                     pendingOpenDorm = false
                     Log.d(LOG_TAG, "getPendingOpenDorm -> $pending")
                     result.success(pending)
+                }
+                // 插件/校园通知：使用 plugin_notify_v1 渠道发系统通知（带提示音）。
+                "showPluginNotification" -> {
+                    val title = call.argument<String>("title") ?: "通知"
+                    val body = call.argument<String>("body") ?: ""
+                    try {
+                        showPluginNotification(title, body)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("show_failed", error.message, null)
+                    }
+                }
+                // 后台轮询「校园通知」：保存 personal cookie 与基线，并安排 15 分钟闹钟。
+                "setBackgroundNotify" -> {
+                    val cookie = call.argument<String>("cookie") ?: ""
+                    val last = call.argument<Int>("last") ?: 0
+                    try {
+                        if (cookie.isEmpty()) {
+                            NotifyPollPrefs.save(this, false, "", last)
+                            NotifyPollScheduler.cancel(this)
+                        } else {
+                            NotifyPollPrefs.save(this, true, cookie, last)
+                            NotifyPollScheduler.schedule(this)
+                        }
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("bg_notify_failed", error.message, null)
+                    }
+                }
+                "disableBackgroundNotify" -> {
+                    try {
+                        NotifyPollPrefs.setEnabled(this, false)
+                        NotifyPollScheduler.cancel(this)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("bg_notify_failed", error.message, null)
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -286,8 +325,59 @@ class MainActivity : FlutterActivity() {
             enableLights(true)
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 400, 200, 400)
+            // 显式设置提示音：旧渠道（electricity_alert）曾因未设置 sound 而静音。
+            setSound(
+                Settings.System.DEFAULT_NOTIFICATION_URI,
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build(),
+            )
         }
         manager.createNotificationChannel(channel)
+    }
+
+    /** 创建插件/校园通知渠道（plugin_notify_v1）：IMPORTANCE_HIGH + 显式提示音。 */
+    private fun ensurePluginNotifyChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(PLUGIN_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            PLUGIN_CHANNEL_ID,
+            "应用通知",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "校园通知、新邮件与插件消息的悬浮提醒"
+            enableLights(true)
+            enableVibration(true)
+            setSound(
+                Settings.System.DEFAULT_NOTIFICATION_URI,
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build(),
+            )
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    /** 发一条插件/校园通知悬浮通知；未授予通知权限时静默跳过。 */
+    private fun showPluginNotification(title: String, body: String) {
+        ensurePluginNotifyChannel()
+        if (!hasNotificationPermission()) {
+            return
+        }
+        val builder = NotificationCompat.Builder(this, PLUGIN_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setSilent(false)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+        NotificationManagerCompat.from(this)
+            .notify(PLUGIN_NOTIFICATION_ID, builder.build())
     }
 
     /** 发一条用电提醒悬浮通知；未授予通知权限时静默跳过（应用内弹窗仍兜底）。 */
@@ -303,6 +393,7 @@ class MainActivity : FlutterActivity() {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setSilent(false)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
@@ -346,8 +437,10 @@ class MainActivity : FlutterActivity() {
     companion object {
         /** 与 Dart 侧 AndroidHeadsUpChannel.channel 名称一致。 */
         private const val CHANNEL_NAME = "neu_better/notifications"
-        private const val ALERT_CHANNEL_ID = "electricity_alert"
+        private const val ALERT_CHANNEL_ID = "electricity_alert_v2"
+        private const val PLUGIN_CHANNEL_ID = "plugin_notify_v1"
         private const val ALERT_NOTIFICATION_ID = 0xE1EC
+        private const val PLUGIN_NOTIFICATION_ID = 0xE1ED
         private const val EXTRA_OPEN_DORM = "openDorm"
         private const val REQUEST_CODE_OPEN_DORM = 0x0D0E
         private const val LOG_TAG = "NEUNotify"
