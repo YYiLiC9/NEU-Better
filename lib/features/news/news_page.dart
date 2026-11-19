@@ -266,22 +266,22 @@ class _NewsPageState extends State<NewsPage> {
         children: [
           Row(
             children: [
-              TextButton.icon(
+              IconButton(
                 key: const Key('news-back'),
                 onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                label: const Text('返回'),
-                style: TextButton.styleFrom(
-                  foregroundColor: NewsPalette.inkSoft,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  minimumSize: const Size(0, 30),
+                tooltip: '返回',
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  size: 20,
+                  color: NewsPalette.inkSoft,
+                ),
+                style: IconButton.styleFrom(
+                  fixedSize: const Size(32, 32),
+                  minimumSize: const Size(32, 32),
+                  padding: EdgeInsets.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  textStyle: newsSans(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
