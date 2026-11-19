@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/app_launch.dart';
 import '../core/platform/windows_window.dart';
+import '../core/settings/app_font.dart';
 import '../core/settings/app_settings.dart';
 import '../core/update/update_flow.dart';
 import '../core/update/update_manager.dart';
 import '../features/auth/auth_gate.dart';
 import 'theme/app_theme.dart';
+import 'theme/windows_font_library.dart';
 
 /// 根导航 key：供启动时的自动更新检查在没有 BuildContext 的情况下弹窗。
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -128,6 +131,16 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final isDark = settings.isDarkNow;
+    final importedFont = settings.importedFont;
+    String? windowsFontFamily;
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      windowsFontFamily = switch (settings.fontPreference) {
+        AppFontPreference.system => AppTheme.windowsSystemFontFamily,
+        AppFontPreference.imported when importedFont != null =>
+          ref.watch(importedFontFamilyProvider(importedFont.id)).value,
+        _ => null,
+      };
+    }
     AppColors.setDark(isDark);
 
     ref.listen<AppSettingsController>(
@@ -139,11 +152,31 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       navigatorKey: _rootNavigatorKey,
       title: 'NEU Better',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppTheme.forBrightness(
+        Brightness.light,
+        windowsFontFamily: windowsFontFamily,
+      ),
+      darkTheme: AppTheme.forBrightness(
+        Brightness.dark,
+        windowsFontFamily: windowsFontFamily,
+      ),
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       themeAnimationDuration: const Duration(milliseconds: 200),
       themeAnimationCurve: Curves.easeOutCubic,
+      builder: (context, child) {
+        final scale = settings.fontSizePreference.scale;
+        if (Theme.of(context).platform != TargetPlatform.windows ||
+            scale == 1) {
+          return child!;
+        }
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: _AppTextScaler(media.textScaler, scale),
+          ),
+          child: child!,
+        );
+      },
       // 界面取色走 AppColors 静态令牌（不是 Theme.of），而大量子树以 const
       // 实例化——明暗切换时 Element 因 widget identical 被跳过，烘焙在
       // build 里的旧颜色不会刷新。用随明暗变化的 key 强制重挂载根子树，
@@ -154,4 +187,26 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
       ),
     );
   }
+}
+
+final class _AppTextScaler extends TextScaler {
+  const _AppTextScaler(this.systemScaler, this.multiplier);
+
+  final TextScaler systemScaler;
+  final double multiplier;
+
+  @override
+  double scale(double fontSize) => systemScaler.scale(fontSize) * multiplier;
+
+  @override
+  double get textScaleFactor => scale(14) / 14;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _AppTextScaler &&
+      systemScaler == other.systemScaler &&
+      multiplier == other.multiplier;
+
+  @override
+  int get hashCode => Object.hash(systemScaler, multiplier);
 }

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_notifier/local_notifier.dart';
 
 import 'app/app.dart';
+import 'app/theme/app_theme.dart';
 import 'core/platform/app_launch.dart';
 
 Future<void> main(List<String> args) async {
@@ -17,6 +18,12 @@ Future<void> main(List<String> args) async {
     await SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
     ]);
+  } else if (Platform.isWindows) {
+    try {
+      await AppTheme.loadWindowsFont();
+    } catch (error) {
+      debugPrint('[font] Noto Sans SC could not be loaded: $error');
+    }
   }
   runApp(const ProviderScope(child: NeuBetterApp()));
   // 通知初始化放到首帧之后再跑：它要经过插件的 Win32 注册（本机还可能失败

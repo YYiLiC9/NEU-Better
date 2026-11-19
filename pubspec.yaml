@@ -33,3 +33,7 @@ flutter:
   assets:
     - assets/app_icon.png
     - assets/plugins/index.json
+    # Noto Sans SC 2.004 (OFL 1.1), loaded before the first Windows frame.
+    - path: assets/fonts/noto-sans-sc/
+      platforms:
+        - windows
