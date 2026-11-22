@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/windows_startup.dart';
+import '../platform/windows_wifi.dart';
 import '../storage/account_scope.dart';
 import 'app_font.dart';
 
@@ -33,6 +34,8 @@ enum WeekStart { monday, sunday }
 /// 应用设置模型。所有字段都有安全的默认值，读取损坏的 JSON 时逐字段回退。
 @immutable
 class AppSettings {
+  static const defaultCampusWifiSsid = 'NEU';
+
   const AppSettings({
     this.themePreference = ThemePreference.system,
     this.fontPreference = AppFontPreference.bundled,
@@ -48,6 +51,8 @@ class AppSettings {
     this.autoUpdate = true,
     this.autoStart = false,
     this.startMinimizedToTray = false,
+    this.campusWifiSsid = defaultCampusWifiSsid,
+    this.campusAutoConnect = false,
     this.notifySources = const <String, bool>{},
   });
 
@@ -71,6 +76,8 @@ class AppSettings {
 
   /// 开机启动时自动隐藏窗口到托盘（仅 Windows 且 autoStart 生效时有意义）。
   final bool startMinimizedToTray;
+  final String campusWifiSsid;
+  final bool campusAutoConnect;
 
   /// 系统通知来源开关：`campus` / `dorm` / `mail` / `plugin:<id>`。
   /// 缺省未写入时：内置来源（campus/dorm/mail）默认开，插件来源默认关。
@@ -91,6 +98,8 @@ class AppSettings {
     bool? autoUpdate,
     bool? autoStart,
     bool? startMinimizedToTray,
+    String? campusWifiSsid,
+    bool? campusAutoConnect,
     Map<String, bool>? notifySources,
   }) {
     return AppSettings(
@@ -108,6 +117,10 @@ class AppSettings {
       autoUpdate: autoUpdate ?? this.autoUpdate,
       autoStart: autoStart ?? this.autoStart,
       startMinimizedToTray: startMinimizedToTray ?? this.startMinimizedToTray,
+      campusWifiSsid: campusWifiSsid ?? this.campusWifiSsid,
+      campusAutoConnect:
+          (autoStart ?? this.autoStart) &&
+          (campusAutoConnect ?? this.campusAutoConnect),
       notifySources: notifySources ?? this.notifySources,
     );
   }
@@ -128,6 +141,8 @@ class AppSettings {
       'autoUpdate': autoUpdate,
       'autoStart': autoStart,
       'startMinimizedToTray': startMinimizedToTray,
+      'campusWifiSsid': campusWifiSsid,
+      'campusAutoConnect': autoStart && campusAutoConnect,
       'notifySources': notifySources,
     };
   }
@@ -136,6 +151,8 @@ class AppSettings {
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     const defaults = AppSettings();
     final importedFont = ImportedAppFont.fromJson(json['importedFont']);
+    final campusSsid = json['campusWifiSsid'];
+    final autoStart = _parseBool(json['autoStart'], defaults.autoStart);
     return AppSettings(
       themePreference: _parseThemePreference(json['themePreference']),
       fontPreference: switch (json['fontPreference']) {
@@ -162,12 +179,18 @@ class AppSettings {
         defaults.timetableWeekView,
       ),
       autoUpdate: _parseBool(json['autoUpdate'], defaults.autoUpdate),
-      autoStart: _parseBool(json['autoStart'], defaults.autoStart),
+      autoStart: autoStart,
+      campusAutoConnect:
+          autoStart && _parseBool(json['campusAutoConnect'], false),
       startMinimizedToTray: _parseBool(
         json['startMinimizedToTray'],
         defaults.startMinimizedToTray,
       ),
       notifySources: _parseNotifySources(json['notifySources']),
+      campusWifiSsid:
+          campusSsid is String && WindowsWifi.isValidSsid(campusSsid.trim())
+          ? campusSsid.trim()
+          : defaultCampusWifiSsid,
     );
   }
 
@@ -251,8 +274,15 @@ class AppSettingsStore {
 
   List<File> get _candidates => AccountScope.scopedFiles(_fileName);
 
-  Future<AppSettings> read() async {
-    for (final file in _candidates) {
+  Future<AppSettings> read() =>
+      _read([..._candidates, ...AccountScope.legacyFiles(_fileName)]);
+
+  /// Startup can read the saved account before the home page sets its scope.
+  Future<AppSettings> readForAccount(String account) =>
+      _read(AccountScope.scopedFiles(_fileName, account: account));
+
+  Future<AppSettings> _read(Iterable<File> files) async {
+    for (final file in files) {
       try {
         if (!await file.exists()) continue;
         final decoded = jsonDecode(await file.readAsString());
@@ -261,18 +291,6 @@ class AppSettingsStore {
         }
       } catch (error) {
         debugPrint('[settings] read failed at ${file.path}: $error');
-      }
-    }
-    // 兼容旧版本未加账号后缀的 settings.json：读到即用（之后保存到账号文件）。
-    for (final file in AccountScope.legacyFiles(_fileName)) {
-      try {
-        if (!await file.exists()) continue;
-        final decoded = jsonDecode(await file.readAsString());
-        if (decoded is Map) {
-          return AppSettings.fromJson(Map<String, dynamic>.from(decoded));
-        }
-      } catch (error) {
-        debugPrint('[settings] legacy read failed at ${file.path}: $error');
       }
     }
     return const AppSettings();
@@ -334,6 +352,8 @@ class AppSettingsController extends ChangeNotifier {
   bool get autoStart => _settings.autoStart;
   bool get autoUpdate => _settings.autoUpdate;
   bool get startMinimizedToTray => _settings.startMinimizedToTray;
+  String get campusWifiSsid => _settings.campusWifiSsid;
+  bool get campusAutoConnect => autoStart && _settings.campusAutoConnect;
   Brightness get platformBrightness => _platformBrightness;
 
   Map<String, bool> get notifySources => _settings.notifySources;
@@ -484,6 +504,19 @@ class AppSettingsController extends ChangeNotifier {
   void setStartMinimizedToTray(bool value) {
     if (_settings.startMinimizedToTray == value) return;
     _settings = _settings.copyWith(startMinimizedToTray: value);
+    _commit();
+  }
+
+  void setCampusWifiSsid(String value) {
+    final ssid = value.trim();
+    if (campusWifiSsid == ssid || !WindowsWifi.isValidSsid(ssid)) return;
+    _settings = _settings.copyWith(campusWifiSsid: ssid);
+    _commit();
+  }
+
+  void setCampusAutoConnect(bool value) {
+    if (!autoStart || campusAutoConnect == value) return;
+    _settings = _settings.copyWith(campusAutoConnect: value);
     _commit();
   }
 

@@ -304,33 +304,42 @@ bool FlutterWindow::OnCreate() {
           return;
         }
 
-        if (call.method_name() == "interfaceCounters") {
+        if (call.method_name() == "campusWiredAddress") {
           const auto* address = std::get_if<std::string>(call.arguments());
-          IN_ADDR destination{};
+          SOCKADDR_INET destination{};
+          destination.si_family = AF_INET;
           if (address == nullptr ||
-              InetPtonA(AF_INET, address->c_str(), &destination) != 1) {
+              InetPtonA(AF_INET, address->c_str(), &destination.Ipv4.sin_addr) !=
+                  1) {
             result->Error("invalid_arguments", "Expected an IPv4 address");
             return;
           }
           DWORD index = 0;
+          if (GetBestInterface(destination.Ipv4.sin_addr.S_un.S_addr, &index) !=
+              NO_ERROR) {
+            result->Success();
+            return;
+          }
           MIB_IF_ROW2 row{};
-          if (GetBestInterface(destination.S_un.S_addr, &index) != NO_ERROR) {
-            result->Error("network_interface", "No route to gateway");
-            return;
-          }
           row.InterfaceIndex = index;
-          if (GetIfEntry2(&row) != NO_ERROR || row.OperStatus != IfOperStatusUp) {
-            result->Error("network_interface", "Interface counters unavailable");
+          if (GetIfEntry2(&row) != NO_ERROR || row.OperStatus != IfOperStatusUp ||
+              !row.InterfaceAndOperStatusFlags.HardwareInterface ||
+              row.Type != IF_TYPE_ETHERNET_CSMACD) {
+            result->Success();
             return;
           }
-          result->Success(flutter::EncodableValue(flutter::EncodableMap{
-              {flutter::EncodableValue("id"),
-               flutter::EncodableValue(std::to_string(row.InterfaceLuid.Value))},
-              {flutter::EncodableValue("received"),
-               flutter::EncodableValue(static_cast<int64_t>(row.InOctets))},
-              {flutter::EncodableValue("sent"),
-               flutter::EncodableValue(static_cast<int64_t>(row.OutOctets))},
-          }));
+          MIB_IPFORWARD_ROW2 route{};
+          SOCKADDR_INET source{};
+          char ip[INET_ADDRSTRLEN]{};
+          if (GetBestRoute2(nullptr, index, nullptr, &destination, 0, &route,
+                            &source) != NO_ERROR ||
+              source.si_family != AF_INET ||
+              InetNtopA(AF_INET, &source.Ipv4.sin_addr, ip,
+                        sizeof(ip)) == nullptr) {
+            result->Success();
+            return;
+          }
+          result->Success(flutter::EncodableValue(std::string(ip)));
           return;
         }
 
