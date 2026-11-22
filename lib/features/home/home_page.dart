@@ -959,7 +959,11 @@ class _HomePageState extends ConsumerState<HomePage>
     for (final plugin in _installedPlugins) {
       if (plugin.id == id) {
         if (id == campusNetworkPluginId) {
-          return CampusNetworkCard(size: size, onTap: () => _openPlugin(plugin));
+          return CampusNetworkCard(
+            size: size,
+            visible: _displayedTab == 0,
+            onTap: () => _openPlugin(plugin),
+          );
         }
         return PluginCard(
           size: size,

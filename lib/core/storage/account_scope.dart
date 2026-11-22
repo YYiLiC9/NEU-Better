@@ -22,17 +22,21 @@ class AccountScope {
   }
 
   static String _sanitize(String? studentId) {
-    final text = (studentId ?? '')
-        .trim()
-        .replaceAll(RegExp(r'[^0-9A-Za-z_-]'), '_');
+    final text = (studentId ?? '').trim().replaceAll(
+      RegExp(r'[^0-9A-Za-z_-]'),
+      '_',
+    );
     return text.isEmpty ? 'guest' : text;
   }
 
   /// 把 `timetable.json` 变成 `timetable_<id>.json`。
-  static String scopedName(String fileName) {
+  static String scopedName(String fileName, {String? account}) {
+    final scope = account == null ? id : _sanitize(account);
     final dot = fileName.lastIndexOf('.');
-    if (dot <= 0) return '${fileName}_' '$id';
-    return '${fileName.substring(0, dot)}_$id${fileName.substring(dot)}';
+    if (dot <= 0) {
+      return '${fileName}_$scope';
+    }
+    return '${fileName.substring(0, dot)}_$scope${fileName.substring(dot)}';
   }
 
   /// 数据目录候选顺序（写时逐个尝试；读时同样顺序）。
@@ -45,25 +49,50 @@ class AccountScope {
     final sep = Platform.pathSeparator;
     final dirs = <String>[];
     if (Platform.isAndroid) {
-      dirs.add('${Directory.systemTemp.parent.path}$sep' 'files$sep' 'NEU Better');
-      dirs.add('${Directory.systemTemp.path}$sep' 'NEU Better');
-      dirs.add('${File(Platform.resolvedExecutable).parent.path}$sep' 'data');
-      dirs.add('${Directory.current.path}$sep' 'data');
+      dirs.add(
+        '${Directory.systemTemp.parent.path}$sep'
+        'files$sep'
+        'NEU Better',
+      );
+      dirs.add(
+        '${Directory.systemTemp.path}$sep'
+        'NEU Better',
+      );
+      dirs.add(
+        '${File(Platform.resolvedExecutable).parent.path}$sep'
+        'data',
+      );
+      dirs.add(
+        '${Directory.current.path}$sep'
+        'data',
+      );
     } else {
       final local = Platform.environment['LOCALAPPDATA'];
       if (local != null && local.isNotEmpty) {
-        dirs.add('$local$sep' 'NEU Better');
+        dirs.add(
+          '$local$sep'
+          'NEU Better',
+        );
       }
-      dirs.add('${File(Platform.resolvedExecutable).parent.path}$sep' 'data');
-      dirs.add('${Directory.current.path}$sep' 'data');
-      dirs.add('${Directory.systemTemp.path}$sep' 'NEU Better');
+      dirs.add(
+        '${File(Platform.resolvedExecutable).parent.path}$sep'
+        'data',
+      );
+      dirs.add(
+        '${Directory.current.path}$sep'
+        'data',
+      );
+      dirs.add(
+        '${Directory.systemTemp.path}$sep'
+        'NEU Better',
+      );
     }
     return dirs;
   }
 
-  static List<File> scopedFiles(String fileName) {
+  static List<File> scopedFiles(String fileName, {String? account}) {
     final sep = Platform.pathSeparator;
-    final name = scopedName(fileName);
+    final name = scopedName(fileName, account: account);
     return [for (final dir in _dirs) File('$dir$sep$name')];
   }
 

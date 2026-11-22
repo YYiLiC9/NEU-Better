@@ -30,6 +30,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val notificationPermissionRequestCode = 4201
+    private var campusWifi: CampusWifiChannel? = null
 
     /** Flutter 就绪后建立的通道；点击通知时用它向 Dart 回调 openDorm。 */
     private var notificationChannel: MethodChannel? = null
@@ -46,6 +47,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        campusWifi = CampusWifiChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         // 冷启动：若 Activity 由「点击用电提醒通知」拉起，先记下待处理请求，
         // 等 Dart 侧 HomePage 就绪后通过 getPendingOpenDorm 取走。
         handleLaunchIntent(intent)
@@ -295,6 +297,26 @@ class MainActivity : FlutterActivity() {
             }
         }
         return "ok"
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        campusWifi?.onPermissionResult(requestCode)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        campusWifi?.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        campusWifi?.close()
+        campusWifi = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onNewIntent(intent: Intent) {

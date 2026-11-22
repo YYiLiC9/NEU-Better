@@ -4,15 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme/app_theme.dart';
 import '../../../core/plugins/campus_network_plugin.dart';
 import '../../plugins/campus_network_format.dart';
-import '../../plugins/campus_network_monitor.dart';
+import '../../plugins/campus_network_polling.dart';
+import '../../plugins/campus_network_provider.dart';
 import '../home_card_layout.dart';
 import 'plugin_card.dart';
 
 class CampusNetworkCard extends StatelessWidget {
-  const CampusNetworkCard({super.key, required this.size, required this.onTap});
+  const CampusNetworkCard({
+    super.key,
+    required this.size,
+    required this.onTap,
+    this.visible = true,
+  });
 
   final HomeCardSize size;
   final VoidCallback onTap;
+  final bool visible;
 
   @override
   Widget build(BuildContext context) => PluginCard(
@@ -21,66 +28,28 @@ class CampusNetworkCard extends StatelessWidget {
     onTap: onTap,
     expandedContent: size == HomeCardSize.s1x1
         ? null
-        : _CampusNetworkDetails(wide: size == HomeCardSize.s2x4),
+        : CampusNetworkPolling(
+            active: visible,
+            child: _CampusNetworkDetails(wide: size == HomeCardSize.s2x4),
+          ),
   );
 }
 
-class _CampusNetworkDetails extends ConsumerStatefulWidget {
+class _CampusNetworkDetails extends ConsumerWidget {
   const _CampusNetworkDetails({required this.wide});
 
   final bool wide;
 
   @override
-  ConsumerState<_CampusNetworkDetails> createState() =>
-      _CampusNetworkDetailsState();
-}
-
-class _CampusNetworkDetailsState extends ConsumerState<_CampusNetworkDetails> {
-  CampusNetworkMonitor? _attachedMonitor;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final monitor = ref.read(campusNetworkMonitorProvider);
-      _attachedMonitor = monitor;
-      monitor.attach();
-    });
-  }
-
-  @override
-  void dispose() {
-    _attachedMonitor?.detach();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final monitor = ref.watch(campusNetworkMonitorProvider);
-    final status = monitor.status;
-    final statusLabel = monitor.statusUnavailable
-        ? (status?.online == true ? '状态未知 · 最近读数' : '网关暂不可用')
-        : switch (status?.online) {
-            true => '已连接',
-            false => '未登录',
-            null => '正在查询',
-          };
-    final connectionLabel =
-        status?.online == false && monitor.connectionBytes != null
-        ? '上次流量'
-        : '本次流量';
+  Widget build(BuildContext context, WidgetRef ref) {
+    final network = ref.watch(campusNetworkControllerProvider);
     final metrics = [
-      (
-        monitor.partial ? '$connectionLabel（部分）' : connectionLabel,
-        formatCampusTraffic(monitor.connectionBytes),
-      ),
-      ('网费余额', formatCampusBalance(status?.balance)),
-      ('网关已用', formatCampusTraffic(status?.usedBytes)),
+      ('网费余额', formatCampusBalance(network.balance)),
+      ('网关已用', formatCampusTraffic(network.sumBytes)),
     ];
     final labelStyle = TextStyle(fontSize: 10, color: AppColors.muted);
     final valueStyle = TextStyle(
-      fontSize: widget.wide ? 14 : 11,
+      fontSize: wide ? 14 : 11,
       fontWeight: FontWeight.w600,
       color: AppColors.ink,
       fontFeatures: const [FontFeature.tabularFigures()],
@@ -91,15 +60,17 @@ class _CampusNetworkDetailsState extends ConsumerState<_CampusNetworkDetails> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          statusLabel,
+          network.statusLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: labelStyle.copyWith(
-            color: status?.online == true && !monitor.statusUnavailable
+            color: network.gatewayOnline == true
                 ? AppColors.campusBlue
                 : AppColors.muted,
           ),
         ),
         const SizedBox(height: 6),
-        if (widget.wide)
+        if (wide)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

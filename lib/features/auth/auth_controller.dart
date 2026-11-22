@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,8 @@ import '../../core/auth/webview_login_result.dart';
 import '../../core/network/cas_identity_client.dart';
 import '../../core/network/neu_cas_client.dart';
 import '../../core/network/portal_identity_client.dart';
+import '../../core/platform/app_launch.dart';
+import '../plugins/campus_network_startup.dart';
 
 sealed class AuthState {
   const AuthState();
@@ -77,7 +80,7 @@ class AuthController extends Notifier<AuthState> {
     if (!ref.mounted || state is! AuthInitial) return;
     if (session != null && session.hasCookies) {
       state = AuthAuthenticated(session);
-      unawaited(_refreshRestoredIdentity(session));
+      unawaited(_finishSessionRestore(session));
       return;
     }
 
@@ -97,6 +100,8 @@ class AuthController extends Notifier<AuthState> {
           saved.password != null &&
           saved.password!.isNotEmpty) {
         _autoLoginAllowed = false;
+        await _connectCampusOnBoot(saved: saved);
+        if (!ref.mounted || state is! AuthInitial) return;
         await login(
           username: saved.username,
           password: saved.password!,
@@ -114,6 +119,38 @@ class AuthController extends Notifier<AuthState> {
 
     if (!ref.mounted || state is! AuthInitial) return;
     state = const AuthUnauthenticated();
+  }
+
+  Future<void> _finishSessionRestore(AuthSession session) async {
+    await _connectCampusOnBoot(account: session.studentId);
+    if (!ref.mounted) return;
+    final restored = state;
+    if (restored is AuthAuthenticated &&
+        restored.session.studentId == session.studentId &&
+        restored.session.createdAt == session.createdAt) {
+      await _refreshRestoredIdentity(session);
+    }
+  }
+
+  Future<void> _connectCampusOnBoot({
+    String? account,
+    SavedCredentials? saved,
+  }) async {
+    if (!Platform.isWindows || !launchedFromWindowsStartup) return;
+    try {
+      await connectCampusNetworkAtStartup(
+        sessionAccount: account,
+        readCredentials: () async {
+          if (saved != null || !ref.mounted) return saved;
+          return ref
+              .read(credentialStoreProvider)
+              .read()
+              .timeout(const Duration(seconds: 4), onTimeout: () => null);
+        },
+      );
+    } catch (_) {
+      // Startup network errors must not prevent the normal login flow.
+    }
   }
 
   Future<void> _refreshRestoredIdentity(AuthSession session) async {

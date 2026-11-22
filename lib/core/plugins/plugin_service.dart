@@ -83,7 +83,8 @@ class PluginService {
   }
 
   bool get _supportsCampusNetwork =>
-      defaultTargetPlatform == TargetPlatform.windows;
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.android;
 
   Future<PluginCatalog> _fetchCatalog({required bool force}) async {
     if (!force) {
@@ -238,7 +239,7 @@ class PluginService {
 
   Future<void> install(PluginManifest manifest) async {
     if (manifest.id == campusNetworkPluginId) {
-      if (!_supportsCampusNetwork) throw PluginException('网络连接仅支持 Windows');
+      if (!_supportsCampusNetwork) throw PluginException('网络连接仅支持 Windows 和 Android');
       await _registry.install(campusNetworkPluginId, campusNetworkPlugin.version);
       return;
     }
