@@ -13,9 +13,14 @@ import '../../core/network/ecode_client.dart';
 /// 相比内嵌官方 H5（WebView 首屏约 5~11 秒），原生接口 + 本地 QR 渲染可在
 /// 已有 Cookie 时亚秒级出码，并可按二维码有效期自动刷新。
 class EcodePage extends StatefulWidget {
-  const EcodePage({super.key, required this.session});
+  const EcodePage({super.key, required this.session, this.active = true});
 
   final AuthSession session;
+
+  /// 当前是否处于可见的 e码通 tab。后台预热时 active=false：
+  /// 仍会尝试加载一次二维码，但失败不重试、不弹「需要重新登录」，
+  /// 避免在首页/余额中心等其它页面打扰用户。
+  final bool active;
 
   @override
   State<EcodePage> createState() => _EcodePageState();
@@ -52,6 +57,26 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
   }
 
   @override
+  void didUpdateWidget(covariant EcodePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) {
+      // 从后台预热切到可见：立即刷新一次（旧码可能已过期）。
+      _failureCount = 0;
+      _reloginPrompted = false;
+      if (mounted) {
+        setState(() {
+          _error = null;
+          if (_qr == null) _loading = true;
+        });
+      }
+      unawaited(_refresh());
+    } else if (oldWidget.active && !widget.active) {
+      _timer?.cancel();
+      _retryTimer?.cancel();
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
@@ -61,6 +86,7 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      if (!widget.active) return;
       _failureCount = 0;
       _reloginPrompted = false;
       if (mounted) {
@@ -146,11 +172,20 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
         _error = null;
         _busy = false;
       });
-      _schedule();
+      if (widget.active) _schedule();
     } catch (error) {
       if (!mounted) return;
       _failureCount++;
       debugPrint('[ecode-native] fetch failed ($_failureCount/3): $error');
+      if (!widget.active) {
+        // 后台预热失败：静默记录错误，不重试也不弹窗。
+        setState(() {
+          _loading = false;
+          _busy = false;
+          _error = _describeError(error);
+        });
+        return;
+      }
       if (_failureCount < 3) {
         // 前两次失败：保留当前二维码，2 秒后自动重试。
         setState(() {
@@ -207,7 +242,7 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
   }
 
   void _promptRelogin() {
-    if (_reloginPrompted || !mounted) return;
+    if (_reloginPrompted || !mounted || !widget.active) return;
     _reloginPrompted = true;
     showDialog<void>(
       context: context,

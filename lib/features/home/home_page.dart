@@ -598,7 +598,7 @@ class _HomePageState extends ConsumerState<HomePage>
           TimetablePage(compact: true, mobile: true),
           // e码通首次进入后常驻，避免来回切换重建闪烁。
           (_ecodeVisited || _tab == 2)
-              ? EcodePage(session: widget.session)
+              ? EcodePage(session: widget.session, active: _tab == 2)
               : const SizedBox.shrink(),
           MobileSettingsPage(onLogout: _logout),
         ],
@@ -760,7 +760,7 @@ class _HomePageState extends ConsumerState<HomePage>
                 TimetablePage(),
                 if (showEcode) ...[
                   (_ecodeVisited || _tab == 2)
-                      ? EcodePage(session: widget.session)
+                      ? EcodePage(session: widget.session, active: _tab == 2)
                       : const SizedBox.shrink(),
                   const SizedBox.shrink(),
                 ],
