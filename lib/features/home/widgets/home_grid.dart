@@ -101,12 +101,14 @@ class _HomeGrid extends StatefulWidget {
     required this.onDelete,
     required this.onRequestEnterDesign,
     required this.onExitDesign,
+    this.wideBreakpoint = 760,
   });
 
   final List<HomeCardLayout> cards;
 
-  /// 桌面固定像素单元；手机传 null 走等比列。
+  /// 桌面固定像素单元；实际宽度小于 [wideBreakpoint] 时自动改用手机等比列。
   final double? unit;
+  final double wideBreakpoint;
   final int columns;
   final bool designMode;
   final Widget Function(String id) buildCard;
@@ -126,7 +128,11 @@ class _HomeGridState extends State<_HomeGrid> {
   HomePackResult _pack(double width) => packHomeCards(
     widget.cards,
     width,
-    unit: widget.unit,
+    // 用「网格实际可用宽度」判断桌面/手机，而不是外部 MediaQuery，
+    // 避免首帧窗口尺寸尚未就绪时误用等比单位导致卡片过大。
+    unit: (widget.unit != null && width >= widget.wideBreakpoint)
+        ? widget.unit
+        : null,
     columns: widget.columns,
   );
 

@@ -97,6 +97,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// 首页卡片布局（顺序 + 尺寸），按账号持久化。
   List<HomeCardLayout> _homeCards = defaultHomeCards();
+  bool _layoutLoaded = true;
 
   /// 安卓「设计模式」：长按进入后可拖动/删除/改尺寸；桌面无此状态。
   bool _designMode = false;
@@ -202,7 +203,10 @@ class _HomePageState extends ConsumerState<HomePage>
   Future<void> _loadHomeLayout() async {
     final cards = await _homeLayoutStore.read(allowedIds: _allowedCardIds);
     if (!mounted) return;
-    setState(() => _homeCards = cards);
+    setState(() {
+      _homeCards = cards;
+      _layoutLoaded = true;
+    });
   }
 
   /// 允许出现在首页的卡片 id：内置 + 已安装插件。
@@ -855,17 +859,22 @@ class _HomePageState extends ConsumerState<HomePage>
                 onDone: _exitDesign,
               ),
               const SizedBox(height: 20),
-              _HomeGrid(
-                cards: _homeCards,
-                unit: isWide ? _desktopHomeUnit : null,
-                columns: 4,
-                designMode: _designMode,
-                buildCard: _buildHomeCard,
-                onReorder: _reorder,
-                onResize: _setSize,
-                onDelete: _deleteCard,
-                onRequestEnterDesign: _enterDesign,
-                onExitDesign: _exitDesign,
+              AnimatedOpacity(
+                opacity: _layoutLoaded ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: _HomeGrid(
+                  cards: _homeCards,
+                  unit: _desktopHomeUnit,
+                  wideBreakpoint: _wideLayoutMinWidth,
+                  columns: 4,
+                  designMode: _designMode,
+                  buildCard: _buildHomeCard,
+                  onReorder: _reorder,
+                  onResize: _setSize,
+                  onDelete: _deleteCard,
+                  onRequestEnterDesign: _enterDesign,
+                  onExitDesign: _exitDesign,
+                ),
               ),
               const SizedBox(height: 24),
             ],
