@@ -673,56 +673,6 @@ class _Footnote extends StatelessWidget {
   }
 }
 
-/// 「通知」二级设置入口（桌面弹窗与手机内嵌共用）。
-class _NotificationSettingsEntry extends StatelessWidget {
-  const _NotificationSettingsEntry();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.canvas,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(
-          Icons.notifications_active_outlined,
-          size: 20,
-          color: AppColors.muted,
-        ),
-        title: Text(
-          '通知',
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w600,
-            color: AppColors.ink,
-          ),
-        ),
-        subtitle: Text(
-          '系统通知与来源开关',
-          style: TextStyle(fontSize: 11, color: AppColors.muted),
-        ),
-        trailing: Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.faint),
-        onTap: () {
-          if (Platform.isWindows) {
-            showNotificationSettingsDialog(context);
-          } else {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const NotificationSettingsPage(),
-              ),
-            );
-          }
-        },
-      ),
-    );
-  }
-}
-
 /// 桌面设置左侧分类项。
 class _SettingsNavItem extends StatefulWidget {
   const _SettingsNavItem({

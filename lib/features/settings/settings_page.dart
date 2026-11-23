@@ -406,154 +406,277 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
 
 /// 手机端内嵌设置页：作为底部导航「设置」的常驻主界面。
 ///
-/// 与桌面弹窗 [_SettingsDialog] 的差异：
-/// - 不含「窗口」相关设置（托盘图标/最小化到托盘是 Windows 桌面能力）；
-/// - 保留「外观」，并在底部提供「退出登录」按钮。
-class MobileSettingsPage extends ConsumerWidget {
+/// 手机端用顶部「大类标签」切换同类设置，和电脑端的两栏分类对应：
+/// 外观 / 课表 / 通知 / 通用。每个分类下只显示该类的设置项。
+class MobileSettingsPage extends ConsumerStatefulWidget {
   const MobileSettingsPage({super.key, required this.onLogout});
 
   final VoidCallback onLogout;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MobileSettingsPage> createState() => _MobileSettingsPageState();
+}
+
+class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
+  int _category = 0;
+
+  static const _tabs = <(IconData, String)>[
+    (Icons.palette_outlined, '外观'),
+    (Icons.calendar_today_outlined, '课表'),
+    (Icons.notifications_active_outlined, '通知'),
+    (Icons.settings_outlined, '通用'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+    return Column(
       children: [
-        Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppColors.campusBlue.withValues(
-                  alpha: AppColors.isDark ? 0.22 : 0.10,
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                Icons.settings_outlined,
-                size: 17,
-                color: AppColors.campusBlue,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              '设置',
-              style: TextStyle(
-                color: AppColors.ink,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        const _SectionLabel(icon: Icons.palette_outlined, label: '主题'),
-        const SizedBox(height: 10),
-        _ThemeModeSelector(
-          value: settings.themePreference,
-          onChanged: controller.setThemePreference,
-        ),
-        const SizedBox(height: 20),
-        const _SectionLabel(
-          icon: Icons.calendar_today_outlined,
-          label: '每周起始日',
-        ),
-        const SizedBox(height: 10),
-        _WeekStartSelector(
-          value: settings.weekStart,
-          onChanged: controller.setWeekStart,
-        ),
-        const SizedBox(height: 20),
-        const _CourseOverlaySection(),
-        const SizedBox(height: 20),
-        const _SectionLabel(
-          icon: Icons.notifications_active_outlined,
-          label: '通知',
-        ),
-        const SizedBox(height: 10),
-        const _NotificationSettingsEntry(),
-        const SizedBox(height: 20),
-        const _SectionLabel(
-          icon: Icons.system_update_alt_rounded,
-          label: '更新',
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppColors.canvas,
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: AppColors.line),
-          ),
-          child: Column(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+          child: Row(
             children: [
-              _SwitchRow(
-                icon: Icons.autorenew_rounded,
-                title: '自动检查更新（来源 GitHub）',
-                value: settings.autoUpdate,
-                onChanged: controller.setAutoUpdate,
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline_rounded,
-                      size: 15,
-                      color: AppColors.muted,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '当前版本 v${UpdateService.currentVersion}',
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors.campusBlue.withValues(
+                    alpha: AppColors.isDark ? 0.22 : 0.10,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.settings_outlined,
+                  size: 17,
+                  color: AppColors.campusBlue,
                 ),
               ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => checkForUpdates(context, manual: true),
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('检查更新'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.campusBlue,
-                    textStyle: const TextStyle(fontSize: 12),
-                  ),
+              const SizedBox(width: 10),
+              Text(
+                '设置',
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 24),
-        const _Footnote(),
-        const SizedBox(height: 28),
         SizedBox(
-          width: double.infinity,
-          height: 46,
-          child: OutlinedButton.icon(
-            onPressed: onLogout,
-            icon: const Icon(Icons.logout_rounded, size: 18),
-            label: const Text('退出登录'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.danger,
-              side: BorderSide(color: AppColors.danger.withValues(alpha: 0.4)),
-              textStyle: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            itemCount: _tabs.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, index) => _MobileSettingsTab(
+              icon: _tabs[index].$1,
+              label: _tabs[index].$2,
+              selected: _category == index,
+              onTap: () => setState(() => _category = index),
+            ),
+          ),
+        ),
+        Divider(height: 1, color: AppColors.line),
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeIn,
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              alignment: Alignment.topLeft,
+              children: [...previousChildren, ?currentChild],
+            ),
+            child: ListView(
+              key: ValueKey<int>(_category),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              children: _buildPane(settings, controller),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  List<Widget> _buildPane(
+    AppSettingsController settings,
+    AppSettingsController controller,
+  ) {
+    switch (_category) {
+      case 0:
+        return [
+          _SettingsGroupCard(
+            title: '主题',
+            icon: Icons.palette_outlined,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: _ThemeModeSelector(
+                value: settings.themePreference,
+                onChanged: controller.setThemePreference,
+              ),
+            ),
+          ),
+        ];
+      case 1:
+        return [
+          _SettingsGroupCard(
+            title: '每周起始日',
+            icon: Icons.calendar_today_outlined,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: _WeekStartSelector(
+                value: settings.weekStart,
+                onChanged: controller.setWeekStart,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          const _CourseOverlaySection(),
+        ];
+      case 2:
+        return [
+          _SettingsGroupCard(
+            title: '系统通知',
+            icon: Icons.notifications_active_outlined,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: const NotificationSettingsContent(),
+            ),
+          ),
+        ];
+      default:
+        return [
+          _SettingsGroupCard(
+            title: '更新',
+            icon: Icons.system_update_alt_rounded,
+            child: Column(
+              children: [
+                _SwitchRow(
+                  icon: Icons.autorenew_rounded,
+                  title: '自动检查更新（来源 GitHub）',
+                  value: settings.autoUpdate,
+                  onChanged: controller.setAutoUpdate,
+                ),
+                Divider(height: 1, color: AppColors.line),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 15,
+                        color: AppColors.muted,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '当前版本 v${UpdateService.currentVersion}',
+                        style: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => checkForUpdates(context, manual: true),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('检查更新'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.campusBlue,
+                      textStyle: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const _Footnote(),
+          const SizedBox(height: 28),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: OutlinedButton.icon(
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout_rounded, size: 18),
+              label: const Text('退出登录'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: BorderSide(
+                  color: AppColors.danger.withValues(alpha: 0.4),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ];
+    }
+  }
+}
+
+class _MobileSettingsTab extends StatelessWidget {
+  const _MobileSettingsTab({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AppColors.campusBlue;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: AppColors.isDark ? 0.22 : 0.09)
+                : AppColors.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? accent.withValues(alpha: 0.55) : AppColors.line,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: selected ? accent : AppColors.muted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? accent : AppColors.muted,
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
