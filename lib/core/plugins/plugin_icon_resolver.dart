@@ -29,4 +29,5 @@ const Map<String, IconData> _materialIcons = <String, IconData>{
   'map': Icons.map_outlined,
   'restaurant': Icons.restaurant_outlined,
   'sports_basketball': Icons.sports_basketball_outlined,
+  'router': Icons.router_rounded,
 };
