@@ -80,7 +80,9 @@ class _MailDetailPageState extends State<MailDetailPage> {
       _error = null;
     });
     try {
-      final detail = await widget.client.read(widget.summary.id);
+      final detail = await widget.client
+          .read(widget.summary.id)
+          .timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() {
         _detail = detail;

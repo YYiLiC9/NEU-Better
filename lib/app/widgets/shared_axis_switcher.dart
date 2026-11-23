@@ -37,13 +37,36 @@ class _SharedAxisSwitcherState extends State<SharedAxisSwitcher>
   bool _forward = true;
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed &&
+          mounted &&
+          _previous != null) {
+        // 动画结束后释放旧页面，避免它继续占用状态或拦截语义。
+        setState(() => _previous = null);
+      }
+    });
+  }
+
+  @override
   void didUpdateWidget(covariant SharedAxisSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.child.key != widget.child.key) {
-      _previous = _current;
-      _current = widget.child;
-      _forward = widget.forward;
+    if (identical(oldWidget.child, widget.child)) return;
+
+    final keyChanged = oldWidget.child.key != widget.child.key;
+    _current = widget.child;
+    _forward = widget.forward;
+
+    if (keyChanged) {
+      _previous = oldWidget.child;
       _controller.forward(from: 0);
+    } else {
+      // 同一个页面（key 不变）内部数据变化：直接替换当前内容，不播放
+      // 转场。之前这里只在 key 变化时更新，导致首页异步加载布局、调整
+      // 卡片尺寸/删除、卡片库按钮状态等全部被吞掉。
+      _previous = null;
+      _controller.value = 1;
     }
   }
 

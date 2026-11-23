@@ -71,7 +71,7 @@ class _MailPageState extends ConsumerState<MailPage> {
     }
     try {
       final client = _client ?? await _createClient();
-      final items = await client.list();
+      final items = await client.list().timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() {
         _client = client;

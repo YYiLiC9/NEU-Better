@@ -71,8 +71,12 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       });
     }
     try {
-      final counts = await _client.counts();
-      final items = await _client.list(page: 1);
+      final counts = await _client
+          .counts()
+          .timeout(const Duration(seconds: 15));
+      final items = await _client
+          .list(page: 1)
+          .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       setState(() {
         _items
@@ -110,7 +114,9 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
     setState(() => _loadingMore = true);
     try {
       final next = _page + 1;
-      final items = await _client.list(page: next);
+      final items = await _client
+          .list(page: next)
+          .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       setState(() {
         if (items.isNotEmpty) {

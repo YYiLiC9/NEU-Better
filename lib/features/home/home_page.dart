@@ -97,7 +97,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// 首页卡片布局（顺序 + 尺寸），按账号持久化。
   List<HomeCardLayout> _homeCards = defaultHomeCards();
-  bool _layoutLoaded = true;
+  bool _layoutLoaded = false;
 
   /// 安卓「设计模式」：长按进入后可拖动/删除/改尺寸；桌面无此状态。
   bool _designMode = false;
@@ -142,6 +142,9 @@ class _HomePageState extends ConsumerState<HomePage>
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
     unawaited(ref.read(appSettingsProvider.notifier).reload());
+    // 先用内置卡片集快速读取一次已保存布局，避免首帧闪成默认布局；
+    // 已安装插件列表就绪后 `_bootstrapPlugins()` 会再读一次补全插件卡片。
+    unawaited(_loadHomeLayout());
     unawaited(_bootstrapPlugins());
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
