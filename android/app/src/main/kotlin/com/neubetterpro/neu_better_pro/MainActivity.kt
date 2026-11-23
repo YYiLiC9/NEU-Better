@@ -347,22 +347,52 @@ class MainActivity : FlutterActivity() {
     private fun openDownloadFolder() {
         val dir = File(cacheDir, "neu_better_updates")
         if (!dir.exists()) dir.mkdirs()
+        // 用 FileProvider 暴露目录，再交给系统「选择打开方式」的意图选择器，
+        // 让用户挑本地文件管理器 / MT 管理器等（可仅一次或始终）。
+        val folderUri = try {
+            FileProvider.getUriForFile(this, "$packageName.fileprovider", dir)
+        } catch (_: Exception) {
+            null
+        }
+        if (folderUri != null) {
+            try {
+                val target = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(folderUri, "resource/folder")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    clipData = ClipData.newRawUri("folder", folderUri)
+                }
+                val chooser = Intent.createChooser(target, "选择打开方式").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(chooser)
+                return
+            } catch (error: Exception) {
+                Log.w(LOG_TAG, "open folder chooser failed: ${error.message}")
+            }
+        }
+        // 兜底：Toast 路径并打开系统「文件」首页的选择器。
         Toast.makeText(this, "下载位置：${dir.absolutePath}", Toast.LENGTH_LONG).show()
         try {
-            val intent = Intent(Intent.ACTION_VIEW).apply {
+            val root = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(
                     Uri.parse("content://com.android.externalstorage.documents/root/primary"),
                     "vnd.android.document/root",
                 )
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            startActivity(intent)
+            val chooser = Intent.createChooser(root, "选择打开方式").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(chooser)
         } catch (_: Exception) {
-            val fallback = Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:$packageName"),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(fallback)
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
         }
     }
 
