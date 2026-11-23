@@ -1246,6 +1246,7 @@ class _HomeDormDetail extends StatelessWidget {
             ],
           ),
         ),
+        Divider(height: 1, color: AppColors.line),
         const Expanded(child: DormPowerPage(embedded: true)),
       ],
     );
