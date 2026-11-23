@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,6 +51,9 @@ class _CampusNetworkPollingState extends ConsumerState<CampusNetworkPolling>
     if (!_windowVisible) {
       _setAttached(null);
     } else {
+      if (state == AppLifecycleState.resumed) {
+        unawaited(_attached?.refresh());
+      }
       _schedule();
     }
   }
