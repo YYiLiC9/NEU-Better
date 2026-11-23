@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/app_labels.dart';
 import '../../core/plugins/plugin_icon_resolver.dart';
 import '../../core/auth/auth_session.dart';
@@ -96,6 +97,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// 首页卡片布局（顺序 + 尺寸），按账号持久化。
   List<HomeCardLayout> _homeCards = defaultHomeCards();
+  bool _layoutLoaded = false;
 
   /// 安卓「设计模式」：长按进入后可拖动/删除/改尺寸；桌面无此状态。
   bool _designMode = false;
@@ -140,11 +142,15 @@ class _HomePageState extends ConsumerState<HomePage>
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
     unawaited(ref.read(appSettingsProvider.notifier).reload());
+    // 先用内置卡片集快速读取一次已保存布局，避免首帧闪成默认布局；
+    // 已安装插件列表就绪后 `_bootstrapPlugins()` 会再读一次补全插件卡片。
+    unawaited(_loadHomeLayout());
     unawaited(_bootstrapPlugins());
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
     NotificationRouter.openDormSignal.addListener(_handleOpenDorm);
+    NotificationRouter.openTabSignal.addListener(_handleOpenTab);
     unawaited(NotificationRouter.consumePending());
     _loadStatus();
     dormPrefsChanged.addListener(_loadStatus);
@@ -171,7 +177,9 @@ class _HomePageState extends ConsumerState<HomePage>
     if (!kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         !inTest) {
-      Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      // 首帧后立即预热 e码通（不再延迟 1.2s），让 WebView 与课表同步并行加载，
+      // 缩短冷启动首次点开 e码通的等待时间。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_ecodeVisited) {
           setState(() => _ecodeVisited = true);
         }
@@ -198,7 +206,10 @@ class _HomePageState extends ConsumerState<HomePage>
   Future<void> _loadHomeLayout() async {
     final cards = await _homeLayoutStore.read(allowedIds: _allowedCardIds);
     if (!mounted) return;
-    setState(() => _homeCards = cards);
+    setState(() {
+      _homeCards = cards;
+      _layoutLoaded = true;
+    });
   }
 
   /// 允许出现在首页的卡片 id：内置 + 已安装插件。
@@ -409,10 +420,19 @@ class _HomePageState extends ConsumerState<HomePage>
   @override
   void dispose() {
     NotificationRouter.openDormSignal.removeListener(_handleOpenDorm);
+    NotificationRouter.openTabSignal.removeListener(_handleOpenTab);
     dormPrefsChanged.removeListener(_loadStatus);
     _notifyPoller?.stop();
     _tabFade.dispose();
     super.dispose();
+  }
+
+  /// 收到桌面小部件点击请求：切到「课表」一级页。
+  void _handleOpenTab() {
+    if (!mounted) return;
+    final tab = NotificationRouter.requestedTab;
+    debugPrint('[notify] openTab -> $tab');
+    _selectTab(tab);
   }
 
   /// 收到通知点击请求：切到「首页 · 寝室用电」二级页。
@@ -454,16 +474,10 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   final GlobalKey _dormCardKey = GlobalKey();
-  Rect? _dormCardRect;
   int _lastSection = 0;
 
-  /// 打开「首页 · 余额中心」二级页；先记录被点卡片的屏幕矩形，
-  /// 用于二级页从卡片处放大、返回时缩回卡片处（类 Android 转场）。
+  /// 打开「首页 · 余额中心」二级页。
   void _openDormDetail() {
-    final rb = _dormCardKey.currentContext?.findRenderObject() as RenderBox?;
-    if (rb != null && rb.hasSize) {
-      _dormCardRect = rb.localToGlobal(Offset.zero) & rb.size;
-    }
     ref.read(homeTabProvider.notifier).state = 0;
     ref.read(homeSectionProvider.notifier).state = 1;
   }
@@ -584,7 +598,7 @@ class _HomePageState extends ConsumerState<HomePage>
           TimetablePage(compact: true, mobile: true),
           // e码通首次进入后常驻，避免来回切换重建闪烁。
           (_ecodeVisited || _tab == 2)
-              ? EcodePage(session: widget.session)
+              ? EcodePage(session: widget.session, active: _tab == 2)
               : const SizedBox.shrink(),
           MobileSettingsPage(onLogout: _logout),
         ],
@@ -746,7 +760,7 @@ class _HomePageState extends ConsumerState<HomePage>
                 TimetablePage(),
                 if (showEcode) ...[
                   (_ecodeVisited || _tab == 2)
-                      ? EcodePage(session: widget.session)
+                      ? EcodePage(session: widget.session, active: _tab == 2)
                       : const SizedBox.shrink(),
                   const SizedBox.shrink(),
                 ],
@@ -762,10 +776,6 @@ class _HomePageState extends ConsumerState<HomePage>
 
   Widget _buildHomeTab() {
     final section = ref.watch(homeSectionProvider);
-    // 卡片库（section 2）不做任何转场；只有「余额中心」二级页(1) 与首页(0)
-    // 之间做「从所点卡片处放大 / 缩回卡片处」的转场。
-    final galleryInvolved = section == 2 || _lastSection == 2;
-    final detailInvolved = section == 1 || _lastSection == 1;
     final Widget content;
     if (section == 1) {
       content = _HomeDormDetail(
@@ -789,72 +799,34 @@ class _HomePageState extends ConsumerState<HomePage>
         onUpdate: _downloadPlugin,
         onRetryCatalog: () => unawaited(_fetchCatalog(force: true)),
       );
+    } else if (section == 3) {
+      content = MailPage(
+        session: widget.session,
+        onBack: () {
+          ref.read(homeSectionProvider.notifier).state = 0;
+          unawaited(_loadMailSummary());
+        },
+      );
+    } else if (section == 4) {
+      content = NotificationPage(
+        session: widget.session,
+        onBack: () {
+          ref.read(homeSectionProvider.notifier).state = 0;
+          unawaited(_loadNotifySummary());
+        },
+      );
     } else {
       content = _buildHomeOverview();
     }
-    const Duration duration = Duration(milliseconds: 300);
+    // 新旧页面采用两段式水平平移（先退出、再进入），不会出现文字重叠；
+    // 余额中心 / 邮件 / 通知 / 新闻保持同一套节奏。
+    final forward = section >= _lastSection;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _lastSection = section;
     });
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        var alignment = Alignment.center;
-        var beginScale = 0.9;
-        if (!galleryInvolved && detailInvolved && _dormCardRect != null) {
-          final rb = context.findRenderObject() as RenderBox?;
-          final boxTopLeft = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
-          final localCenter = _dormCardRect!.center - boxTopLeft;
-          final w = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
-          final h = constraints.maxHeight <= 0 ? 1.0 : constraints.maxHeight;
-          final ax = (localCenter.dx / w * 2 - 1).clamp(-1.0, 1.0);
-          final ay = (localCenter.dy / h * 2 - 1).clamp(-1.0, 1.0);
-          alignment = Alignment(ax, ay);
-          // 从「卡片实际尺寸」开始放大，而不是从 0（从点缩放会显得很怪）。
-          beginScale = (_dormCardRect!.width / w).clamp(0.22, 0.6);
-        }
-        return AnimatedSwitcher(
-          duration: duration,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          // 关键：旧/新页面按「同一全尺寸、左上对齐」叠放，避免两者高度不同
-          // 时 AnimatedSwitcher 默认居中布局导致整页上下跳动 / 瞬移。
-          layoutBuilder: (currentChild, previousChildren) => Stack(
-            fit: StackFit.expand,
-            alignment: Alignment.topLeft,
-            children: [...previousChildren, ?currentChild],
-          ),
-          transitionBuilder: galleryInvolved
-              ? (child, animation) => FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0.04, 0),
-                      end: Offset.zero,
-                    ).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                    ),
-                    child: child,
-                  ),
-                )
-              : (child, animation) => FadeTransition(
-                  opacity: animation,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: beginScale, end: 1.0).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                    ),
-                    alignment: alignment,
-                    child: child,
-                  ),
-                ),
-          child: KeyedSubtree(key: ValueKey<int>(section), child: content),
-        );
-      },
+    return SharedAxisSwitcher(
+      forward: forward,
+      child: KeyedSubtree(key: ValueKey<int>(section), child: content),
     );
   }
 
@@ -890,17 +862,22 @@ class _HomePageState extends ConsumerState<HomePage>
                 onDone: _exitDesign,
               ),
               const SizedBox(height: 20),
-              _HomeGrid(
-                cards: _homeCards,
-                unit: isWide ? _desktopHomeUnit : null,
-                columns: 4,
-                designMode: _designMode,
-                buildCard: _buildHomeCard,
-                onReorder: _reorder,
-                onResize: _setSize,
-                onDelete: _deleteCard,
-                onRequestEnterDesign: _enterDesign,
-                onExitDesign: _exitDesign,
+              AnimatedOpacity(
+                opacity: _layoutLoaded ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: _HomeGrid(
+                  cards: _homeCards,
+                  unit: _desktopHomeUnit,
+                  wideBreakpoint: _wideLayoutMinWidth,
+                  columns: 4,
+                  designMode: _designMode,
+                  buildCard: _buildHomeCard,
+                  onReorder: _reorder,
+                  onResize: _setSize,
+                  onDelete: _deleteCard,
+                  onRequestEnterDesign: _enterDesign,
+                  onExitDesign: _exitDesign,
+                ),
               ),
               const SizedBox(height: 24),
             ],
@@ -976,16 +953,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openMail() {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute<void>(
-            builder: (_) => MailPage(session: widget.session),
-          ),
-        )
-        .whenComplete(() {
-      // 从邮件页返回后刷新首页邮件卡（未读数可能因点开邮件而变化）。
-      if (mounted) unawaited(_loadMailSummary());
-    });
+    ref.read(homeSectionProvider.notifier).state = 3;
   }
 
   /// best-effort 拉取邮件摘要供首页卡片展示；任何失败都静默忽略。
@@ -1020,16 +988,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openNotifications() {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute<void>(
-            builder: (_) => NotificationPage(session: widget.session),
-          ),
-        )
-        .whenComplete(() {
-      // 返回首页时刷新通知卡（进入列表已尽力标记已读）。
-      if (mounted) unawaited(_loadNotifySummary());
-    });
+    ref.read(homeSectionProvider.notifier).state = 4;
   }
 
   /// best-effort 拉取通知摘要供首页卡片展示；失败静默。

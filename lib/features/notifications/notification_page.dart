@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/network/notification_client.dart';
 import 'notification_detail_page.dart';
@@ -9,10 +10,18 @@ import 'notification_models.dart';
 
 /// 通知列表页（校园消息中心，只读）。
 class NotificationPage extends ConsumerStatefulWidget {
-  const NotificationPage({super.key, required this.session, this.client});
+  const NotificationPage({
+    super.key,
+    required this.session,
+    this.client,
+    this.onBack,
+  });
 
   final AuthSession session;
   final NotificationClient? client;
+
+  /// 非空表示以「首页二级页」方式内嵌显示（保留底部导航），点击返回调用它。
+  final VoidCallback? onBack;
 
   @override
   ConsumerState<NotificationPage> createState() => _NotificationPageState();
@@ -30,6 +39,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   int _page = 1;
   int _total = 0;
   int _noRead = 0;
+  AppNotification? _detail;
 
   @override
   void initState() {
@@ -61,8 +71,12 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       });
     }
     try {
-      final counts = await _client.counts();
-      final items = await _client.list(page: 1);
+      final counts = await _client
+          .counts()
+          .timeout(const Duration(seconds: 15));
+      final items = await _client
+          .list(page: 1)
+          .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       setState(() {
         _items
@@ -100,7 +114,9 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
     setState(() => _loadingMore = true);
     try {
       final next = _page + 1;
-      final items = await _client.list(page: next);
+      final items = await _client
+          .list(page: next)
+          .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       setState(() {
         if (items.isNotEmpty) {
@@ -132,6 +148,10 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       });
       unawaited(_client.markRead([item.logId]));
     }
+    if (widget.onBack != null) {
+      setState(() => _detail = item);
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => NotificationDetailPage(item: item)),
     );
@@ -139,55 +159,139 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
+    final embedded = widget.onBack != null;
+    final body = RefreshIndicator(
+      onRefresh: () => _load(refresh: true),
+      color: AppColors.campusBlue,
+      child: _buildBody(),
+    );
+    if (!embedded) {
+      if (_detail != null) {
+        return NotificationDetailPage(
+          item: _detail!,
+          onBack: () => setState(() => _detail = null),
+        );
+      }
+      return Scaffold(
         backgroundColor: AppColors.canvas,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        title: Row(
-          children: [
-            Text(
-              '通知',
-              style: TextStyle(
-                color: AppColors.ink,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (_noRead > 0) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.campusBlue.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
+        appBar: AppBar(
+          backgroundColor: AppColors.canvas,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          title: Row(
+            children: [
+              Text(
+                '通知',
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
                 ),
-                child: Text(
-                  '未读 $_noRead',
-                  style: TextStyle(
-                    color: AppColors.campusBlue,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+              ),
+              if (_noRead > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.campusBlue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '未读 $_noRead',
+                    style: TextStyle(
+                      color: AppColors.campusBlue,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: '刷新',
+              icon: Icon(Icons.refresh_rounded, color: AppColors.muted),
+              onPressed: () => _load(refresh: true),
+            ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: '刷新',
-            icon: Icon(Icons.refresh_rounded, color: AppColors.muted),
-            onPressed: () => _load(refresh: true),
+        body: body,
+      );
+    }
+    final listPage = Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: '返回',
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
+              ),
+              Text(
+                '通知',
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (_noRead > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.campusBlue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '未读 $_noRead',
+                    style: TextStyle(
+                      color: AppColors.campusBlue,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+              const Spacer(),
+              IconButton(
+                tooltip: '刷新',
+                icon: Icon(Icons.refresh_rounded, color: AppColors.muted),
+                onPressed: () => _load(refresh: true),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: () => _load(refresh: true),
-        color: AppColors.campusBlue,
-        child: _buildBody(),
-      ),
+        ),
+        Divider(height: 1, color: AppColors.line),
+        Expanded(child: body),
+      ],
+    );
+    final detailPage = _detail != null
+        ? NotificationDetailPage(
+            item: _detail!,
+            onBack: () => setState(() => _detail = null),
+          )
+        : null;
+    return SharedAxisSwitcher(
+      forward: detailPage != null,
+      child: detailPage != null
+          ? KeyedSubtree(
+              key: ValueKey('notify-detail-${_detail!.logId}'),
+              child: detailPage,
+            )
+          : KeyedSubtree(
+              key: const ValueKey('notify-list'),
+              child: listPage,
+            ),
     );
   }
 

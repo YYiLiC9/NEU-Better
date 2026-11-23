@@ -190,6 +190,7 @@ abstract class BaseTimetableWidgetProvider : AppWidgetProvider() {
         }
 
         val launch = Intent(context, MainActivity::class.java)
+        launch.putExtra("openTab", 1)
         val pending = PendingIntent.getActivity(
             context, 0, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

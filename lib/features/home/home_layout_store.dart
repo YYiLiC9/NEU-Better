@@ -64,9 +64,11 @@ class HomeLayoutStore {
     if (decoded is! Map) return null;
 
     final sizes = <String, HomeCardSize>{};
+    var originalSizeCount = 0;
     final sizesRaw = decoded['sizes'];
     if (sizesRaw is Map) {
       sizesRaw.forEach((key, value) {
+        originalSizeCount++;
         final id = key?.toString() ?? '';
         final size = HomeCardLayout.sizeByName(value);
         if (allowed.contains(id) && size != null) sizes[id] = size;
@@ -77,8 +79,10 @@ class HomeLayoutStore {
     final orderRaw = decoded['order'];
     final hasOrder = orderRaw is List;
     final ids = <String>[];
+    var originalOrderCount = 0;
     if (hasOrder) {
       for (final entry in orderRaw) {
+        originalOrderCount++;
         final id = entry?.toString() ?? '';
         if (allowed.contains(id) && !ids.contains(id)) ids.add(id);
       }
@@ -87,6 +91,13 @@ class HomeLayoutStore {
       ids.addAll(sizes.keys);
     } else {
       // 既无 order（数组）也无 sizes：视为损坏，回落默认。
+      return null;
+    }
+
+    // 旧版本的布局里可能只有已经被移除/未安装的卡片（例如「新闻」曾作为
+    // 内置卡，后来改为可选插件）。过滤后一张都不剩时，视为过期布局而
+    // 回落到默认布局，避免首屏出现空白；用户主动清空（原 order 为空）仍保留。
+    if (ids.isEmpty && (originalOrderCount > 0 || originalSizeCount > 0)) {
       return null;
     }
 

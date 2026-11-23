@@ -103,6 +103,10 @@ class NotificationRouter {
   /// 每次收到「打开寝室用电」请求时自增，界面侧监听即可切 tab。
   static final ValueNotifier<int> openDormSignal = ValueNotifier<int>(0);
 
+  /// 每次收到「切换一级标签」请求时自增；[requestedTab] 为 0/1/2/3。
+  static final ValueNotifier<int> openTabSignal = ValueNotifier<int>(0);
+  static int requestedTab = 1;
+
   static bool _handlerInstalled = false;
 
   /// 安装 MethodChannel 回调（幂等，只装一次）。
@@ -112,6 +116,9 @@ class NotificationRouter {
     AndroidHeadsUpChannel.channel.setMethodCallHandler((call) async {
       if (call.method == 'openDorm') {
         openDormSignal.value++;
+      } else if (call.method == 'openTab') {
+        requestedTab = (call.arguments as num?)?.toInt() ?? 1;
+        openTabSignal.value++;
       }
       return null;
     });
@@ -125,6 +132,12 @@ class NotificationRouter {
           .invokeMethod<bool>('getPendingOpenDorm');
       if (pending == true) {
         openDormSignal.value++;
+      }
+      final pendingTab = await AndroidHeadsUpChannel.channel
+          .invokeMethod<int>('getPendingOpenTab');
+      if (pendingTab != null && pendingTab >= 0) {
+        requestedTab = pendingTab;
+        openTabSignal.value++;
       }
     } catch (_) {
       // 非 Android 引擎无此实现（MissingPluginException 等），忽略。

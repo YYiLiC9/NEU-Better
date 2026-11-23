@@ -24,6 +24,25 @@ abstract final class UpdateInstaller {
     }
   }
 
+  /// 当前是否已被允许「安装未知来源应用」。
+  static Future<bool> canInstallPackages() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final result = await _channel.invokeMethod<bool>('canInstallPackages');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 跳转系统「安装未知应用」授权页。
+  static Future<void> openInstallPermission() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('openInstallPermission');
+    } catch (_) {}
+  }
+
   static Future<void> applyWindows(File zip) async {
     final exe = File(Platform.resolvedExecutable);
     final installDir = exe.parent.path;

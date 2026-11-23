@@ -14,6 +14,7 @@ class MailDetailPage extends StatefulWidget {
     required this.client,
     required this.summary,
     required this.session,
+    this.onBack,
   });
 
   final MailClient client;
@@ -21,6 +22,9 @@ class MailDetailPage extends StatefulWidget {
 
   /// 保留用于上层统一传参；详情已不再依赖 WebView。
   final AuthSession session;
+
+  /// 非空表示内嵌在首页二级页中，返回时调用它（而不是 Navigator.pop）。
+  final VoidCallback? onBack;
 
   @override
   State<MailDetailPage> createState() => _MailDetailPageState();
@@ -76,7 +80,9 @@ class _MailDetailPageState extends State<MailDetailPage> {
       _error = null;
     });
     try {
-      final detail = await widget.client.read(widget.summary.id);
+      final detail = await widget.client
+          .read(widget.summary.id)
+          .timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() {
         _detail = detail;
@@ -122,6 +128,14 @@ class _MailDetailPageState extends State<MailDetailPage> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppColors.ink,
+        automaticallyImplyLeading: false,
+        leading: widget.onBack == null
+            ? null
+            : IconButton(
+                tooltip: '返回',
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
+              ),
         title: const Text('邮件详情', style: TextStyle(fontSize: 16)),
         actions: [
           IconButton(

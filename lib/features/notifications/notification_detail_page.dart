@@ -6,9 +6,12 @@ import 'notification_models.dart';
 
 /// 单条通知详情（只读正文，支持长按选择复制）。
 class NotificationDetailPage extends StatelessWidget {
-  const NotificationDetailPage({super.key, required this.item});
+  const NotificationDetailPage({super.key, required this.item, this.onBack});
 
   final AppNotification item;
+
+  /// 非空表示内嵌在首页二级页中，返回时调用它（而不是 Navigator.pop）。
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -18,6 +21,14 @@ class NotificationDetailPage extends StatelessWidget {
         backgroundColor: AppColors.canvas,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        automaticallyImplyLeading: false,
+        leading: onBack == null
+            ? null
+            : IconButton(
+                tooltip: '返回',
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
+              ),
         title: Text(
           '通知详情',
           style: TextStyle(

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'update_installer.dart';
 import 'update_manager.dart';
 import 'update_service.dart';
 
@@ -197,17 +198,31 @@ Future<void> _install(BuildContext context) async {
   final manager = UpdateManager.instance;
   final status = await manager.install();
   if (!context.mounted) return;
-  if (status == 'ok') return;
+  if (status == 'ok') {
+    // 系统安装器已拉起（安装完成后由用户手动打开新版本）。
+    return;
+  }
   if (status == 'need_permission') {
+    final path = manager.readyFile?.path ?? '';
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('需要允许安装应用'),
-        content: const Text('请在系统设置中允许「NEU Better」安装未知应用，然后返回重试。'),
+        content: Text(
+          '请在系统设置中允许「NEU Better」安装未知应用后返回，App 会自动继续安装。\n\n'
+          '安装包位置：\n$path',
+        ),
         actions: [
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('知道了'),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              UpdateInstaller.openInstallPermission();
+            },
+            child: const Text('去授权'),
           ),
         ],
       ),

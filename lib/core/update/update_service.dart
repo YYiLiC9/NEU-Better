@@ -37,20 +37,27 @@ class UpdateInfo {
 
   bool get hasAnyAsset => windowsUrl != null || androidUrl != null;
 
+  /// 安装包下载目录（设置页展示、断点续传都基于它）。
+  ///
+  /// Android：`Directory.systemTemp` 实际指向 code_cache，而 FileProvider 的
+  /// `<cache-path>` 只覆盖 cache/；下载到 code_cache 会导致安装时报
+  /// "Failed to find configured root that contains .../code_cache/..."。
+  /// 因此 Android 统一放到 cache/neu_better_updates（与 file_paths 的
+  /// `<cache-path>` 匹配），Windows 仍用系统临时目录。
+  static Directory downloadDirectory({required bool android}) {
+    final sep = Platform.pathSeparator;
+    final base = android
+        ? '${Directory.systemTemp.parent.path}${sep}cache$sep'
+              'neu_better_updates'
+        : '${Directory.systemTemp.path}${sep}neu_better_updates';
+    return Directory(base);
+  }
+
   /// 存放已下载安装包的稳定路径（按版本命名，便于命中复用）。
   static File packageFile(String version, {required bool android}) {
     final sep = Platform.pathSeparator;
     final name = 'NEU-Better-$version.${android ? 'apk' : 'zip'}';
-    // Android：Directory.systemTemp 实际指向 code_cache，而 FileProvider 的
-    // <cache-path> 只覆盖 cache/；下载到 code_cache 会导致安装时报
-    // "Failed to find configured root that contains .../code_cache/..."。
-    // 因此 Android 统一放到 cache/neu_better_updates（与 file_paths 的
-    // <cache-path> 匹配），Windows 仍用系统临时目录。
-    final base = Platform.isAndroid
-        ? '${Directory.systemTemp.parent.path}${sep}cache$sep'
-              'neu_better_updates'
-        : '${Directory.systemTemp.path}${sep}neu_better_updates';
-    return File('$base$sep$name');
+    return File('${downloadDirectory(android: android).path}$sep$name');
   }
 
   /// 判断本地安装包是否完整可用：[expected] 已知时按字节数比对，否则宽松
@@ -133,29 +140,109 @@ class UpdateService {
     return list;
   }
 
-  /// 下载 [url] 到 [target]。下载地址为大文件，单独用一个长超时 Dio。
+  /// 下载 [url] 到 [target]，支持断点续传：已存在部分文件时用 HTTP Range
+  /// 从已有字节处继续；若服务器忽略 Range（返回 200）则从头覆盖。
+  ///
+  /// 进程中断后 [target] 会保留半包，下次启动再次调用即可续传；下载完整
+  /// 与否由调用方用 [UpdateInfo.isCompletePackage] 校验。
   Future<void> download(
     String url,
     File target, {
     void Function(int received, int total)? onProgress,
+    int? expectedSize,
+    Dio? dio,
   }) async {
-    final dio = Dio(
-      BaseOptions(
-        connectTimeout: const Duration(seconds: 20),
-        receiveTimeout: const Duration(minutes: 10),
-        headers: {'User-Agent': 'NEU-Better-Updater'},
-      ),
-    );
+    final client =
+        dio ??
+        Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 20),
+            receiveTimeout: const Duration(minutes: 10),
+            headers: {'User-Agent': 'NEU-Better-Updater'},
+          ),
+        );
     await target.parent.create(recursive: true);
     Object? lastError;
     for (final candidate in _githubCandidates(url)) {
       try {
-        await dio.download(
+        var existing = await target.exists() ? await target.length() : 0;
+        if (expectedSize != null && expectedSize > 0 && existing > expectedSize) {
+          try {
+            await target.delete();
+          } catch (_) {}
+          existing = 0;
+        }
+        final headers = <String, Object>{
+          'User-Agent': 'NEU-Better-Updater',
+        };
+        if (existing > 0) {
+          headers['Range'] = 'bytes=$existing-';
+        }
+        final response = await client.get<ResponseBody>(
           candidate,
-          target.path,
-          onReceiveProgress: onProgress,
+          options: Options(
+            responseType: ResponseType.stream,
+            headers: headers,
+            followRedirects: true,
+            validateStatus: (status) => status != null && status < 500,
+          ),
         );
-        if (await target.exists() && await target.length() > 0) return;
+        final status = response.statusCode ?? 0;
+        final body = response.data;
+        if (body == null) {
+          lastError = Exception('HTTP $status (empty body)');
+          continue;
+        }
+        final contentLength =
+            int.tryParse(
+              response.headers.value(Headers.contentLengthHeader) ?? '',
+            ) ??
+            -1;
+        if (existing > 0 && status == 206) {
+          final total = expectedSize ??
+              (contentLength > 0 ? existing + contentLength : -1);
+          final raf = target.openSync(mode: FileMode.append);
+          var received = existing;
+          try {
+            await for (final chunk in body.stream) {
+              raf.writeFromSync(chunk);
+              received += chunk.length;
+              onProgress?.call(received, total > 0 ? total : received);
+            }
+          } finally {
+            raf.closeSync();
+          }
+          if (contentLength > 0 && received < existing + contentLength) {
+            throw Exception('连接中断（已接收 $received 字节）');
+          }
+          if (expectedSize != null && expectedSize > 0 &&
+              received < expectedSize) {
+            throw Exception('安装包未下载完整（$received/$expectedSize）');
+          }
+          if (received > 0) return;
+        } else if (status == 200) {
+          final total =
+              expectedSize ?? (contentLength > 0 ? contentLength : -1);
+          final raf = target.openSync(mode: FileMode.write);
+          var received = 0;
+          try {
+            await for (final chunk in body.stream) {
+              raf.writeFromSync(chunk);
+              received += chunk.length;
+              onProgress?.call(received, total > 0 ? total : received);
+            }
+          } finally {
+            raf.closeSync();
+          }
+          if (expectedSize != null && expectedSize > 0 &&
+              received < expectedSize) {
+            throw Exception('安装包未下载完整（$received/$expectedSize）');
+          }
+          if (received > 0) return;
+        } else {
+          lastError = Exception('HTTP $status');
+          debugPrint('[update] download got HTTP $status at $candidate');
+        }
       } catch (error) {
         lastError = error;
         debugPrint('[update] download failed at $candidate: $error');

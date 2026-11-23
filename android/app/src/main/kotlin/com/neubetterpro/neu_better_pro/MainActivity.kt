@@ -17,6 +17,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -37,6 +38,9 @@ class MainActivity : FlutterActivity() {
 
     /** 冷启动时应用尚未开始监听，先把「待打开寝室用电」记下来等 Dart 来取。 */
     private var pendingOpenDorm = false
+
+    /** 冷启动时待切换的一级标签（桌面小部件点击 -> 课表=1），-1 表示无。 */
+    private var pendingOpenTab = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +75,13 @@ class MainActivity : FlutterActivity() {
                     pendingOpenDorm = false
                     Log.d(LOG_TAG, "getPendingOpenDorm -> $pending")
                     result.success(pending)
+                }
+                // 冷启动兜底：桌面小部件点击后待切换的一级标签。
+                "getPendingOpenTab" -> {
+                    val tab = pendingOpenTab
+                    pendingOpenTab = -1
+                    Log.d(LOG_TAG, "getPendingOpenTab -> $tab")
+                    result.success(tab)
                 }
                 // 用系统默认浏览器打开外部链接（新闻「查看原文」等）。
                 "openUrl" -> {
@@ -144,6 +155,36 @@ class MainActivity : FlutterActivity() {
                         } catch (error: Exception) {
                             result.error("install_failed", error.message, null)
                         }
+                    }
+                }
+                // 是否已被允许安装未知来源应用（返回后据此自动续装）。
+                "canInstallPackages" -> {
+                    val allowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        packageManager.canRequestPackageInstalls()
+                    } else {
+                        true
+                    }
+                    result.success(allowed)
+                }
+                "openInstallPermission" -> {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try {
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("open_permission_failed", error.message, null)
+                    }
+                }
+                // 打开安装包下载目录（App 内部 cache/neu_better_updates）。
+                "openDownloadFolder" -> {
+                    try {
+                        openDownloadFolder()
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("open_folder_failed", error.message, null)
                     }
                 }
                 else -> result.notImplemented()
@@ -250,8 +291,7 @@ class MainActivity : FlutterActivity() {
      * 返回 "ok" 表示已拉起安装器；"need_permission" 表示用户尚未允许
      * 「安装未知应用」，此时跳转系统授权页，用户允许后需再次点击更新。
      */
-    private fun installApk(path: String): String {
-        val file = File(path)
+    private fun installApk(path: String): String {        val file = File(path)
         require(file.exists() && file.length() > 0L) {
             "apk not found or empty: $path"
         }
@@ -299,6 +339,70 @@ class MainActivity : FlutterActivity() {
         return "ok"
     }
 
+    /**
+     * 打开安装包下载目录：安卓的安装包在 App 内部 cache/neu_better_updates，
+     * 系统文件管理器无法直接定位到该内部目录，这里 Toast 出完整路径并尝试
+     * 打开「文件」首页，便于用户知晓位置。
+     */
+    private fun openDownloadFolder() {
+        val dir = File(cacheDir, "neu_better_updates")
+        if (!dir.exists()) dir.mkdirs()
+        val folderUri = try {
+            FileProvider.getUriForFile(this, "$packageName.fileprovider", dir)
+        } catch (_: Exception) {
+            null
+        }
+        // 依次尝试目录 URI 的常见 MIME，系统/MT 管理器接受的类型不一致。
+        // 只有确实存在可处理的应用时才弹选择器，否则会得到“没有应用可执行此操作”。
+        val candidates = mutableListOf<Intent>()
+        if (folderUri != null) {
+            for (mime in listOf("resource/folder", "vnd.android.document/directory")) {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(folderUri, mime)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    clipData = ClipData.newRawUri("folder", folderUri)
+                }
+                if (intent.resolveActivity(packageManager) != null) {
+                    candidates.add(intent)
+                    break
+                }
+            }
+        }
+        // 公共存储根目录（系统「文件」可处理），让用户至少能进系统文件管理器。
+        val rootUri = Uri.parse("content://com.android.externalstorage.documents/root/primary")
+        val rootIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(rootUri, "vnd.android.document/root")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (rootIntent.resolveActivity(packageManager) != null) {
+            candidates.add(rootIntent)
+        }
+        if (candidates.isNotEmpty()) {
+            val chooser = Intent.createChooser(candidates.first(), "选择打开方式").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(chooser)
+            return
+        }
+        // 最后兜底：系统文档选择器一定能打开（用户可浏览本机存储）。
+        Toast.makeText(this, "下载位置：${dir.absolutePath}", Toast.LENGTH_LONG).show()
+        try {
+            startActivity(
+                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (_: Exception) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -318,23 +422,43 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         // 复用已有 Activity（singleTop）时更新当前 intent，再处理跳转。
         setIntent(intent)
+        // 桌面小部件点击：切到课表一级标签（应用可能已在任意页面）。
+        val tab = intent.getIntExtra(EXTRA_OPEN_TAB, -1)
+        if (tab >= 0) {
+            intent.removeExtra(EXTRA_OPEN_TAB)
+            val channel = notificationChannel
+            if (channel != null) {
+                Log.d(LOG_TAG, "onNewIntent openTab -> invoke Dart $tab")
+                channel.invokeMethod("openTab", tab)
+            } else {
+                Log.d(LOG_TAG, "onNewIntent openTab -> channel not ready, pending $tab")
+                pendingOpenTab = tab
+            }
+        }
         val wantsOpenDorm = intent.getBooleanExtra(EXTRA_OPEN_DORM, false)
-        if (!wantsOpenDorm) return
-        intent.removeExtra(EXTRA_OPEN_DORM)
-        val channel = notificationChannel
-        if (channel != null) {
-            // 应用已在运行：直接回调 Dart 切到寝室用电页。
-            Log.d(LOG_TAG, "onNewIntent openDorm -> invoke Dart openDorm")
-            channel.invokeMethod("openDorm", null)
-        } else {
-            Log.d(LOG_TAG, "onNewIntent openDorm -> channel not ready, mark pending")
-            pendingOpenDorm = true
+        if (wantsOpenDorm) {
+            intent.removeExtra(EXTRA_OPEN_DORM)
+            val channel = notificationChannel
+            if (channel != null) {
+                // 应用已在运行：直接回调 Dart 切到寝室用电页。
+                Log.d(LOG_TAG, "onNewIntent openDorm -> invoke Dart openDorm")
+                channel.invokeMethod("openDorm", null)
+            } else {
+                Log.d(LOG_TAG, "onNewIntent openDorm -> channel not ready, mark pending")
+                pendingOpenDorm = true
+            }
         }
     }
 
     /** 处理启动 intent：若带 openDorm extra，记为待处理并清掉 extra 防重复触发。 */
     private fun handleLaunchIntent(intent: Intent?) {
         if (intent == null) return
+        val tab = intent.getIntExtra(EXTRA_OPEN_TAB, -1)
+        if (tab >= 0) {
+            pendingOpenTab = tab
+            intent.removeExtra(EXTRA_OPEN_TAB)
+            Log.d(LOG_TAG, "handleLaunchIntent openTab -> pending $tab (cold start)")
+        }
         if (intent.getBooleanExtra(EXTRA_OPEN_DORM, false)) {
             pendingOpenDorm = true
             intent.removeExtra(EXTRA_OPEN_DORM)
@@ -473,6 +597,7 @@ class MainActivity : FlutterActivity() {
         private const val ALERT_NOTIFICATION_ID = 0xE1EC
         private const val PLUGIN_NOTIFICATION_ID = 0xE1ED
         private const val EXTRA_OPEN_DORM = "openDorm"
+        private const val EXTRA_OPEN_TAB = "openTab"
         private const val REQUEST_CODE_OPEN_DORM = 0x0D0E
         private const val LOG_TAG = "NEUNotify"
     }

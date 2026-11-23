@@ -23,6 +23,10 @@ class UpdateManager extends ChangeNotifier {
   double progress = 0;
   String? error;
 
+  /// 安卓「已下载待安装」的包：用户在系统授权页允许安装后回到 App 时，
+  /// 由 [onAppResumed] 自动继续拉起安装器。
+  File? pendingInstall;
+
   /// 本次会话是否已经弹过「下载完成」提醒，避免重复打扰。
   bool promptedReady = false;
 
@@ -84,6 +88,7 @@ class UpdateManager extends ChangeNotifier {
       await _service.download(
         _downloadUrl!,
         target,
+        expectedSize: _expectedSize,
         onProgress: (received, total) {
           if (total > 0) {
             progress = received / total;
@@ -109,12 +114,33 @@ class UpdateManager extends ChangeNotifier {
     final file = readyFile;
     if (file == null) return 'error';
     if (Platform.isAndroid) {
-      return UpdateInstaller.installAndroid(file);
+      final status = await UpdateInstaller.installAndroid(file);
+      if (status == 'need_permission') {
+        // 记录待安装包；用户去系统设置授权后回到 App 会自动继续安装。
+        pendingInstall = file;
+      } else if (status == 'ok') {
+        pendingInstall = null;
+      }
+      return status;
     }
     if (Platform.isWindows) {
       await UpdateInstaller.applyWindows(file);
       return 'ok';
     }
     return 'error';
+  }
+
+  /// App 回到前台时调用：若存在待安装包且已获得安装权限，则自动继续安装。
+  Future<void> onAppResumed() async {
+    final file = pendingInstall;
+    if (file == null || !Platform.isAndroid) return;
+    if (!await UpdateInstaller.canInstallPackages()) return;
+    final status = await UpdateInstaller.installAndroid(file);
+    if (status == 'ok') {
+      pendingInstall = null;
+    } else if (status == 'need_permission') {
+      pendingInstall = file;
+    }
+    notifyListeners();
   }
 }

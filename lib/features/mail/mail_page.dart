@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/mail_client.dart';
@@ -16,9 +17,12 @@ import 'mail_format.dart';
 /// 正文在详情页原生渲染。初始化失败时只显示原生错误态 + 重试，不再使用
 /// WebView / 网页版兜底。
 class MailPage extends ConsumerStatefulWidget {
-  const MailPage({super.key, required this.session});
+  const MailPage({super.key, required this.session, this.onBack});
 
   final AuthSession session;
+
+  /// 非空表示以「首页二级页」方式内嵌显示（保留底部导航），点击返回调用它。
+  final VoidCallback? onBack;
 
   @override
   ConsumerState<MailPage> createState() => _MailPageState();
@@ -29,6 +33,7 @@ class _MailPageState extends ConsumerState<MailPage> {
   List<MailSummary> _items = const [];
   bool _loading = true;
   String? _error;
+  MailSummary? _detail;
 
   @override
   void initState() {
@@ -66,7 +71,7 @@ class _MailPageState extends ConsumerState<MailPage> {
     }
     try {
       final client = _client ?? await _createClient();
-      final items = await client.list();
+      final items = await client.list().timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() {
         _client = client;
@@ -94,6 +99,10 @@ class _MailPageState extends ConsumerState<MailPage> {
     if (client == null) return;
     if (!summary.read) {
       unawaited(_markRead(summary, client));
+    }
+    if (widget.onBack != null) {
+      setState(() => _detail = summary);
+      return;
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -136,23 +145,84 @@ class _MailPageState extends ConsumerState<MailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: AppColors.ink,
-        title: const Text('邮件', style: TextStyle(fontSize: 16)),
-        actions: [
-          IconButton(
-            tooltip: '刷新收件箱',
-            onPressed: _loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded, size: 20),
+    final embedded = widget.onBack != null;
+    final body = _buildNative();
+    if (!embedded) {
+      if (_detail != null && _client != null) {
+        return MailDetailPage(
+          client: _client!,
+          summary: _detail!,
+          session: widget.session,
+          onBack: () => setState(() => _detail = null),
+        );
+      }
+      return Scaffold(
+        backgroundColor: AppColors.canvas,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: AppColors.ink,
+          title: const Text('邮件', style: TextStyle(fontSize: 16)),
+          actions: [
+            IconButton(
+              tooltip: '刷新收件箱',
+              onPressed: _loading ? null : () => _load(refresh: true),
+              icon: const Icon(Icons.refresh_rounded, size: 20),
+            ),
+          ],
+        ),
+        body: body,
+      );
+    }
+    final listPage = Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: '返回',
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
+              ),
+              Text(
+                '邮件',
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: '刷新收件箱',
+                onPressed: _loading ? null : () => _load(refresh: true),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _buildNative(),
+        ),
+        Divider(height: 1, color: AppColors.line),
+        Expanded(child: body),
+      ],
+    );
+    final detailPage = (_detail != null && _client != null)
+        ? MailDetailPage(
+            client: _client!,
+            summary: _detail!,
+            session: widget.session,
+            onBack: () => setState(() => _detail = null),
+          )
+        : null;
+    return SharedAxisSwitcher(
+      forward: detailPage != null,
+      child: detailPage != null
+          ? KeyedSubtree(
+              key: ValueKey('mail-detail-${_detail!.id}'),
+              child: detailPage,
+            )
+          : KeyedSubtree(key: const ValueKey('mail-list'), child: listPage),
     );
   }
 
