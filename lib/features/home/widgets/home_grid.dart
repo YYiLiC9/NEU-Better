@@ -1225,12 +1225,12 @@ class _HomeDormDetail extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
           child: Row(
             children: [
               IconButton(
                 onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
                 color: AppColors.ink,
                 tooltip: '返回首页',
               ),
@@ -1238,7 +1238,7 @@ class _HomeDormDetail extends StatelessWidget {
               Text(
                 kBalanceFeatureName,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: AppColors.ink,
                 ),
