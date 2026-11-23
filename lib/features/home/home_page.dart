@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/app_labels.dart';
 import '../../core/plugins/plugin_icon_resolver.dart';
 import '../../core/auth/auth_session.dart';
@@ -466,16 +467,10 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   final GlobalKey _dormCardKey = GlobalKey();
-  Rect? _dormCardRect;
   int _lastSection = 0;
 
-  /// 打开「首页 · 余额中心」二级页；先记录被点卡片的屏幕矩形，
-  /// 用于二级页从卡片处放大、返回时缩回卡片处（类 Android 转场）。
+  /// 打开「首页 · 余额中心」二级页。
   void _openDormDetail() {
-    final rb = _dormCardKey.currentContext?.findRenderObject() as RenderBox?;
-    if (rb != null && rb.hasSize) {
-      _dormCardRect = rb.localToGlobal(Offset.zero) & rb.size;
-    }
     ref.read(homeTabProvider.notifier).state = 0;
     ref.read(homeSectionProvider.notifier).state = 1;
   }
@@ -774,10 +769,6 @@ class _HomePageState extends ConsumerState<HomePage>
 
   Widget _buildHomeTab() {
     final section = ref.watch(homeSectionProvider);
-    // 卡片库（section 2）不做任何转场；只有「余额中心」二级页(1) 与首页(0)
-    // 之间做「从所点卡片处放大 / 缩回卡片处」的转场。
-    final galleryInvolved = section >= 2 || _lastSection >= 2;
-    final detailInvolved = section == 1 || _lastSection == 1;
     final Widget content;
     if (section == 1) {
       content = _HomeDormDetail(
@@ -820,69 +811,15 @@ class _HomePageState extends ConsumerState<HomePage>
     } else {
       content = _buildHomeOverview();
     }
-    const Duration duration = Duration(milliseconds: 300);
+    // 新旧页面采用两段式水平平移（先退出、再进入），不会出现文字重叠；
+    // 余额中心 / 邮件 / 通知 / 新闻保持同一套节奏。
+    final forward = section >= _lastSection;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _lastSection = section;
     });
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        var alignment = Alignment.center;
-        var beginScale = 0.9;
-        if (!galleryInvolved && detailInvolved && _dormCardRect != null) {
-          final rb = context.findRenderObject() as RenderBox?;
-          final boxTopLeft = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
-          final localCenter = _dormCardRect!.center - boxTopLeft;
-          final w = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
-          final h = constraints.maxHeight <= 0 ? 1.0 : constraints.maxHeight;
-          final ax = (localCenter.dx / w * 2 - 1).clamp(-1.0, 1.0);
-          final ay = (localCenter.dy / h * 2 - 1).clamp(-1.0, 1.0);
-          alignment = Alignment(ax, ay);
-          // 从「卡片实际尺寸」开始放大，而不是从 0（从点缩放会显得很怪）。
-          beginScale = (_dormCardRect!.width / w).clamp(0.22, 0.6);
-        }
-        return AnimatedSwitcher(
-          duration: duration,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          // 关键：旧/新页面按「同一全尺寸、左上对齐」叠放，避免两者高度不同
-          // 时 AnimatedSwitcher 默认居中布局导致整页上下跳动 / 瞬移。
-          layoutBuilder: (currentChild, previousChildren) => Stack(
-            fit: StackFit.expand,
-            alignment: Alignment.topLeft,
-            children: [...previousChildren, ?currentChild],
-          ),
-          transitionBuilder: galleryInvolved
-              ? (child, animation) => FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0.04, 0),
-                      end: Offset.zero,
-                    ).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                    ),
-                    child: child,
-                  ),
-                )
-              : (child, animation) => FadeTransition(
-                  opacity: animation,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: beginScale, end: 1.0).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                    ),
-                    alignment: alignment,
-                    child: child,
-                  ),
-                ),
-          child: KeyedSubtree(key: ValueKey<int>(section), child: content),
-        );
-      },
+    return SharedAxisSwitcher(
+      forward: forward,
+      child: KeyedSubtree(key: ValueKey<int>(section), child: content),
     );
   }
 

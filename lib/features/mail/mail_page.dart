@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/mail_client.dart';
@@ -144,66 +145,84 @@ class _MailPageState extends ConsumerState<MailPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.onBack != null && _detail != null && _client != null) {
-      return MailDetailPage(
-        client: _client!,
-        summary: _detail!,
-        session: widget.session,
-        onBack: () => setState(() => _detail = null),
-      );
-    }
+    final embedded = widget.onBack != null;
     final body = _buildNative();
-    if (widget.onBack != null) {
-      return Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: '返回',
-                  onPressed: widget.onBack,
-                  icon: const Icon(Icons.arrow_back_rounded, size: 20),
-                ),
-                Text(
-                  '邮件',
-                  style: TextStyle(
-                    color: AppColors.ink,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  tooltip: '刷新收件箱',
-                  onPressed: _loading ? null : () => _load(refresh: true),
-                  icon: const Icon(Icons.refresh_rounded, size: 20),
-                ),
-              ],
+    if (!embedded) {
+      if (_detail != null && _client != null) {
+        return MailDetailPage(
+          client: _client!,
+          summary: _detail!,
+          session: widget.session,
+          onBack: () => setState(() => _detail = null),
+        );
+      }
+      return Scaffold(
+        backgroundColor: AppColors.canvas,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: AppColors.ink,
+          title: const Text('邮件', style: TextStyle(fontSize: 16)),
+          actions: [
+            IconButton(
+              tooltip: '刷新收件箱',
+              onPressed: _loading ? null : () => _load(refresh: true),
+              icon: const Icon(Icons.refresh_rounded, size: 20),
             ),
-          ),
-          Divider(height: 1, color: AppColors.line),
-          Expanded(child: body),
-        ],
+          ],
+        ),
+        body: body,
       );
     }
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: AppColors.ink,
-        title: const Text('邮件', style: TextStyle(fontSize: 16)),
-        actions: [
-          IconButton(
-            tooltip: '刷新收件箱',
-            onPressed: _loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded, size: 20),
+    final listPage = Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: '返回',
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
+              ),
+              Text(
+                '邮件',
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: '刷新收件箱',
+                onPressed: _loading ? null : () => _load(refresh: true),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: body,
+        ),
+        Divider(height: 1, color: AppColors.line),
+        Expanded(child: body),
+      ],
+    );
+    final detailPage = (_detail != null && _client != null)
+        ? MailDetailPage(
+            client: _client!,
+            summary: _detail!,
+            session: widget.session,
+            onBack: () => setState(() => _detail = null),
+          )
+        : null;
+    return SharedAxisSwitcher(
+      forward: detailPage != null,
+      child: detailPage != null
+          ? KeyedSubtree(
+              key: ValueKey('mail-detail-${_detail!.id}'),
+              child: detailPage,
+            )
+          : KeyedSubtree(key: const ValueKey('mail-list'), child: listPage),
     );
   }
 
