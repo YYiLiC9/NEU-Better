@@ -2,11 +2,11 @@
 
 > 东北大学**非官方**开源校园客户端 —— 一个用 Flutter 编写的本地优先校园工具，Windows 桌面与 Android 手机共用同一套代码。
 
-当前版本：**0.2.0**　·　最新发布：[GitHub Releases](https://github.com/YYiLiC9/NEU-Better/releases)
+当前版本：**0.4.0**　·　最新发布：[GitHub Releases](https://github.com/YYiLiC9/NEU-Better/releases)
 
 ## 简介
 
-NEU Better 在不改变学校既有系统的前提下，把分散的校园入口收拢进一个干净、可读的客户端：一次登录、保持会话、数据只留在本机；课表、寝室用电、e码通一屏可达。无自建后端，不上传任何个人数据。
+NEU Better 在不改变学校既有系统的前提下，把分散的校园入口收拢进一个干净、可读的客户端：一次登录、保持会话、数据只留在本机；课表、寝室用电与网费、e码通、邮件、校园通知等一屏可达，首页卡片与插件可按需增删。无自建后端，不上传任何个人数据。
 
 - **桌面（Windows）**：左侧栏 + 内容区，按窗口宽度自适应；支持托盘、开机自启动。
 - **手机（Android）**：底部导航（课表 / 寝室用电 / e码通 / 设置），锁定竖屏，支持桌面小部件与系统悬浮通知。
@@ -32,18 +32,38 @@ NEU Better 在不改变学校既有系统的前提下，把分散的校园入口
 - 每日自动检查一次；低于提醒线时提醒（Windows 应用内弹窗 / Android 系统悬浮通知，点击跳转用电页）。
 
 ### e码通
-- 校园动态二维码（打开学校官方 H5 并自动 SSO），登录后后台预热 WebView，点开即显示。
-- 轻点二维码刷新；识别失败有超时与「重新加载」兜底，不长时间白屏。
+- 校园动态二维码：走原生接口获取二维码并本地渲染（无 WebView 常驻），登录后预热，冷启动点开通常亚秒级显示。
+- 二维码按其有效期自动轮换；轻点/右上角可刷新，失败自动重试，连续失败给出友好提示。
+- 二维码仅在其有效期内展示，不保留过期旧码。
+
+### 邮件
+- 一号通 / Coremail 邮箱只读收件箱：原生列表、原生 MIME 正文（含 GBK 解码）、附件下载到系统下载目录，无 WebView。
+
+### 校园通知
+- 读取一号通消息中心（type=3）通知，首页通知卡显示未读与最近条目；已读回写服务器。
+- 双端系统通知：Android 通知渠道（含提示音）与后台轮询（约 15 分钟、开机恢复）；Windows 托盘常驻轮询。
+
+### 首页卡片与插件
+- 首页卡片可自由排序/调整尺寸（1×1 / 2×2 / 2×4），布局按账号持久化；插件库可下载/安装/卸载插件。
+- 原生 DSL 插件渲染（不使用 WebView）：新闻、图书馆等插件；内置余额中心（含网费）、通知、邮件、校园网等。
+- 新闻插件支持板块选择、列表与详情；通知开关可按插件分别控制。
+
+### Windows 校园网
+- 校园网连接插件：读取网关余额与本次连接流量，提供统一身份认证的一键联网。
+
+### Android 桌面小部件
+- 「今日课程」小部件（2×2 / 2×4）：显示当前正在上的课与下一节课，无课时显示「今日课程已上完」；点击进入课表。
 
 ### 设置
-- 主题（浅色 / 深色 / 跟随系统）。
-- 每周起始日（周一 / 周日）。
-- 自动更新开关（从 GitHub Release 检查并安装）。
-- 清除课表修改（保留备注）。
-- Windows 专属：任务栏托盘图标、关闭窗口最小化到托盘、开机自启动。
+- 电脑端设置采用左侧分类（外观 / 课表 / 通知 / 通用）两栏布局；手机端为顶部大类标签切换，分类内容内嵌显示。
+- 主题（浅色 / 深色 / 跟随系统）、每周起始日（周一 / 周日）。
+- 通知：校园通知 / 用电提醒 / 邮件 / 各已安装插件的通知开关。
+- 自动更新（从 GitHub Release 检查、断点续传下载与安装）、显示当前版本。
+- 清除课表修改（保留备注），可查看本地修改详情。
+- Windows 专属：任务栏托盘图标、关闭窗口最小化到托盘、开机自启动、开机启动时自动最小化到托盘。
 
 ### Windows 桌面
-- 托盘右键「显示 / 退出」；关闭行为可配置。
+- 应用名 **NEUBetterPro**；托盘右键「显示 / 退出」；关闭行为可配置。
 - 任务栏 / 窗口图标、应用图标（山峰·水波品牌图）。
 
 ## 平台
@@ -70,18 +90,23 @@ lib/
     auth/         登录态、凭据、会话、身份
     crypto/       RSA 加密
     electricity/  用电领域模型（楼栋编码表）
-    network/      CAS / 教务 / 电费 / 身份 客户端
+    network/      CAS / 教务 / 电费网费 / 身份 / e码通 / 邮件 / 通知 / 新闻 客户端
     platform/     Windows 窗口通道、开机自启动
+    plugins/      插件模型、注册表、远程目录与原生 DSL 渲染
     settings/     应用设置与持久化
-    storage/      Windows DPAPI 文件
-    update/       自动更新（GitHub Release）
+    storage/      Windows DPAPI 文件、按账号数据目录
+    update/       自动更新（GitHub Release，断点续传）
   features/
     auth/         登录页、WebView 登录、登录状态机
-    home/         主界面（桌面侧栏 / 手机底部导航）
+    home/         主界面（桌面侧栏 / 手机底部导航 / 首页卡片与插件库）
     timetable/    课表（周/日视图、同步、增改删、备注、小部件推送）
-    dorm/         寝室用电
-    ecode/        e码通
-    settings/     设置
+    dorm/         寝室用电与网费余额
+    ecode/        e码通（原生二维码）
+    mail/         邮件（Coremail 只读收件箱）
+    notifications/ 校园通知（列表、系统通知、设置）
+    news/         新闻插件（板块、列表、详情）
+    plugins/      插件运行时页面
+    settings/     设置（电脑两栏 / 手机分类标签）
     landing/      M0 过场
   main.dart       入口
 android/          Android 平台工程（含小部件、通知原生代码）
@@ -112,8 +137,8 @@ test/             Dart / Flutter 测试
 
 ```powershell
 .\tools\flutter.cmd analyze                 # 必须 No issues found
-.\tools\flutter.cmd test                    # 必须全过（当前 58 个）
-.\tools\flutter.cmd build windows --release # 产物 build\windows\x64\runner\Release\neu_better_pro.exe
+.\tools\flutter.cmd test                    # 必须全过（当前 199 个）
+.\tools\flutter.cmd build windows --release # 产物 build\windows\x64\runner\Release\NEUBetterPro.exe
 .\tools\flutter.cmd build apk --release     # 产物 build\app\outputs\flutter-apk\app-release.apk
 ```
 
@@ -126,6 +151,8 @@ test/             Dart / Flutter 测试
 - `timetable.json` 课表快照
 - `course_notes.json` / `course_overrides.json` 课程备注与本地修改
 - `electricity.json` 用电偏好与最近读数
+- `plugins.json` / `plugin_<id>.json` 已安装插件与注册表
+- `news_read_ids.json` 新闻本地已读
 
 Android 端持久数据写入应用私有 `files` 目录（覆盖安装不丢失）。
 
