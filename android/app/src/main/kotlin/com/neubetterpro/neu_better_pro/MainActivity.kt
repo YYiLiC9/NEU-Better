@@ -38,6 +38,9 @@ class MainActivity : FlutterActivity() {
     /** 冷启动时应用尚未开始监听，先把「待打开寝室用电」记下来等 Dart 来取。 */
     private var pendingOpenDorm = false
 
+    /** 冷启动时待切换的一级标签（桌面小部件点击 -> 课表=1），-1 表示无。 */
+    private var pendingOpenTab = -1
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ensureElectricityAlertChannel()
@@ -71,6 +74,13 @@ class MainActivity : FlutterActivity() {
                     pendingOpenDorm = false
                     Log.d(LOG_TAG, "getPendingOpenDorm -> $pending")
                     result.success(pending)
+                }
+                // 冷启动兜底：桌面小部件点击后待切换的一级标签。
+                "getPendingOpenTab" -> {
+                    val tab = pendingOpenTab
+                    pendingOpenTab = -1
+                    Log.d(LOG_TAG, "getPendingOpenTab -> $tab")
+                    result.success(tab)
                 }
                 // 用系统默认浏览器打开外部链接（新闻「查看原文」等）。
                 "openUrl" -> {
@@ -323,23 +333,43 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         // 复用已有 Activity（singleTop）时更新当前 intent，再处理跳转。
         setIntent(intent)
+        // 桌面小部件点击：切到课表一级标签（应用可能已在任意页面）。
+        val tab = intent.getIntExtra(EXTRA_OPEN_TAB, -1)
+        if (tab >= 0) {
+            intent.removeExtra(EXTRA_OPEN_TAB)
+            val channel = notificationChannel
+            if (channel != null) {
+                Log.d(LOG_TAG, "onNewIntent openTab -> invoke Dart $tab")
+                channel.invokeMethod("openTab", tab)
+            } else {
+                Log.d(LOG_TAG, "onNewIntent openTab -> channel not ready, pending $tab")
+                pendingOpenTab = tab
+            }
+        }
         val wantsOpenDorm = intent.getBooleanExtra(EXTRA_OPEN_DORM, false)
-        if (!wantsOpenDorm) return
-        intent.removeExtra(EXTRA_OPEN_DORM)
-        val channel = notificationChannel
-        if (channel != null) {
-            // 应用已在运行：直接回调 Dart 切到寝室用电页。
-            Log.d(LOG_TAG, "onNewIntent openDorm -> invoke Dart openDorm")
-            channel.invokeMethod("openDorm", null)
-        } else {
-            Log.d(LOG_TAG, "onNewIntent openDorm -> channel not ready, mark pending")
-            pendingOpenDorm = true
+        if (wantsOpenDorm) {
+            intent.removeExtra(EXTRA_OPEN_DORM)
+            val channel = notificationChannel
+            if (channel != null) {
+                // 应用已在运行：直接回调 Dart 切到寝室用电页。
+                Log.d(LOG_TAG, "onNewIntent openDorm -> invoke Dart openDorm")
+                channel.invokeMethod("openDorm", null)
+            } else {
+                Log.d(LOG_TAG, "onNewIntent openDorm -> channel not ready, mark pending")
+                pendingOpenDorm = true
+            }
         }
     }
 
     /** 处理启动 intent：若带 openDorm extra，记为待处理并清掉 extra 防重复触发。 */
     private fun handleLaunchIntent(intent: Intent?) {
         if (intent == null) return
+        val tab = intent.getIntExtra(EXTRA_OPEN_TAB, -1)
+        if (tab >= 0) {
+            pendingOpenTab = tab
+            intent.removeExtra(EXTRA_OPEN_TAB)
+            Log.d(LOG_TAG, "handleLaunchIntent openTab -> pending $tab (cold start)")
+        }
         if (intent.getBooleanExtra(EXTRA_OPEN_DORM, false)) {
             pendingOpenDorm = true
             intent.removeExtra(EXTRA_OPEN_DORM)
@@ -478,6 +508,7 @@ class MainActivity : FlutterActivity() {
         private const val ALERT_NOTIFICATION_ID = 0xE1EC
         private const val PLUGIN_NOTIFICATION_ID = 0xE1ED
         private const val EXTRA_OPEN_DORM = "openDorm"
+        private const val EXTRA_OPEN_TAB = "openTab"
         private const val REQUEST_CODE_OPEN_DORM = 0x0D0E
         private const val LOG_TAG = "NEUNotify"
     }

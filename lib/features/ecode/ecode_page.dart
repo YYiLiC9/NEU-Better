@@ -97,7 +97,7 @@ const String _cleanScript = r"""
         // 首次确认前，候选需连续约 480ms(8×60ms) 保持同一元素才认作二维码；
         // 官方“获取失败”占位块会很快被真码替换，从而不会被当成二维码。
         if(t===stableEl){ stable++; } else { stableEl=t; stable=0; }
-        if(stable<8){ cover(true); return false; }
+        if(stable<3){ cover(true); return false; }
       }
       t.classList.add('ecode-qr'); // 标记为已识别二维码（未被标记的 canvas/img 一律隐藏，杜绝未定位时的错位闪现）
       var chain=[],n=t;
@@ -184,6 +184,7 @@ class _EcodePageState extends State<EcodePage> {
   Timer? _errorTimer;
   bool _recoverTried = false;
   bool _refreshing = false;
+  Stopwatch? _readyWatch;
 
   @override
   void initState() {
@@ -203,6 +204,7 @@ class _EcodePageState extends State<EcodePage> {
   Future<void> _bootstrap() async {
     _timeout?.cancel();
     _errorTimer?.cancel();
+    _readyWatch ??= Stopwatch()..start();
     if (mounted) {
       setState(() {
         _controller = null;
@@ -222,6 +224,9 @@ class _EcodePageState extends State<EcodePage> {
             _errorTimer?.cancel();
             _timeout?.cancel();
             if (!_ready || _error != null) {
+              debugPrint(
+                '[ecode] first ready in ${_readyWatch?.elapsedMilliseconds ?? -1}ms',
+              );
               setState(() {
                 _ready = true;
                 _error = null;
@@ -247,9 +252,11 @@ class _EcodePageState extends State<EcodePage> {
         },
       ),
     );
+    // 先把 controller 挂到界面，WebView 立即开始渲染（加载态被盖层遮住），
+    // 避免「等 loadRequest 完成才 setState」造成的双重等待。
+    if (mounted) setState(() => _controller = controller);
     await _injectCookies();
     await controller.loadRequest(Uri.parse(_ecodeUrl));
-    if (mounted) setState(() => _controller = controller);
     _armTimeout();
   }
 

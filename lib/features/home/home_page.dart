@@ -145,6 +145,7 @@ class _HomePageState extends ConsumerState<HomePage>
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
     NotificationRouter.openDormSignal.addListener(_handleOpenDorm);
+    NotificationRouter.openTabSignal.addListener(_handleOpenTab);
     unawaited(NotificationRouter.consumePending());
     _loadStatus();
     dormPrefsChanged.addListener(_loadStatus);
@@ -171,7 +172,9 @@ class _HomePageState extends ConsumerState<HomePage>
     if (!kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         !inTest) {
-      Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      // 首帧后立即预热 e码通（不再延迟 1.2s），让 WebView 与课表同步并行加载，
+      // 缩短冷启动首次点开 e码通的等待时间。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_ecodeVisited) {
           setState(() => _ecodeVisited = true);
         }
@@ -409,10 +412,19 @@ class _HomePageState extends ConsumerState<HomePage>
   @override
   void dispose() {
     NotificationRouter.openDormSignal.removeListener(_handleOpenDorm);
+    NotificationRouter.openTabSignal.removeListener(_handleOpenTab);
     dormPrefsChanged.removeListener(_loadStatus);
     _notifyPoller?.stop();
     _tabFade.dispose();
     super.dispose();
+  }
+
+  /// 收到桌面小部件点击请求：切到「课表」一级页。
+  void _handleOpenTab() {
+    if (!mounted) return;
+    final tab = NotificationRouter.requestedTab;
+    debugPrint('[notify] openTab -> $tab');
+    _selectTab(tab);
   }
 
   /// 收到通知点击请求：切到「首页 · 寝室用电」二级页。
