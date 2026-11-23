@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neu_better_pro/core/auth/auth_exception.dart';
 import 'package:neu_better_pro/core/auth/saved_credentials.dart';
 import 'package:neu_better_pro/core/network/srun_portal_client.dart';
+import 'package:neu_better_pro/core/platform/campus_wifi.dart';
 import 'package:neu_better_pro/core/platform/windows_wifi.dart';
 import 'package:neu_better_pro/core/plugins/campus_network_plugin.dart';
 import 'package:neu_better_pro/core/plugins/plugin_service.dart';
@@ -22,8 +24,16 @@ const _credentials = SavedCredentials(
   username: '20260001',
   password: 'test-only',
 );
-const _online = SrunStatus(online: true, balance: 12.5, sumBytes: 1048576);
+const _online = SrunStatus(
+  online: true,
+  clientIp: '192.0.2.9',
+  username: '20260001',
+  connectionKey: 'test-session',
+  balance: 12.5,
+  sumBytes: 1048576,
+);
 const _offline = SrunStatus(online: false, clientIp: '192.0.2.9');
+const _ticket = 'ST-test-ipgw';
 
 class _MemorySettings extends AppSettingsStore {
   Map<String, dynamic> json = {};
@@ -47,12 +57,14 @@ class _StartupSettings extends AppSettingsStore {
 
 class _Wifi extends WindowsWifi {
   String? current;
+  CampusWifiException? ssidError;
   bool unavailable = false;
   Future<void> Function(String)? onConnect;
   int attempts = 0;
 
   @override
   Future<String?> currentSsid({String? preferred}) async {
+    if (ssidError case final error?) throw error;
     if (unavailable) throw const WindowsWifiException('没有可用的 Wi-Fi 网卡');
     return current;
   }
@@ -74,9 +86,11 @@ class _Gateway extends SrunPortalClient {
   SrunStatus? systemStatus;
   Future<SrunStatus> Function()? onStatus;
   Future<void> Function()? onLogin;
+  Future<void> Function()? onLogout;
   int reads = 0;
   int systemReads = 0;
   int logins = 0;
+  int logouts = 0;
   String? sourceAddress;
 
   @override
@@ -93,17 +107,28 @@ class _Gateway extends SrunPortalClient {
   }
 
   @override
-  Future<void> login({
-    required String username,
-    required String password,
-    String? clientIp,
-  }) async {
-    expect(username, _credentials.username);
-    expect(password, _credentials.password);
-    expect(clientIp, _offline.clientIp);
+  Future<void> loginWithTicket(String ticket) async {
+    expect(ticket, _ticket);
     logins++;
     await onLogin?.call();
-    next = _online;
+    if (sourceAddress == null) {
+      systemStatus = _online;
+    } else {
+      next = _online;
+    }
+  }
+
+  @override
+  Future<void> logout(SrunStatus session) async {
+    expect(session.username, _online.username);
+    expect(session.clientIp, _online.clientIp);
+    logouts++;
+    await onLogout?.call();
+    if (sourceAddress == null) {
+      systemStatus = _offline;
+    } else {
+      next = _offline;
+    }
   }
 }
 
@@ -114,13 +139,20 @@ class _TestNetwork {
     bool desktop = true,
     AppSettings initial = const AppSettings(),
     Future<String?> Function()? wiredAddress,
+    Future<void> Function()? requestWifiPermission,
   }) {
     settings = AppSettingsController(store: store, initial: initial);
     controller = CampusNetworkController(
-      settings: settings,
       readCredentials: () async {
         credentialReads++;
         return saved;
+      },
+      requestGatewayTicket: ({required username, required password}) async {
+        ticketRequests++;
+        expect(username, _credentials.username);
+        expect(password, _credentials.password);
+        await onRequestTicket?.call();
+        return _ticket;
       },
       account: _credentials.username,
       supported: supported,
@@ -128,6 +160,8 @@ class _TestNetwork {
       wiredAddress: wiredAddress,
       wifi: wifi,
       gateway: gateway,
+      connectWifiAtStartup: desktop ? wifi.connect : null,
+      requestWifiPermission: requestWifiPermission,
     );
   }
 
@@ -137,6 +171,8 @@ class _TestNetwork {
   late final AppSettingsController settings;
   late final CampusNetworkController controller;
   int credentialReads = 0;
+  int ticketRequests = 0;
+  Future<void> Function()? onRequestTicket;
 
   Widget scope(Widget widget) => ProviderScope(
     overrides: [
@@ -195,47 +231,41 @@ void main() {
   });
 
   test(
-    'one-click connects Wi-Fi, logs in, confirms online and persists SSID',
+    'manual login uses the current Windows Wi-Fi and confirms billing metrics',
     () async {
       final network = _TestNetwork();
+      network.wifi.current = 'Campus bridge';
       addTearDown(network.dispose);
       final controller = network.controller;
       final phases = <CampusConnectPhase>[];
       controller.addListener(() => phases.add(controller.phase));
-      expect(controller.ssid, 'NEU');
-      await controller.connectFlow(' NEU-Test ');
+      await controller.loginGateway();
       expect(phases, [
-        CampusConnectPhase.wifi,
         CampusConnectPhase.checking,
         CampusConnectPhase.login,
         CampusConnectPhase.confirming,
         CampusConnectPhase.idle,
       ]);
-      expect(controller.wifiConnected, isTrue);
       expect(controller.gatewayOnline, isTrue);
-      expect(controller.currentSsid, 'NEU-Test');
+      expect(controller.connectionLabel, 'Wi-Fi · Campus bridge');
       expect(controller.balance, 12.5);
       expect(controller.sumBytes, 1048576);
-      expect(controller.lastUpdated, isNotNull);
       expect(network.gateway.logins, 1);
 
-      network.wifi.current = null;
-      await controller.connectFlow('NEU-Test');
-      expect(network.wifi.attempts, 2);
+      await controller.loginGateway();
+      expect(network.wifi.attempts, 0);
       expect(network.gateway.logins, 1);
       expect(network.credentialReads, 1);
-      await network.settings.flush();
-      expect((await network.store.read()).campusWifiSsid, 'NEU-Test');
-      expect(AppSettings.fromJson({'campusWifiSsid': 7}).campusWifiSsid, 'NEU');
+      expect(network.ticketRequests, 1);
     },
   );
 
-  test('stops at Wi-Fi failure and never reads credentials', () async {
+  test('startup stops at Wi-Fi failure and never reads credentials', () async {
     final network = _TestNetwork();
     addTearDown(network.dispose);
     network.wifi.onConnect = (_) async =>
         throw const WindowsWifiException('无线电已关闭');
-    await network.controller.connectFlow('NEU');
+    await network.controller.connectAtStartup('NEU');
     expect(network.controller.error, '无线电已关闭');
     expect(network.gateway.reads, 0);
     expect(network.credentialReads, 0);
@@ -246,13 +276,20 @@ void main() {
     () async {
       final network = _TestNetwork();
       addTearDown(network.dispose);
+      network.wifi.current = 'NEU';
+      await network.controller.refresh();
+      expect(network.controller.canLogin, isTrue);
       network.gateway.onStatus = () async => throw const SrunUnavailable();
-      await network.controller.connectFlow('NEU');
+      await network.controller.loginGateway();
       expect(network.controller.error, contains('无法访问学校网关'));
+      expect(network.controller.statusLabel, '未连接校园网');
+      expect(network.controller.canLogin, isFalse);
+      expect(network.controller.connectionLabel, 'Wi-Fi · NEU');
       expect(network.credentialReads, 0);
+      expect(network.wifi.attempts, 0);
       network.gateway.onStatus = null;
       network.gateway.onLogin = () async => throw const SrunRejected('账户余额不足');
-      await network.controller.connectFlow('NEU');
+      await network.controller.loginGateway();
       expect(network.controller.error, contains('账户余额不足'));
       expect(network.controller.gatewayOnline, isFalse);
     },
@@ -267,60 +304,139 @@ void main() {
       () async {
         final network = _TestNetwork(saved: saved);
         addTearDown(network.dispose);
-        await network.controller.connectFlow('NEU');
+        network.wifi.current = 'NEU';
+        await network.controller.loginGateway();
         expect(network.controller.error, contains('保存账号密码'));
+        expect(network.ticketRequests, 0);
         expect(network.gateway.logins, 0);
       },
     );
   }
 
-  testWidgets('shows the one-click stages and the confirmed school metrics', (
+  testWidgets('shows the gateway login stages and school metrics', (
     tester,
   ) async {
     final network = _TestNetwork();
-    final wifiGate = Completer<void>();
+    network.wifi.current = 'Campus bridge';
+    final statusGate = Completer<SrunStatus>();
     final loginGate = Completer<void>();
-    network.wifi.onConnect = (_) => wifiGate.future;
     network.gateway.onLogin = () => loginGate.future;
 
     await tester.pumpWidget(
       network.scope(const MaterialApp(home: CampusNetworkPage())),
     );
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<TextField>(find.byType(TextField)).controller!.text,
-      'NEU',
-    );
-    await tester.tap(find.text('一键联网'));
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Wi-Fi · Campus bridge'), findsOneWidget);
+    expect(find.text('已连接校园网 · 未登录网关'), findsOneWidget);
+    network.gateway.onStatus = () => statusGate.future;
+    await tester.tap(find.text('登录网关'));
     await tester.pump();
-    expect(find.text('正在连接 Wi-Fi…'), findsOneWidget);
+    expect(find.text('正在检测学校网关…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    wifiGate.complete();
+    network.gateway.onStatus = null;
+    statusGate.complete(_offline);
     await tester.pump();
-    expect(find.text('正在登录网关…'), findsOneWidget);
+    expect(find.text('正在进行统一身份认证…'), findsOneWidget);
     loginGate.complete();
     await tester.pumpAndSettle();
-    expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('已连接校园网 · 已登录网关'), findsOneWidget);
     expect(find.text('¥12.50'), findsOneWidget);
     expect(find.text('1.00 MiB'), findsOneWidget);
     expect(find.textContaining('本次连接流量'), findsNothing);
+    expect(find.text('登录网关'), findsNothing);
+    final logout = find.widgetWithText(FilledButton, '登出网关');
+    expect(tester.widget<FilledButton>(logout).onPressed, isNotNull);
+    expect(
+      tester.widget<FilledButton>(logout).style?.backgroundColor?.resolve({}),
+      Theme.of(tester.element(logout)).colorScheme.error,
+    );
+
+    final logoutGate = Completer<void>();
+    network.gateway.onLogout = () => logoutGate.future;
+    await tester.tap(logout);
+    await tester.pump();
+    expect(find.text('正在登出网关…'), findsOneWidget);
+    logoutGate.complete();
+    await tester.pumpAndSettle();
+    expect(network.gateway.logouts, 1);
+    expect(network.credentialReads, 1);
+    expect(find.text('已连接校园网 · 未登录网关'), findsOneWidget);
+    expect(find.text('登录网关'), findsOneWidget);
+    expect(find.text('¥12.50'), findsNothing);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'offers the official browser flow when CAS requires verification',
+    (tester) async {
+      final network = _TestNetwork(desktop: false);
+      network.wifi.current = 'NEU';
+      network.onRequestTicket = () async =>
+          throw const SecondaryVerificationRequired();
+      await tester.pumpWidget(
+        network.scope(const MaterialApp(home: CampusNetworkPage())),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('登录网关'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('设备验证'), findsOneWidget);
+      expect(find.text('在浏览器完成统一身份认证'), findsOneWidget);
+      expect(network.gateway.logins, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  test('does not redeem a CAS ticket after the gateway IPv4 changes', () async {
+    final network = _TestNetwork(wiredAddress: () async => '192.0.2.9');
+    addTearDown(network.dispose);
+    network.onRequestTicket = () async {
+      network.gateway.next = const SrunStatus(
+        online: false,
+        clientIp: '192.0.2.10',
+      );
+    };
+    await network.controller.loginGateway();
+    expect(network.ticketRequests, 1);
+    expect(network.gateway.logins, 0);
+    expect(network.controller.error, contains('IPv4 已变化'));
+  });
+
+  test('logout will not disconnect a different gateway session', () async {
+    final network = _TestNetwork(wiredAddress: () async => '192.0.2.9');
+    addTearDown(network.dispose);
+    network.gateway.next = _online;
+    await network.controller.refresh();
+    expect(network.controller.canLogout, isTrue);
+
+    network.gateway.next = const SrunStatus(
+      online: true,
+      clientIp: '192.0.2.9',
+      username: '20260001',
+      connectionKey: 'new-session',
+    );
+    await network.controller.logoutGateway();
+    expect(network.gateway.logouts, 0);
+    expect(network.credentialReads, 0);
+    expect(network.controller.gatewayOnline, isTrue);
+    expect(network.controller.error, contains('会话已变化'));
   });
 
   testWidgets('shows the missing password error and permits retry', (
     tester,
   ) async {
     final network = _TestNetwork(saved: null);
+    network.wifi.current = 'NEU';
     await tester.pumpWidget(
       network.scope(const MaterialApp(home: CampusNetworkPage())),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('一键联网'));
+    await tester.tap(find.text('登录网关'));
     await tester.pumpAndSettle();
     expect(find.textContaining('保存账号密码'), findsOneWidget);
     expect(
       tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, '一键联网'))
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '登录网关'))
           .onPressed,
       isNotNull,
     );
@@ -406,7 +522,7 @@ void main() {
     },
   );
 
-  testWidgets('the page cannot start Wi-Fi on other platforms', (tester) async {
+  testWidgets('the page cannot log in on other platforms', (tester) async {
     final network = _TestNetwork(supported: false);
     await tester.pumpWidget(
       network.scope(const MaterialApp(home: CampusNetworkPage())),
@@ -415,7 +531,7 @@ void main() {
     expect(find.text('仅支持 Windows 和 Android'), findsOneWidget);
     expect(
       tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, '一键联网'))
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '登录网关'))
           .onPressed,
       isNull,
     );
@@ -426,7 +542,7 @@ void main() {
   test('uses the current Ethernet route before attempting Wi-Fi', () async {
     final network = _TestNetwork(wiredAddress: () async => '192.0.2.10');
     addTearDown(network.dispose);
-    await network.controller.connectFlow('NEU');
+    await network.controller.loginGateway();
     expect(network.wifi.attempts, 0);
     expect(network.gateway.sourceAddress, '192.0.2.10');
     expect(network.gateway.logins, 1);
@@ -449,7 +565,7 @@ void main() {
       expect(network.controller.sumBytes, 1048576);
       expect(network.controller.error, isNull);
 
-      await network.controller.connectFlow('NEU');
+      await network.controller.loginGateway();
       expect(network.wifi.attempts, 0);
       expect(network.credentialReads, 0);
       expect(network.gateway.logins, 0);
@@ -468,7 +584,7 @@ void main() {
       await network.controller.refresh();
       expect(network.gateway.sourceAddress, isNull);
       expect(network.controller.gatewayOnline, isTrue);
-      expect(network.controller.connectionLabel, '系统当前线路');
+      expect(network.controller.connectionLabel, '有线网络');
 
       network.gateway.onStatus = null;
       network.gateway.next = _online;
@@ -479,7 +595,7 @@ void main() {
   );
 
   test(
-    'logs in through the selected Wi-Fi if the default route reports offline',
+    'logs in through the current virtual route when its gateway is offline',
     () async {
       final network = _TestNetwork(wiredAddress: () async => null);
       addTearDown(network.dispose);
@@ -487,16 +603,17 @@ void main() {
       await network.controller.refresh();
       expect(network.controller.gatewayOnline, isFalse);
 
-      await network.controller.connectFlow('NEU');
-      expect(network.wifi.attempts, 1);
-      expect(network.gateway.sourceAddress, '192.0.2.9');
+      await network.controller.loginGateway();
+      expect(network.wifi.attempts, 0);
+      expect(network.gateway.sourceAddress, isNull);
       expect(network.gateway.logins, 1);
-      expect(network.controller.connectionLabel, 'Wi-Fi · NEU');
+      expect(network.controller.connectionLabel, '系统当前线路');
+      expect(network.controller.gatewayOnline, isTrue);
     },
   );
 
   test(
-    'falls back to Wi-Fi only when the wired gateway is unreachable',
+    'startup falls back to the configured Wi-Fi when IPGW is unreachable',
     () async {
       final network = _TestNetwork(wiredAddress: () async => '192.0.2.10');
       addTearDown(network.dispose);
@@ -506,7 +623,7 @@ void main() {
         }
         return network.gateway.next;
       };
-      await network.controller.connectFlow('NEU');
+      await network.controller.connectAtStartup('NEU');
       expect(network.wifi.attempts, 1);
       expect(network.gateway.sourceAddress, '192.0.2.9');
       expect(network.controller.connectionLabel, 'Wi-Fi · NEU');
@@ -517,32 +634,107 @@ void main() {
   );
 
   testWidgets(
-    'Android continues through the gateway when system settings return',
+    'Android shows its campus Wi-Fi and logs in without switching networks',
     (tester) async {
       final network = _TestNetwork(desktop: false);
-      final selection = Completer<void>();
-      network.wifi.onConnect = (name) {
-        expect(name, 'NEU');
-        return selection.future;
-      };
+      network.wifi.current = 'NEU-mobile';
       await tester.pumpWidget(
         network.scope(const MaterialApp(home: CampusNetworkPage())),
       );
       await tester.pumpAndSettle();
       expect(find.byType(TextField), findsNothing);
       expect(find.byType(SwitchListTile), findsNothing);
-      await tester.tap(find.text('一键联网'));
-      await tester.pump();
-      expect(find.text('请在系统界面连接 NEU Wi-Fi…'), findsOneWidget);
-      expect(network.gateway.logins, 0);
-      selection.complete();
+      expect(find.text('已连接校园网 · 未登录网关'), findsOneWidget);
+      expect(find.text('Wi-Fi · NEU-mobile'), findsOneWidget);
+      await tester.tap(find.text('登录网关'));
       await tester.pumpAndSettle();
       expect(network.gateway.logins, 1);
-      expect(find.text('已连接'), findsOneWidget);
-      expect(find.text('Wi-Fi · NEU'), findsOneWidget);
+      expect(find.text('已连接校园网 · 已登录网关'), findsOneWidget);
+      expect(network.wifi.attempts, 0);
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  test(
+    'Android checks IPGW only on the recognized campus Wi-Fi names',
+    () async {
+      final network = _TestNetwork(desktop: false);
+      addTearDown(network.dispose);
+      for (final ssid in ['NEU', 'neu-mobile', 'NEU－mobile', 'NEU2.4G']) {
+        network.wifi.current = ssid;
+        await network.controller.refresh();
+        expect(network.controller.connectionLabel, 'Wi-Fi · $ssid');
+        expect(network.controller.canLogin, isTrue);
+      }
+      expect(network.gateway.reads, 4);
+      for (final ssid in [null, 'Home', 'NEU-Guest', 'NEU2.4G-Guest']) {
+        network.wifi.current = ssid;
+        await network.controller.refresh();
+        expect(network.controller.statusLabel, '未连接校园网');
+        expect(network.controller.canLogin, isFalse);
+      }
+      expect(network.gateway.reads, 4);
+      expect(network.gateway.systemReads, 0);
+      expect(network.credentialReads, 0);
+    },
+  );
+
+  test('Android keeps campus Wi-Fi status when IPGW is unreachable', () async {
+    final network = _TestNetwork(desktop: false);
+    addTearDown(network.dispose);
+    network.wifi.current = 'NEU2.4G';
+    network.gateway.onStatus = () async => throw const SrunUnavailable();
+    await network.controller.refresh();
+    expect(network.controller.statusLabel, '已连接校园网 · 网关状态未知');
+    expect(network.controller.error, contains('无法访问学校网关'));
+    expect(network.controller.canLogin, isFalse);
+    expect(network.gateway.systemReads, 0);
+  });
+
+  test(
+    'Windows distinguishes a gateway error response from no connection',
+    () async {
+      final network = _TestNetwork();
+      addTearDown(network.dispose);
+      network.wifi.current = 'NEU';
+      network.gateway.onStatus = () async => throw const SrunRejected('系统维护中');
+      await network.controller.refresh();
+      expect(network.controller.statusLabel, '已连接校园网 · 网关状态未知');
+      expect(network.controller.error, '系统维护中');
+      expect(network.controller.canLogin, isFalse);
+      expect(network.gateway.systemReads, 0);
+    },
+  );
+
+  testWidgets('Android requests location only after an explicit click', (
+    tester,
+  ) async {
+    late final _TestNetwork network;
+    var requests = 0;
+    network = _TestNetwork(
+      desktop: false,
+      requestWifiPermission: () async {
+        requests++;
+        network.wifi.ssidError = null;
+      },
+    );
+    network.wifi.current = 'NEU';
+    network.wifi.ssidError = const CampusWifiPermissionRequired('需要精确位置权限');
+    await tester.pumpWidget(
+      network.scope(const MaterialApp(home: CampusNetworkPage())),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 0);
+    expect(network.gateway.reads, 0);
+    expect(find.text('需要精确位置权限'), findsOneWidget);
+    await tester.tap(find.text('授权识别 Wi-Fi'));
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    expect(find.text('授权识别 Wi-Fi'), findsNothing);
+    expect(find.text('Wi-Fi · NEU'), findsOneWidget);
+    expect(network.controller.canLogin, isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'Windows exposes the boot switch only when app startup is enabled',

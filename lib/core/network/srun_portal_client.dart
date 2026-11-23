@@ -1,13 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:pointycastle/api.dart' show KeyParameter;
-import 'package:pointycastle/digests/md5.dart';
-import 'package:pointycastle/digests/sha1.dart';
-import 'package:pointycastle/macs/hmac.dart';
 
 class SrunStatus {
   const SrunStatus({
@@ -15,6 +10,7 @@ class SrunStatus {
     this.balance,
     this.sumBytes,
     this.clientIp,
+    this.username,
     this.connectionKey,
   });
 
@@ -22,6 +18,7 @@ class SrunStatus {
   final double? balance;
   final int? sumBytes;
   final String? clientIp;
+  final String? username;
   final String? connectionKey;
 }
 
@@ -36,23 +33,23 @@ class SrunRejected implements Exception {
 }
 
 class SrunPortalClient {
-  SrunPortalClient({
-    Dio? dio,
-    Future<String> Function(Uri)? readResponse,
-    this._deviceName = 'Windows',
-  }) : _dio = dio ?? _transport(),
-       _usesOwnTransport = dio == null && readResponse == null,
-       _readResponse = readResponse;
+  SrunPortalClient({Dio? dio, Future<String> Function(Uri)? readResponse})
+    : _dio = dio ?? _transport(),
+      _usesOwnTransport = dio == null && readResponse == null,
+      _readResponse = readResponse;
 
   static const host = 'ipgw.neu.edu.cn';
+  static const _ssoPage = '/srun_portal_sso';
+  static const _ssoApi = '/v1/srun_portal_sso';
+  static const ssoPageUrl = 'https://$host$_ssoPage?ac_id=$_acId';
+  // CAS registers the HTTP service identifier even though the ticket itself
+  // is captured at the CAS redirect and redeemed over HTTPS.
+  static final ssoService = Uri.http(host, _ssoPage, {'ac_id': _acId});
   static const _timeout = Duration(seconds: 8);
   static const _callback = 'neuBetterStatus';
   static const _acId = '1';
-  static const _n = '200';
-  static const _type = '1';
   final bool _usesOwnTransport;
   final Future<String> Function(Uri)? _readResponse;
-  final String _deviceName;
   Dio _dio;
   String? _sourceIp;
 
@@ -72,86 +69,86 @@ class SrunPortalClient {
         sendTimeout: _timeout,
       ),
     );
-    if (sourceIp != null) {
-      final source = InternetAddress(sourceIp);
-      dio.httpClientAdapter = IOHttpClientAdapter(
-        createHttpClient: () {
-          final client = HttpClient();
-          client.findProxy = (_) => 'DIRECT';
-          client.connectionFactory = (uri, _, _) async {
-            final addresses = await InternetAddress.lookup(
-              uri.host,
-              type: InternetAddressType.IPv4,
-            );
-            final socketTask = await Socket.startConnect(
-              addresses.first,
-              uri.port,
-              sourceAddress: source,
-            );
-            // A custom HttpClient connection factory supplies the TLS socket,
-            // including the gateway hostname for certificate verification.
-            Socket? rawSocket;
-            final secure = socketTask.socket.then((socket) {
-              rawSocket = socket;
-              return SecureSocket.secure(socket, host: uri.host);
-            });
-            return ConnectionTask.fromSocket(secure, () {
-              socketTask.cancel();
-              rawSocket?.destroy();
-            });
-          };
-          return client;
-        },
-      );
-    }
+    final source = sourceIp == null ? null : InternetAddress(sourceIp);
+    dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () {
+        final client = HttpClient();
+        client.findProxy = (_) => 'DIRECT';
+        client.connectionFactory = (uri, _, _) async {
+          // Use IPv4 for this portal even when Clash routes the system's
+          // other traffic through a dual-stack proxy.
+          final addresses = await InternetAddress.lookup(
+            uri.host,
+            type: InternetAddressType.IPv4,
+          );
+          final socketTask = await Socket.startConnect(
+            addresses.first,
+            uri.port,
+            sourceAddress: source,
+          );
+          // The custom socket keeps the gateway hostname for TLS validation.
+          Socket? rawSocket;
+          final secure = socketTask.socket.then((socket) {
+            rawSocket = socket;
+            return SecureSocket.secure(socket, host: uri.host);
+          });
+          return ConnectionTask.fromSocket(secure, () {
+            socketTask.cancel();
+            rawSocket?.destroy();
+          });
+        };
+        return client;
+      },
+    );
     return dio;
   }
 
   Future<SrunStatus> status() async =>
       parseStatus(await _get('/cgi-bin/rad_user_info'));
 
-  Future<void> login({
-    required String username,
-    required String password,
-    String? clientIp,
-  }) async {
-    final challenge = _decode(
-      await _get('/cgi-bin/get_challenge', {
-        'username': username,
-        'ip': clientIp ?? '',
-      }),
-    );
-    final token = challenge['challenge'];
-    final ip = _ipv4(challenge['client_ip']) ?? _ipv4(clientIp);
-    if (!_ok(challenge) || token is! String || token.isEmpty || ip == null) {
-      throw SrunRejected(_errorMessage(challenge, '无法获取网关登录令牌。'));
-    }
+  Future<void> loginWithTicket(String ticket) async {
     final result = _decode(
-      await _get(
-        '/cgi-bin/srun_portal',
-        loginParameters(
-          username: username,
-          password: password,
-          ip: ip,
-          token: token,
-          deviceName: _deviceName,
-        ),
-      ),
+      await _read(Uri.https(host, _ssoApi, {'ac_id': _acId, 'ticket': ticket})),
     );
     if (!_ok(result)) {
-      throw SrunRejected(_errorMessage(result, '学校网关拒绝登录。'));
+      throw SrunRejected(_errorMessage(result, '学校网关拒绝了统一身份认证。'));
+    }
+    if (_text(result['Redirect']) != null) {
+      throw const SrunRejected('学校网关要求重新进行统一身份认证。');
     }
   }
 
-  Future<String> _get(
-    String path, [
-    Map<String, String> params = const {},
-  ]) async {
-    final url = Uri.https(host, path, {
-      ...params,
-      'callback': _callback,
-      '_': DateTime.now().millisecondsSinceEpoch.toString(),
-    });
+  Future<void> logout(SrunStatus session) async {
+    final username = session.username;
+    final ip = session.clientIp;
+    if (!session.online || username == null || ip == null) {
+      throw const SrunRejected('学校网关未返回完整的在线会话，请刷新后再试。');
+    }
+    final result = _decode(
+      await _get('/cgi-bin/srun_portal', {
+        'action': 'logout',
+        'username': username,
+        'ip': ip,
+        'ac_id': _acId,
+      }),
+    );
+    if (!_ok(result) &&
+        !_offline(result) &&
+        !const {'E6503', 'E6504'}.contains(result['ecode'])) {
+      throw SrunRejected(_errorMessage(result, '学校网关拒绝注销。'));
+    }
+  }
+
+  Future<String> _get(String path, [Map<String, String> params = const {}]) =>
+      _read(
+        Uri.https(host, path, {
+          ...params,
+          'callback': _callback,
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        }),
+      );
+
+  Future<String> _read(Uri url) async {
     final readResponse = _readResponse;
     if (readResponse != null) {
       return readResponse(url).timeout(
@@ -170,6 +167,12 @@ class SrunPortalClient {
             options: Options(
               responseType: ResponseType.plain,
               followRedirects: false,
+              headers: {
+                HttpHeaders.refererHeader:
+                    url.queryParameters['action'] == 'logout'
+                    ? 'https://$host/srun_portal_success?ac_id=$_acId'
+                    : ssoPageUrl,
+              },
             ),
           )
           .timeout(
@@ -180,8 +183,11 @@ class SrunPortalClient {
             },
           );
       return response.data ?? '';
-    } on DioException {
-      // Dio's exception can contain the signed authentication URL.
+    } on DioException catch (error) {
+      if (error.type == DioExceptionType.badResponse) {
+        throw const SrunRejected('学校网关返回了 HTTP 错误。');
+      }
+      // Dio's exception can contain the CAS ticket.
       throw const SrunUnavailable();
     }
   }
@@ -191,7 +197,7 @@ class SrunPortalClient {
   static SrunStatus parseStatus(String body) {
     final data = _decode(body);
     final ip = _ipv4(data['online_ip']) ?? _ipv4(data['client_ip']);
-    if ((data['error'] ?? data['res']) == 'not_online_error') {
+    if (_offline(data)) {
       return SrunStatus(online: false, clientIp: ip);
     }
     if (!_ok(data)) {
@@ -199,17 +205,18 @@ class SrunPortalClient {
     }
     final balance = double.tryParse(data['user_balance'].toString().trim());
     final sumBytes = int.tryParse(data['sum_bytes'].toString().trim());
+    final name = _text(data['user_name']);
+    final domain = _text(data['domain']);
+    final username = name != null && !name.contains('@') && domain != null
+        ? (domain.startsWith('@') ? name + domain : '$name@$domain')
+        : name;
     return SrunStatus(
       online: true,
       balance: balance?.isFinite == true ? balance : null,
       sumBytes: sumBytes != null && sumBytes >= 0 ? sumBytes : null,
       clientIp: ip,
-      connectionKey: jsonEncode([
-        data['user_name'],
-        data['domain'],
-        ip,
-        data['add_time'],
-      ]),
+      username: username,
+      connectionKey: jsonEncode([username, ip, data['add_time']]),
     );
   }
 
@@ -230,15 +237,61 @@ class SrunPortalClient {
     throw const FormatException('网关返回了未知格式。');
   }
 
-  static bool _ok(Map<String, dynamic> data) =>
-      (data['error'] ?? data['res']) == 'ok';
+  static bool _ok(Map<String, dynamic> data) {
+    if (data['error'] case final error?) return error == 'ok';
+    if (data['code'] case final code?) return code == 0 || code == '0';
+    return data['res'] == 'ok';
+  }
+
+  static bool _offline(Map<String, dynamic> data) => const [
+    'error',
+    'res',
+    'error_msg',
+  ].any((key) => data[key] == 'not_online_error');
+
+  static String? _text(Object? raw) =>
+      raw is String && raw.trim().isNotEmpty ? raw.trim() : null;
 
   static String _errorMessage(Map<String, dynamic> response, String fallback) {
-    for (final key in ['error_msg', 'suc_msg']) {
-      final value = response[key];
-      if (value is String && value.trim().isNotEmpty) {
-        return String.fromCharCodes(value.trim().runes.take(200));
-      }
+    const messages = {
+      'E2531': '校园网账号不存在。',
+      'E2532': '认证间隔太短，请等 10 秒后重试。',
+      'E2533': '密码错误次数超过限制，请等 5 分钟后重试。',
+      'E2534': '学校网关报告账号因代理行为暂时受限。',
+      'E2553': '校园网账号或密码错误。',
+      'E2615': '校园网 IP 地址绑定错误。',
+      'E2616': '校园网账号已欠费。',
+      'E2620': '校园网账号已在线，请刷新状态。',
+      'E2833': '网关未识别当前 IPv4，请检查校园网线路。',
+      'E2841': '校园网 IP 地址绑定错误。',
+      'E2843': '网关未识别当前 IPv4，请检查校园网线路。',
+      'E6506': '校园网账号或密码错误。',
+    };
+    final code = _text(response['ecode']);
+    final policy = _text(response['ploy_msg']);
+    final detail =
+        _text(response['error_msg']) ??
+        _text(response['message']) ??
+        _text(response['msg']);
+    final message =
+        (policy != null && !policy.startsWith('E0000') ? policy : null) ??
+        messages[code] ??
+        detail ??
+        _text(response['suc_msg']);
+    if (message != null) {
+      final readable = String.fromCharCodes(message.runes.take(200));
+      return code != null && RegExp(r'^E\d{4}$').hasMatch(code)
+          ? '$readable（$code）'
+          : readable;
+    }
+    final reason = code ?? _text(response['error']) ?? _text(response['res']);
+    if (reason != null &&
+        reason != 'fail' &&
+        RegExp(r'^[\w-]{1,48}$').hasMatch(reason)) {
+      return '$fallback（$reason）';
+    }
+    if (response['code'] case final int resultCode) {
+      return '$fallback（code=$resultCode）';
     }
     return fallback;
   }
@@ -246,100 +299,13 @@ class SrunPortalClient {
   static String? _ipv4(Object? raw) {
     if (raw is! String) return null;
     final address = InternetAddress.tryParse(raw);
-    return address?.type == InternetAddressType.IPv4 ? address!.address : null;
-  }
-
-  static Map<String, String> loginParameters({
-    required String username,
-    required String password,
-    required String ip,
-    required String token,
-    String deviceName = 'Windows',
-  }) {
-    final digest = HMac(MD5Digest(), 64)
-      ..init(KeyParameter(utf8.encode(token)));
-    final md5 = _hex(digest.process(utf8.encode(password)));
-    final details = jsonEncode({
-      'username': username,
-      'password': password,
-      'ip': ip,
-      'acid': _acId,
-      'enc_ver': 'srun_bx1',
-    });
-    final info = '{SRBX1}${xencode(details, token)}';
-    final checksum = [
-      username,
-      md5,
-      _acId,
-      ip,
-      _n,
-      _type,
-      info,
-    ].map((field) => token + field).join();
-    return {
-      'action': 'login',
-      'username': username,
-      'password': '{MD5}$md5',
-      'info': info,
-      'chksum': _hex(SHA1Digest().process(utf8.encode(checksum))),
-      'ip': ip,
-      'ac_id': _acId,
-      'n': _n,
-      'type': _type,
-      'os': deviceName,
-      'name': deviceName,
-      'double_stack': '0',
-    };
-  }
-
-  static String _hex(Uint8List bytes) =>
-      bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
-
-  // SRun packs JavaScript string code units into little-endian words and
-  // encodes the transformed bytes using its own Base64 alphabet.
-  static String xencode(String input, String token) {
-    if (input.isEmpty) return '';
-    final words = _pack(input.codeUnits, includeLength: true);
-    final key = _pack(token.codeUnits);
-    while (key.length < 4) {
-      key.add(0);
+    if (address == null ||
+        address.type != InternetAddressType.IPv4 ||
+        address.isLoopback ||
+        address.isLinkLocal ||
+        address.address == '0.0.0.0') {
+      return null;
     }
-    const delta = 0x9e3779b9;
-    const mask = 0xffffffff;
-    var z = words.last;
-    var sum = 0;
-    final rounds = 6 + 52 ~/ words.length;
-    for (var round = 0; round < rounds; round++) {
-      sum = (sum + delta) & mask;
-      final e = (sum >>> 2) & 3;
-      for (var i = 0; i < words.length; i++) {
-        final y = words[(i + 1) % words.length];
-        final mix =
-            ((z >>> 5) ^ (y << 2)) +
-            ((y >>> 3) ^ (z << 4) ^ (sum ^ y)) +
-            (key[(i & 3) ^ e] ^ z);
-        z = words[i] = (words[i] + mix) & mask;
-      }
-    }
-    final bytes = ByteData(words.length * 4);
-    for (var i = 0; i < words.length; i++) {
-      bytes.setUint32(i * 4, words[i], Endian.little);
-    }
-    const standard =
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    const custom =
-        'LVoJPiCN2R8G90yg+hmFHuacZ1OWMnrsSTXkYpUq/3dlbfKwv6xztjI7DeBE45QA';
-    return base64Encode(bytes.buffer.asUint8List()).split('').map((char) {
-      return char == '=' ? char : custom[standard.indexOf(char)];
-    }).join();
-  }
-
-  static List<int> _pack(List<int> units, {bool includeLength = false}) {
-    final words = List<int>.filled((units.length + 3) ~/ 4, 0, growable: true);
-    for (var i = 0; i < units.length; i++) {
-      words[i ~/ 4] = (words[i ~/ 4] | (units[i] << (i % 4 * 8))) & 0xffffffff;
-    }
-    if (includeLength) words.add(units.length);
-    return words;
+    return address.address;
   }
 }

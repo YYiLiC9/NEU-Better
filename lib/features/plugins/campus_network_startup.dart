@@ -29,17 +29,14 @@ Future<void> _connect(
   String account,
   SavedCredentials? saved,
 ) async {
-  final settings = AppSettingsController(initial: initial);
   final controller = CampusNetworkController.forPlatform(
-    settings: settings,
     readCredentials: () async => saved,
     account: account,
     platform: TargetPlatform.windows,
   );
   try {
-    await controller.connectFlow(settings.campusWifiSsid);
+    await controller.connectAtStartup(initial.campusWifiSsid);
   } finally {
     controller.dispose();
-    settings.dispose();
   }
 }

@@ -6,7 +6,7 @@ const campusNetworkPluginId = 'campus-network';
 final campusNetworkPlugin = PluginManifest.fromJson(const {
   'id': campusNetworkPluginId,
   'name': '网络连接',
-  'description': '一键连接东北大学校园网，查看网费余额和学校统计的已用流量',
+  'description': '检测东北大学校园网连接，登录学校网关并查看余额和已用流量',
   'version': '1.0.0',
   'rendererVersion': 1,
   'icon': {'type': 'text', 'value': '网'},

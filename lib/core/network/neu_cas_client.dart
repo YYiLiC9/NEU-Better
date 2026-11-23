@@ -86,8 +86,10 @@ class NeuCasClient implements CasClient {
       // A leftover single-sign-on session (e.g. after logout, or a ticket
       // cached from a previous login) makes CAS skip the login form entirely.
       // Drop the stale cookies and retry once with a clean jar.
-      debugPrint('[cas] login form missing; stale SSO session suspected, '
-          'retrying with clean cookies');
+      debugPrint(
+        '[cas] login form missing; stale SSO session suspected, '
+        'retrying with clean cookies',
+      );
       reset();
       return _loginOnce(
         username: username,
@@ -99,6 +101,34 @@ class NeuCasClient implements CasClient {
 
   static const _staleLoginFormMessage = '学校登录页格式已更新，请使用网页登录。';
 
+  /// Requests a CAS ticket without following the service callback. The
+  /// service can then redeem it using its own HTTPS transport.
+  Future<String> requestServiceTicket({
+    required String username,
+    required String password,
+    required Uri service,
+  }) async {
+    reset();
+    try {
+      final result = await _loginOnce(
+        username: username,
+        password: password,
+        service: service.toString(),
+        ticketService: service,
+      );
+      final ticket = result.serviceTicket;
+      if (ticket == null) {
+        throw const AuthException('学校统一认证未返回此服务的登录票据。');
+      }
+      return ticket;
+    } on DioException {
+      // A redirect or HTTP error can contain a CAS ticket.
+      throw const AuthException('无法连接学校统一身份认证服务，请使用网页登录。');
+    } finally {
+      reset();
+    }
+  }
+
   /// Clears every captured cookie and ticket. Call after logout so the next
   /// login starts from a clean single-sign-on state.
   void reset() {
@@ -106,10 +136,16 @@ class NeuCasClient implements CasClient {
     _serviceTicket = null;
   }
 
+  void close() {
+    reset();
+    _dio.close(force: true);
+  }
+
   Future<CasLoginResult> _loginOnce({
     required String username,
     required String password,
     String? service,
+    Uri? ticketService,
   }) async {
     final trimmedUsername = username.trim();
     if (trimmedUsername.isEmpty || password.isEmpty) {
@@ -127,7 +163,10 @@ class NeuCasClient implements CasClient {
       await _request(Uri.parse('https://personal.neu.edu.cn/portal'));
     }
 
-    final loginPage = await _request(targetLoginUri);
+    final loginPage = await _request(
+      targetLoginUri,
+      ticketService: ticketService,
+    );
     if (loginPage.statusCode != 200) {
       throw AuthException('无法打开学校登录页（HTTP ${loginPage.statusCode}）。');
     }
@@ -142,6 +181,7 @@ class NeuCasClient implements CasClient {
     final response = await _request(
       targetLoginUri,
       method: 'POST',
+      ticketService: ticketService,
       form: {
         'un': trimmedUsername,
         'pd': password,
@@ -155,7 +195,7 @@ class NeuCasClient implements CasClient {
     );
 
     debugPrint(
-      '[cas] final=${response.uri} status=${response.statusCode} '
+      '[cas] final=${response.uri.host}${response.uri.path} status=${response.statusCode} '
       'bodyLen=${response.body.length} '
       'hasLogin=${response.body.contains('登录')} '
       'hasError=${response.body.contains('错误')}',
@@ -168,6 +208,14 @@ class NeuCasClient implements CasClient {
         throw const SecondaryVerificationRequired();
       }
       throw const AuthException('登录未完成，请重试或使用网页登录。');
+    }
+
+    if (ticketService != null) {
+      return CasLoginResult(
+        cookies: const {},
+        finalUri: response.uri,
+        serviceTicket: _ticketForService(response.uri, ticketService),
+      );
     }
 
     final cookies = _exportCookies();
@@ -185,6 +233,7 @@ class NeuCasClient implements CasClient {
     Uri uri, {
     String method = 'GET',
     Map<String, String>? form,
+    Uri? ticketService,
   }) async {
     var current = uri;
     var currentMethod = method;
@@ -207,11 +256,24 @@ class NeuCasClient implements CasClient {
       _captureCookies(current, response.headers);
       final status = response.statusCode ?? 0;
       final location = response.headers.value('location');
-      debugPrint('[cas] $status ${current.path} -> ${location ?? ""}');
+      debugPrint('[cas] $status ${current.path}');
       if (status >= 300 && status < 400 && location != null) {
         final next = current.resolve(location);
-        final ticket = next.queryParameters['ticket'];
-        if (ticket != null && ticket.isNotEmpty) _serviceTicket = ticket;
+        if (ticketService != null) {
+          if (_ticketForService(next, ticketService) != null) {
+            return _HttpPage(uri: next, statusCode: status, body: '');
+          }
+          if (next.scheme != 'https' ||
+              next.host != loginUri.host ||
+              next.port != 443 ||
+              next.userInfo.isNotEmpty ||
+              !next.path.startsWith('/tpass/')) {
+            throw const AuthException('学校统一认证返回了意外的服务地址。');
+          }
+        } else {
+          final ticket = next.queryParameters['ticket'];
+          if (ticket != null && ticket.isNotEmpty) _serviceTicket = ticket;
+        }
         if (status == 303 || (status == 302 && currentMethod != 'GET')) {
           currentMethod = 'GET';
           currentForm = null;
@@ -228,6 +290,29 @@ class NeuCasClient implements CasClient {
     }
 
     throw const AuthException('登录跳转次数过多，请稍后再试。');
+  }
+
+  static String? _ticketForService(Uri callback, Uri service) {
+    if (callback.scheme != service.scheme ||
+        callback.host != service.host ||
+        callback.port != service.port ||
+        callback.path != service.path ||
+        callback.userInfo.isNotEmpty ||
+        callback.hasFragment) {
+      return null;
+    }
+    for (final entry in service.queryParametersAll.entries) {
+      if (!listEquals(callback.queryParametersAll[entry.key], entry.value)) {
+        return null;
+      }
+    }
+    final tickets = callback.queryParametersAll['ticket'];
+    if (tickets == null ||
+        tickets.length != 1 ||
+        !RegExp(r'^[A-Za-z0-9._~-]{1,4096}$').hasMatch(tickets.single)) {
+      return null;
+    }
+    return tickets.single;
   }
 
   Map<String, String>? _cookieHeader(Uri uri) {

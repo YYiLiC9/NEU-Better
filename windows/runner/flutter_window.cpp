@@ -21,6 +21,72 @@
 
 namespace {
 
+std::optional<std::string> CampusWiredAddress(const SOCKADDR_INET& destination) {
+  const auto wired = [](const MIB_IF_ROW2& row) {
+    return row.OperStatus == IfOperStatusUp &&
+           row.InterfaceAndOperStatusFlags.HardwareInterface &&
+           row.Type == IF_TYPE_ETHERNET_CSMACD;
+  };
+  const auto route_for = [&](NET_IFINDEX index, MIB_IPFORWARD_ROW2& route,
+                             std::string& address) {
+    SOCKADDR_INET source{};
+    char ip[INET_ADDRSTRLEN]{};
+    if (GetBestRoute2(nullptr, index, nullptr, &destination, 0, &route,
+                      &source) != NO_ERROR ||
+        source.si_family != AF_INET ||
+        InetNtopA(AF_INET, &source.Ipv4.sin_addr, ip, sizeof(ip)) == nullptr) {
+      return false;
+    }
+    address = ip;
+    return true;
+  };
+
+  DWORD index = 0;
+  MIB_IF_ROW2 current{};
+  if (GetBestInterface(destination.Ipv4.sin_addr.S_un.S_addr, &index) ==
+      NO_ERROR) {
+    current.InterfaceIndex = index;
+    if (GetIfEntry2(&current) == NO_ERROR &&
+        current.InterfaceAndOperStatusFlags.HardwareInterface) {
+      MIB_IPFORWARD_ROW2 route{};
+      std::string address;
+      if (wired(current) && route_for(index, route, address)) return address;
+      return std::nullopt;
+    }
+  }
+
+  // A TUN adapter can own the best route while a physical Ethernet adapter
+  // still carries the campus IPv4 session.
+  MIB_IF_TABLE2* interfaces = nullptr;
+  if (GetIfTable2(&interfaces) != NO_ERROR) return std::nullopt;
+  std::optional<std::string> address;
+  uint64_t best_metric = 0;
+  UINT8 best_prefix = 0;
+  for (ULONG i = 0; i < interfaces->NumEntries; ++i) {
+    const auto& row = interfaces->Table[i];
+    if (!wired(row)) continue;
+    MIB_IPFORWARD_ROW2 route{};
+    std::string candidate;
+    if (!route_for(row.InterfaceIndex, route, candidate)) continue;
+    MIB_IPINTERFACE_ROW ip_interface{};
+    InitializeIpInterfaceEntry(&ip_interface);
+    ip_interface.Family = AF_INET;
+    ip_interface.InterfaceIndex = row.InterfaceIndex;
+    if (GetIpInterfaceEntry(&ip_interface) != NO_ERROR) continue;
+    const uint64_t metric =
+        static_cast<uint64_t>(route.Metric) + ip_interface.Metric;
+    const UINT8 prefix = route.DestinationPrefix.PrefixLength;
+    if (!address || prefix > best_prefix ||
+        (prefix == best_prefix && metric < best_metric)) {
+      address = candidate;
+      best_metric = metric;
+      best_prefix = prefix;
+    }
+  }
+  FreeMibTable(interfaces);
+  return address;
+}
+
 HRESULT PickFontFile(HWND owner, std::string& path) {
   Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
   HRESULT status = CoCreateInstance(CLSID_FileOpenDialog, nullptr,
@@ -314,32 +380,12 @@ bool FlutterWindow::OnCreate() {
             result->Error("invalid_arguments", "Expected an IPv4 address");
             return;
           }
-          DWORD index = 0;
-          if (GetBestInterface(destination.Ipv4.sin_addr.S_un.S_addr, &index) !=
-              NO_ERROR) {
+          const auto address_on_wire = CampusWiredAddress(destination);
+          if (address_on_wire) {
+            result->Success(flutter::EncodableValue(*address_on_wire));
+          } else {
             result->Success();
-            return;
           }
-          MIB_IF_ROW2 row{};
-          row.InterfaceIndex = index;
-          if (GetIfEntry2(&row) != NO_ERROR || row.OperStatus != IfOperStatusUp ||
-              !row.InterfaceAndOperStatusFlags.HardwareInterface ||
-              row.Type != IF_TYPE_ETHERNET_CSMACD) {
-            result->Success();
-            return;
-          }
-          MIB_IPFORWARD_ROW2 route{};
-          SOCKADDR_INET source{};
-          char ip[INET_ADDRSTRLEN]{};
-          if (GetBestRoute2(nullptr, index, nullptr, &destination, 0, &route,
-                            &source) != NO_ERROR ||
-              source.si_family != AF_INET ||
-              InetNtopA(AF_INET, &source.Ipv4.sin_addr, ip,
-                        sizeof(ip)) == nullptr) {
-            result->Success();
-            return;
-          }
-          result->Success(flutter::EncodableValue(std::string(ip)));
           return;
         }
 

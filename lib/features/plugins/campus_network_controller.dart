@@ -2,109 +2,150 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/auth/auth_exception.dart';
 import '../../core/auth/saved_credentials.dart';
+import '../../core/network/neu_cas_client.dart';
 import '../../core/network/srun_portal_client.dart';
 import '../../core/platform/android_campus_wifi.dart';
 import '../../core/platform/campus_wifi.dart';
 import '../../core/platform/windows_campus_route.dart';
 import '../../core/platform/windows_wifi.dart';
-import '../../core/settings/app_settings.dart';
 
-enum CampusConnectPhase { idle, wifi, checking, login, confirming }
+enum CampusConnectPhase { idle, wifi, checking, login, logout, confirming }
 
-enum _DesktopRoute { ethernet, system }
+class _CampusConnection {
+  const _CampusConnection({
+    this.label = '—',
+    this.campusConnected,
+    this.status,
+    this.address,
+    this.error,
+  });
+
+  final String label;
+  final bool? campusConnected;
+  final SrunStatus? status;
+  final String? address;
+  final String? error;
+}
 
 class CampusNetworkController extends ChangeNotifier {
   CampusNetworkController({
-    required this._settings,
     required this._readCredentials,
+    required this._requestGatewayTicket,
     required this._account,
     required this.supported,
     this.desktop = true,
     CampusWifi? wifi,
     SrunPortalClient? gateway,
     this._wiredAddress,
+    this._connectWifiAtStartup,
+    this._requestWifiPermission,
   }) : _wifi = wifi ?? WindowsWifi(),
        _gateway = gateway ?? SrunPortalClient();
 
   factory CampusNetworkController.forPlatform({
-    required AppSettingsController settings,
     required Future<SavedCredentials?> Function() readCredentials,
     required String? account,
     required TargetPlatform platform,
   }) {
     const android = AndroidCampusWifi();
+    final windows = WindowsWifi();
     final desktop = platform == TargetPlatform.windows;
     final mobile = platform == TargetPlatform.android;
     return CampusNetworkController(
-      settings: settings,
       readCredentials: readCredentials,
+      requestGatewayTicket: _requestNativeGatewayTicket,
       account: account,
       supported: desktop || mobile,
       desktop: desktop,
-      wifi: mobile ? android : null,
+      wifi: mobile ? android : windows,
       gateway: mobile
-          ? SrunPortalClient(
-              readResponse: android.readGateway,
-              deviceName: 'Android',
-            )
+          ? SrunPortalClient(readResponse: android.readGateway)
           : null,
       wiredAddress: desktop ? const WindowsCampusRoute().wiredAddress : null,
+      connectWifiAtStartup: desktop ? windows.connect : null,
+      requestWifiPermission: mobile ? android.requestLocationPermission : null,
     );
   }
 
-  final AppSettingsController _settings;
+  static Future<String> _requestNativeGatewayTicket({
+    required String username,
+    required String password,
+  }) async {
+    final cas = NeuCasClient();
+    try {
+      return await cas
+          .requestServiceTicket(
+            username: username,
+            password: password,
+            service: SrunPortalClient.ssoService,
+          )
+          .timeout(
+            const Duration(seconds: 35),
+            onTimeout: () => throw const AuthException('统一身份认证超时，请使用网页登录。'),
+          );
+    } finally {
+      cas.close();
+    }
+  }
+
   final Future<SavedCredentials?> Function() _readCredentials;
+  final Future<String> Function({
+    required String username,
+    required String password,
+  })
+  _requestGatewayTicket;
   final String? _account;
   final CampusWifi _wifi;
   final SrunPortalClient _gateway;
   final Future<String?> Function()? _wiredAddress;
+  final Future<void> Function(String)? _connectWifiAtStartup;
+  final Future<void> Function()? _requestWifiPermission;
   final bool supported;
   final bool desktop;
 
   Timer? _poll;
   int _viewCount = 0;
-  int _generation = 0;
   bool _disposed = false;
   bool _refreshing = false;
-  _DesktopRoute? _desktopRoute;
-  String? _currentSsid;
-  SrunStatus? _status;
-  DateTime? _lastUpdated;
+  bool _wifiPermissionRequired = false;
+  _CampusConnection _connection = const _CampusConnection();
   CampusConnectPhase _phase = CampusConnectPhase.idle;
   String? _connectError;
-  String? _statusError;
 
-  String get ssid =>
-      desktop ? _settings.campusWifiSsid : AndroidCampusWifi.ssid;
-  String? get currentSsid => _currentSsid;
-  bool get wifiConnected => _desktopRoute == null && _currentSsid == ssid;
-  String get connectionLabel => switch (_desktopRoute) {
-    _DesktopRoute.ethernet => '有线网络',
-    _DesktopRoute.system => '系统当前线路',
-    null => _currentSsid == null ? '—' : 'Wi-Fi · $_currentSsid',
-  };
-  bool? get gatewayOnline => _status?.online;
-  double? get balance => _status?.balance;
-  int? get sumBytes => _status?.sumBytes;
-  DateTime? get lastUpdated => _lastUpdated;
+  String get connectionLabel => _connection.label;
+  bool? get gatewayOnline => _connection.status?.online;
+  double? get balance => _connection.status?.balance;
+  int? get sumBytes => _connection.status?.sumBytes;
   CampusConnectPhase get phase => _phase;
   bool get busy => _phase != CampusConnectPhase.idle;
   bool get refreshing => _refreshing;
-  String? get error => _connectError ?? _statusError;
+  bool get canLogin =>
+      supported && !busy && !refreshing && gatewayOnline == false;
+  bool get canLogout =>
+      supported && !busy && !refreshing && gatewayOnline == true;
+  bool get canOpenPortal =>
+      supported && !busy && gatewayOnline != true && _connectError != null;
+  bool get needsWifiPermission =>
+      _wifiPermissionRequired && _requestWifiPermission != null;
+  String? get error => _connectError ?? _connection.error;
 
   String get statusLabel => switch (_phase) {
-    CampusConnectPhase.wifi when !desktop => '请在系统界面连接 NEU Wi-Fi…',
     CampusConnectPhase.wifi => '正在连接 Wi-Fi…',
     CampusConnectPhase.checking => '正在检测学校网关…',
-    CampusConnectPhase.login => '正在登录网关…',
+    CampusConnectPhase.login => '正在进行统一身份认证…',
+    CampusConnectPhase.logout => '正在登出网关…',
     CampusConnectPhase.confirming => '正在确认网关状态…',
-    CampusConnectPhase.idle when gatewayOnline == true => '已连接',
-    CampusConnectPhase.idle when _statusError != null => '状态暂不可用',
-    CampusConnectPhase.idle when gatewayOnline == false => '未登录网关',
-    CampusConnectPhase.idle when refreshing => '正在查询…',
     CampusConnectPhase.idle when !supported => '仅支持 Windows 和 Android',
-    CampusConnectPhase.idle => '未连接校园网',
+    CampusConnectPhase.idle when gatewayOnline == true => '已连接',
+    CampusConnectPhase.idle when gatewayOnline == false => '已连接校园网 · 未登录网关',
+    CampusConnectPhase.idle when _connection.campusConnected == true =>
+      '已连接校园网 · 网关状态未知',
+    CampusConnectPhase.idle when _connection.campusConnected == false =>
+      '未连接校园网',
+    CampusConnectPhase.idle when refreshing => '正在检测网络…',
+    CampusConnectPhase.idle => '网络状态待检测',
   };
 
   void attach() {
@@ -124,142 +165,77 @@ class CampusNetworkController extends ChangeNotifier {
     _poll = null;
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh() => _refresh();
+
+  Future<void> requestWifiPermission() =>
+      _refresh(requestPermission: _requestWifiPermission);
+
+  Future<void> _refresh({Future<void> Function()? requestPermission}) async {
     if (_disposed || !supported || busy || refreshing) return;
-    final generation = _generation;
-    bool currentRequest() => !_disposed && generation == _generation;
-    final target = ssid;
     _refreshing = true;
     notifyListeners();
     try {
-      final wired = await _wiredAddress?.call();
-      if (!currentRequest()) return;
-      if (wired != null) {
-        final status = await _probeGateway(wired);
-        if (!currentRequest()) return;
-        if (status != null) {
-          _applyStatus(status, route: _DesktopRoute.ethernet);
-          return;
-        }
-      }
-
-      String? current;
-      String? error;
-      try {
-        current = await _wifi.currentSsid(preferred: target);
-        if (!currentRequest()) return;
-        if (current == target) {
-          final address = await _wifi.ipv4Address(target);
-          if (!currentRequest()) return;
-          if (address == null) {
-            error = 'Wi-Fi 尚未获取 IPv4 地址。';
-          } else {
-            final status = await _probeGateway(address);
-            if (!currentRequest()) return;
-            if (status != null) {
-              _applyStatus(status, wifiSsid: current);
-              return;
-            }
-            error = _gatewayError;
-          }
-        }
-      } on CampusWifiException catch (failure) {
-        error = failure.message;
-      }
-
-      if (!currentRequest()) return;
-      if (desktop) {
-        final status = await _probeGateway(null);
-        if (!currentRequest()) return;
-        if (status != null) {
-          _applyStatus(status, route: _DesktopRoute.system);
-          return;
-        }
-      }
-
-      _desktopRoute = wired != null && current != target
-          ? _DesktopRoute.ethernet
-          : null;
-      _currentSsid = current;
-      _setStatus(null, error: error ?? (wired != null ? _gatewayError : null));
-    } catch (_) {
-      if (currentRequest()) _setStatus(null, error: _gatewayError);
+      await requestPermission?.call();
+      if (_disposed) return;
+      final connection = await _detectConnection();
+      if (_disposed) return;
+      _connection = connection;
+      if (connection.status?.online != false) _connectError = null;
+    } on CampusWifiException catch (failure) {
+      _connectError = null;
+      _connection = _CampusConnection(error: failure.message);
+    } on Exception {
+      _connectError = null;
+      _connection = const _CampusConnection(error: '无法检测网络状态，请稍后刷新。');
     } finally {
-      if (currentRequest()) {
+      if (!_disposed) {
         _refreshing = false;
         notifyListeners();
       }
     }
   }
 
-  Future<void> connectFlow(String chosenSsid) async {
-    if (_disposed || !supported || busy) return;
-    final target = desktop ? chosenSsid.trim() : AndroidCampusWifi.ssid;
-    if (!WindowsWifi.isValidSsid(target)) {
-      _connectError = '请输入有效的 Wi-Fi 名称（最多 32 字节）。';
-      notifyListeners();
-      return;
-    }
-    _generation++;
-    _refreshing = false;
+  Future<void> loginGateway() => _loginGateway();
+
+  Future<void> connectAtStartup(String ssid) =>
+      _loginGateway(startupSsid: ssid);
+
+  Future<void> _loginGateway({String? startupSsid}) async {
+    if (_disposed || !supported || busy || refreshing) return;
     _connectError = null;
-    _setStatus(null);
-    final detectWired = _wiredAddress;
-    _updatePhase(
-      detectWired == null
-          ? CampusConnectPhase.wifi
-          : CampusConnectPhase.checking,
-    );
+    _updatePhase(CampusConnectPhase.checking);
     try {
-      if (desktop) _settings.setCampusWifiSsid(target);
-      var address = await detectWired?.call();
+      var connection = await _detectConnection();
       if (_disposed) return;
-      SrunStatus? initial;
-      _desktopRoute = address != null ? _DesktopRoute.ethernet : null;
-      if (address != null) {
-        _currentSsid = null;
-        initial = await _probeGateway(address);
-        if (_disposed) return;
-      }
-      if (initial == null && desktop) {
-        final current = await _probeGateway(null);
-        if (_disposed) return;
-        if (current != null && current.online) {
-          _applyStatus(current, route: _DesktopRoute.system);
-          return;
-        }
-      }
-      if (initial == null) {
-        _desktopRoute = null;
-        if (phase != CampusConnectPhase.wifi) {
-          _updatePhase(CampusConnectPhase.wifi);
-        }
-        await _wifi.connect(target);
+      _connection = connection;
+      final connectWifi = _connectWifiAtStartup;
+      if (connection.campusConnected == false &&
+          startupSsid != null &&
+          connectWifi != null) {
+        _updatePhase(CampusConnectPhase.wifi);
+        await connectWifi(startupSsid);
         if (_disposed) return;
         _updatePhase(CampusConnectPhase.checking);
-        final timeout = Duration(seconds: desktop ? 8 : 15);
-        address = await _waitForAddress(
-          target,
+        const timeout = Duration(seconds: 8);
+        final address = await _waitForAddress(
+          startupSsid,
           timeout,
         ).timeout(timeout, onTimeout: () => null);
         if (_disposed) return;
-        if (address == null) {
-          final current = await _wifi.currentSsid(preferred: target);
-          if (_disposed) return;
-          _currentSsid = current;
-          _connectError = !desktop && !wifiConnected
-              ? '请在 Android 系统设置中连接 NEU，并保持精确位置权限开启。'
-              : 'Wi-Fi 尚未获取 IPv4 地址，请稍后重试。';
-          return;
-        }
-        _currentSsid = target;
-        _gateway.useSourceAddress(address);
-        initial = await _gateway.status();
+        final label = 'Wi-Fi · $startupSsid';
+        connection = address == null
+            ? _CampusConnection(
+                label: label,
+                campusConnected: false,
+                error: 'Wi-Fi 尚未获取 IPv4 地址，请稍后重试。',
+              )
+            : await _probeGateway(label, address);
+        if (_disposed) return;
+        _connection = connection;
       }
-      if (_disposed) return;
-      _setStatus(initial);
-      if (initial.online) return;
 
+      final initial = connection.status;
+      if (initial == null || initial.online) return;
       _updatePhase(CampusConnectPhase.login);
       final saved = await _readCredentials().timeout(
         const Duration(seconds: 4),
@@ -275,84 +251,196 @@ class CampusNetworkController extends ChangeNotifier {
         _connectError = '请先在应用中用当前账号登录，并勾选「保存账号密码」。';
         return;
       }
-      await _gateway.login(
+      final ticket = await _requestGatewayTicket(
         username: username,
         password: password,
-        clientIp: initial.clientIp ?? address,
       );
       if (_disposed) return;
-      _updatePhase(CampusConnectPhase.confirming);
-      var status = await _gateway.status();
+      final current = await _probeGateway(connection.label, connection.address);
       if (_disposed) return;
-      if (!status.online) {
-        await Future<void>.delayed(const Duration(milliseconds: 800));
-        if (_disposed) return;
-        status = await _gateway.status();
-        if (_disposed) return;
+      _connection = current;
+      final status = current.status;
+      if (status == null || status.online) return;
+      if (initial.clientIp != null &&
+          status.clientIp != null &&
+          initial.clientIp != status.clientIp) {
+        _connectError = '校园网 IPv4 已变化，请刷新状态后重新登录。';
+        return;
       }
-      _setStatus(status);
-      if (!status.online) _connectError = '网关尚未确认上线，请刷新状态或重试。';
-    } on CampusWifiException catch (error) {
-      _connectError = error.message;
-    } on SrunRejected catch (error) {
-      _connectError = phase == CampusConnectPhase.login
-          ? '网关登录失败。${error.message}'
-          : '网关返回错误。${error.message}';
+      await _gateway.loginWithTicket(ticket);
+      await _confirmGateway(connection, online: true);
+    } on CampusWifiException catch (failure) {
+      _connectError = failure.message;
+    } on AuthException catch (failure) {
+      _connectError = failure.message;
+    } on SrunRejected catch (failure) {
+      _connectError = '网关登录失败。${failure.message}';
     } on SrunUnavailable {
-      _connectError = _gatewayError;
-      _setStatus(null);
+      _connection = _gatewayUnavailable(_connection.label);
     } on FormatException {
-      _connectError = '学校网关返回了无法识别的响应，请确认已接入校园网。';
-      _setStatus(null);
+      _connectError = '学校网关返回了无法识别的统一认证响应。';
     } catch (_) {
       _connectError = switch (phase) {
         CampusConnectPhase.wifi => '无法连接 Wi-Fi，请在系统设置中检查无线网络。',
-        CampusConnectPhase.login => '无法完成网关登录，请检查已保存的账号密码。',
-        _ => _gatewayError,
+        CampusConnectPhase.login => '无法完成统一身份认证，请使用网页登录。',
+        _ => _gatewayUnavailable(_connection.label).error,
       };
     } finally {
       if (!_disposed) _updatePhase(CampusConnectPhase.idle);
     }
   }
 
-  static const _gatewayError = '无法访问学校网关，请确认已接入东北大学校园网。';
-
-  Future<SrunStatus?> _probeGateway(String? address) async {
-    _gateway.useSourceAddress(address);
+  Future<void> logoutGateway() async {
+    if (_disposed || !canLogout) return;
+    final displayed = _connection;
+    _connectError = null;
+    _updatePhase(CampusConnectPhase.logout);
     try {
-      return await _gateway.status();
-    } on SrunUnavailable {
-      return null;
-    } on FormatException {
-      return null;
+      final current = await _probeGateway(displayed.label, displayed.address);
+      if (_disposed) return;
+      _connection = current;
+      final session = current.status;
+      if (session == null || !session.online) return;
+      if (session.connectionKey != displayed.status?.connectionKey) {
+        _connectError = '网关在线会话已变化，请确认当前线路后再登出。';
+        return;
+      }
+      await _gateway.logout(session);
+      await _confirmGateway(current, online: false);
+    } on SrunRejected catch (failure) {
+      _connectError = '网关登出失败。${failure.message}';
+    } on Exception {
+      _connectError = '暂无法确认网关登出结果，请刷新状态。';
+    } finally {
+      if (!_disposed) _updatePhase(CampusConnectPhase.idle);
     }
   }
 
-  void _applyStatus(
-    SrunStatus status, {
-    _DesktopRoute? route,
-    String? wifiSsid,
-  }) {
-    _desktopRoute = route;
-    _currentSsid = wifiSsid;
-    _setStatus(status);
-    if (status.online) _connectError = null;
+  Future<void> _confirmGateway(
+    _CampusConnection connection, {
+    required bool online,
+  }) async {
+    if (_disposed) return;
+    _updatePhase(CampusConnectPhase.confirming);
+    var confirmed = await _probeGateway(connection.label, connection.address);
+    if (_disposed) return;
+    if (confirmed.status?.online == !online) {
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      if (_disposed) return;
+      confirmed = await _probeGateway(connection.label, connection.address);
+      if (_disposed) return;
+    }
+    _connection = confirmed;
+    if (confirmed.status?.online != online) {
+      _connectError = online ? '网关尚未确认上线，请刷新状态。' : '网关尚未确认下线，请刷新状态。';
+    }
   }
 
-  Future<String?> _waitForAddress(String target, Duration timeout) async {
+  Future<_CampusConnection> _detectConnection() async {
+    String? wired;
+    if (desktop) {
+      wired = await _wiredAddress?.call();
+      if (_disposed) return const _CampusConnection();
+      if (wired != null) {
+        final connection = await _probeGateway('有线网络', wired);
+        if (_disposed || connection.campusConnected == true) return connection;
+      }
+    }
+
+    _wifiPermissionRequired = false;
+    String? ssid;
+    String? address;
+    try {
+      ssid = await _wifi.currentSsid();
+      if (_disposed) return const _CampusConnection();
+      if (ssid != null && (desktop || AndroidCampusWifi.isCampusSsid(ssid))) {
+        address = await _wifi.ipv4Address(ssid);
+      }
+    } on CampusWifiException catch (failure) {
+      if (!desktop) {
+        _wifiPermissionRequired = failure is CampusWifiPermissionRequired;
+        return _CampusConnection(
+          label: ssid == null ? '—' : 'Wi-Fi · $ssid',
+          campusConnected: ssid == null ? null : true,
+          error: failure.message,
+        );
+      }
+    }
+    if (_disposed) return const _CampusConnection();
+
+    if (!desktop && !AndroidCampusWifi.isCampusSsid(ssid)) {
+      return _CampusConnection(
+        label: ssid == null ? '—' : 'Wi-Fi · $ssid',
+        campusConnected: false,
+        error: '请在系统 Wi-Fi 设置中连接 NEU、NEU-mobile 或 NEU2.4G。',
+      );
+    }
+
+    final wifiLabel = ssid == null ? null : 'Wi-Fi · $ssid';
+    if (address != null) {
+      final connection = await _probeGateway(wifiLabel!, address);
+      if (!desktop || _disposed || connection.campusConnected == true) {
+        return connection;
+      }
+    }
+    if (!desktop) {
+      return _CampusConnection(
+        label: wifiLabel!,
+        campusConnected: true,
+        error: '校园 Wi-Fi 尚未获取 IPv4 地址，请稍后刷新。',
+      );
+    }
+
+    // The system route may reach IPGW through a VPN or a virtual adapter.
+    final label = wifiLabel ?? (wired == null ? null : '有线网络');
+    final connection = await _probeGateway(label ?? '系统当前线路', null);
+    return connection.campusConnected == false && label == null
+        ? _gatewayUnavailable('—')
+        : connection;
+  }
+
+  Future<_CampusConnection> _probeGateway(String label, String? address) async {
+    _gateway.useSourceAddress(address);
+    try {
+      return _CampusConnection(
+        label: label,
+        campusConnected: true,
+        address: address,
+        status: await _gateway.status(),
+      );
+    } on SrunUnavailable {
+      return _gatewayUnavailable(label);
+    } on SrunRejected catch (failure) {
+      return _CampusConnection(
+        label: label,
+        campusConnected: true,
+        error: failure.message,
+      );
+    } on FormatException {
+      return _CampusConnection(
+        label: label,
+        campusConnected: true,
+        error: '学校网关返回了无法识别的状态，请稍后刷新。',
+      );
+    }
+  }
+
+  _CampusConnection _gatewayUnavailable(String label) => _CampusConnection(
+    label: label,
+    campusConnected: !desktop,
+    error: desktop
+        ? '无法访问学校网关，请检查是否已连接东北大学校园网。'
+        : '无法访问学校网关，请确认当前校园 Wi-Fi 可用后刷新。',
+  );
+
+  Future<String?> _waitForAddress(String ssid, Duration timeout) async {
     final clock = Stopwatch()..start();
     while (!_disposed && clock.elapsed < timeout) {
-      final address = await _wifi.ipv4Address(target);
+      final address = await _wifi.ipv4Address(ssid);
       if (address != null) return address;
       await Future<void>.delayed(const Duration(milliseconds: 600));
     }
     return null;
-  }
-
-  void _setStatus(SrunStatus? status, {String? error}) {
-    _status = status;
-    _lastUpdated = status == null ? null : DateTime.now();
-    _statusError = error;
   }
 
   void _updatePhase(CampusConnectPhase phase) {

@@ -2,20 +2,14 @@ package com.neubetterpro.neu_better_pro
 
 import android.Manifest
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
-import android.net.wifi.WifiNetworkSuggestion
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import androidx.core.location.LocationManagerCompat
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
@@ -33,7 +27,6 @@ internal class CampusWifiChannel(
 ) {
     private val channel = MethodChannel(messenger, "neu_better/campus_wifi")
     private val worker = Executors.newFixedThreadPool(2)
-    private val main = Handler(Looper.getMainLooper())
     private val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE)
         as WifiManager
     private val connectivity = activity.getSystemService(Context.CONNECTIVITY_SERVICE)
@@ -43,102 +36,39 @@ internal class CampusWifiChannel(
     init {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
-                "currentSsid" -> result.success(currentSsid())
-                "ipv4Address" -> result.success(campusConnection()?.ipv4)
-                "connect" -> begin(result)
+                "currentSsid" -> readCurrentSsid(result)
+                "ipv4Address" -> result.success(campusConnection(call.arguments as? String)?.ipv4)
+                "requestLocationPermission" -> requestLocationPermission(result)
                 "readGateway" -> readGateway(call.arguments as? String, result)
                 else -> result.notImplemented()
             }
         }
     }
 
-    private fun begin(result: MethodChannel.Result) {
+    private fun requestLocationPermission(result: MethodChannel.Result) {
+        if (hasLocationPermission()) {
+            result.success(null)
+            return
+        }
         if (pending != null) {
-            result.error("busy", "请先完成系统 Wi-Fi 连接。", null)
+            result.error("busy", "请先完成位置权限授权。", null)
             return
         }
         pending = result
-        if (hasLocationPermission()) {
-            openOrContinue()
-        } else {
-            activity.requestPermissions(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                LOCATION_REQUEST,
-            )
-        }
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            LOCATION_REQUEST,
+        )
     }
 
     fun onPermissionResult(requestCode: Int) {
-        if (requestCode != LOCATION_REQUEST || pending == null) return
+        if (requestCode != LOCATION_REQUEST) return
+        val result = pending ?: return
+        pending = null
         if (hasLocationPermission()) {
-            openOrContinue()
+            result.success(null)
         } else {
-            fail("location_required", "请允许精确位置权限，Android 才能确认已连接 NEU Wi-Fi。")
-        }
-    }
-
-    private fun openOrContinue() {
-        val location = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (!LocationManagerCompat.isLocationEnabled(location)) {
-            fail("location_disabled", "请打开 Android 的系统位置服务，以确认已连接 NEU Wi-Fi。")
-            return
-        }
-        if (currentSsid() == SSID) {
-            complete()
-            return
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wifi.isWifiEnabled) {
-            val add = Intent(Settings.ACTION_WIFI_ADD_NETWORKS).apply {
-                putParcelableArrayListExtra(
-                    Settings.EXTRA_WIFI_NETWORK_LIST,
-                    arrayListOf(WifiNetworkSuggestion.Builder().setSsid(SSID).build()),
-                )
-            }
-            try {
-                activity.startActivityForResult(add, SAVE_WIFI_REQUEST)
-                return
-            } catch (_: ActivityNotFoundException) {
-                // OEMs can omit the saved-network screen.
-            } catch (_: SecurityException) {
-                // The system Wi-Fi screen remains available.
-            }
-        }
-        openWifiSettings()
-    }
-
-    private fun openWifiSettings() {
-        try {
-            activity.startActivityForResult(Intent(Settings.ACTION_WIFI_SETTINGS), WIFI_SETTINGS_REQUEST)
-        } catch (_: Exception) {
-            fail("settings_unavailable", "请从 Android 系统设置连接 NEU Wi-Fi 后重试。")
-        }
-    }
-
-    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (pending == null) return
-        when (requestCode) {
-            SAVE_WIFI_REQUEST -> {
-                if (currentSsid() == SSID) {
-                    complete()
-                    return
-                }
-                if (resultCode != Activity.RESULT_OK) {
-                    fail("cancelled", "未确认加入 NEU Wi-Fi。")
-                    return
-                }
-                val added = data?.getIntegerArrayListExtra(Settings.EXTRA_WIFI_NETWORK_RESULT_LIST)
-                    ?.firstOrNull() == Settings.ADD_WIFI_RESULT_SUCCESS
-                if (added) {
-                    main.postDelayed({
-                        if (pending != null) {
-                            if (currentSsid() == SSID) complete() else openWifiSettings()
-                        }
-                    }, 2000)
-                } else {
-                    openWifiSettings()
-                }
-            }
-            WIFI_SETTINGS_REQUEST -> complete()
+            result.error("location_required", "请允许精确位置权限，以识别当前 Wi-Fi。", null)
         }
     }
 
@@ -146,22 +76,52 @@ internal class CampusWifiChannel(
         activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
-    private fun currentSsid(): String? {
-        if (!hasLocationPermission() || !wifi.isWifiEnabled) return null
-        return try {
-            wifi.connectionInfo?.ssid?.removeSurrounding("\"")?.takeUnless {
-                it.isEmpty() || it == WifiManager.UNKNOWN_SSID
-            }
+    private fun isLocationEnabled(): Boolean {
+        val location = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return LocationManagerCompat.isLocationEnabled(location)
+    }
+
+    private fun readCurrentSsid(result: MethodChannel.Result) {
+        if (!wifi.isWifiEnabled) {
+            result.success(null)
+            return
+        }
+        if (!hasLocationPermission()) {
+            result.error("location_required", "请允许精确位置权限，以识别当前 Wi-Fi。", null)
+            return
+        }
+        if (!isLocationEnabled()) {
+            result.error("location_disabled", "请打开 Android 的系统位置服务，再刷新网络状态。", null)
+            return
+        }
+        try {
+            result.success(ssidOf(wifi.connectionInfo))
         } catch (_: SecurityException) {
-            null
+            result.error("wifi_unavailable", "Android 无法读取 Wi-Fi 状态。", null)
         }
     }
 
+    private fun ssidOf(info: WifiInfo?): String? =
+        info?.ssid?.removeSurrounding("\"")?.takeUnless {
+            it.isEmpty() || it == WifiManager.UNKNOWN_SSID
+        }
+
+    private fun normalizeSsid(ssid: String?) = ssid?.trim()?.lowercase()?.replace('－', '-')
+
     private data class CampusConnection(val network: Network, val ipv4: String)
 
-    private fun campusConnection(): CampusConnection? {
-        if (currentSsid() != SSID) return null
-        val address = wifi.connectionInfo?.ipAddress ?: return null
+    private fun campusConnection(expectedSsid: String? = null): CampusConnection? {
+        if (!wifi.isWifiEnabled || !hasLocationPermission() || !isLocationEnabled()) return null
+        val info = try {
+            wifi.connectionInfo
+        } catch (_: SecurityException) {
+            return null
+        } ?: return null
+        val ssid = normalizeSsid(ssidOf(info))
+        if (ssid !in CAMPUS_SSIDS || (expectedSsid != null && ssid != normalizeSsid(expectedSsid))) {
+            return null
+        }
+        val address = info.ipAddress
         if (address == 0) return null
         // WifiInfo supplies the primary WLAN address. Match it to its Network
         // so an open captive portal can be reached even if mobile data is default.
@@ -194,14 +154,25 @@ internal class CampusWifiChannel(
         }
         worker.execute {
             try {
-                val route = campusConnection() ?: error("No NEU Wi-Fi connection")
+                val route = campusConnection() ?: error("No campus Wi-Fi connection")
                 val connection = route.network.openConnection(url, Proxy.NO_PROXY) as HttpsURLConnection
                 try {
                     connection.connectTimeout = 6500
                     connection.readTimeout = 6500
                     connection.instanceFollowRedirects = false
                     connection.useCaches = false
-                    check(connection.responseCode in 200..299)
+                    val page = if (url.query?.split('&')?.contains("action=logout") == true) {
+                        "srun_portal_success"
+                    } else {
+                        "srun_portal_sso"
+                    }
+                    connection.setRequestProperty("Referer", "https://$GATEWAY/$page?ac_id=1")
+                    if (connection.responseCode !in 200..299) {
+                        activity.runOnUiThread {
+                            result.error("gateway_http_error", "学校网关返回了 HTTP 错误。", null)
+                        }
+                        return@execute
+                    }
                     val body = connection.inputStream.use { stream ->
                         val buffer = ByteArray(4096)
                         val bytes = ByteArrayOutputStream()
@@ -225,34 +196,20 @@ internal class CampusWifiChannel(
         }
     }
 
-    private fun complete() {
-        val result = pending
-        pending = null
-        result?.success(null)
-    }
-
-    private fun fail(code: String, message: String) {
-        val result = pending
-        pending = null
-        result?.error(code, message, null)
-    }
-
     fun close() {
         channel.setMethodCallHandler(null)
-        main.removeCallbacksAndMessages(null)
-        fail("closed", "Wi-Fi 连接操作已结束。")
+        pending?.error("closed", "Wi-Fi 位置授权已结束。", null)
+        pending = null
         worker.shutdownNow()
     }
 
     private companion object {
-        const val SSID = "NEU"
         const val GATEWAY = "ipgw.neu.edu.cn"
         const val LOCATION_REQUEST = 4202
-        const val SAVE_WIFI_REQUEST = 4203
-        const val WIFI_SETTINGS_REQUEST = 4204
         const val MAX_RESPONSE_BYTES = 64 * 1024
+        val CAMPUS_SSIDS = setOf("neu", "neu-mobile", "neu2.4g")
         val GATEWAY_PATHS = setOf(
-            "/cgi-bin/rad_user_info", "/cgi-bin/get_challenge", "/cgi-bin/srun_portal",
+            "/v1/srun_portal_sso", "/cgi-bin/rad_user_info", "/cgi-bin/srun_portal",
         )
     }
 }

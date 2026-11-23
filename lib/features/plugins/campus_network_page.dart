@@ -1,59 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/srun_portal_client.dart';
 import '../../core/platform/external_url.dart';
 import '../../core/settings/app_settings.dart';
 import 'campus_network_format.dart';
 import 'campus_network_polling.dart';
 import 'campus_network_provider.dart';
 
-class CampusNetworkPage extends ConsumerStatefulWidget {
+class CampusNetworkPage extends ConsumerWidget {
   const CampusNetworkPage({super.key});
 
   @override
-  ConsumerState<CampusNetworkPage> createState() => _CampusNetworkPageState();
-}
-
-class _CampusNetworkPageState extends ConsumerState<CampusNetworkPage> {
-  late final _ssid = TextEditingController(
-    text: ref.read(appSettingsProvider).campusWifiSsid,
-  );
-  bool _editingSsid = false;
-
-  @override
-  void dispose() {
-    _ssid.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final network = ref.watch(campusNetworkControllerProvider);
     final settings = ref.watch(appSettingsProvider);
-    ref.listen(
-      appSettingsProvider.select((settings) => settings.campusWifiSsid),
-      (_, next) {
-        if (!_editingSsid) _ssid.text = next;
-      },
-    );
-    final canConnect = network.supported && !network.busy;
-    void connect() {
-      FocusScope.of(context).unfocus();
-      _editingSsid = false;
-      network.connectFlow(_ssid.text);
-    }
-
+    final canRefresh =
+        network.supported && !network.busy && !network.refreshing;
     final theme = Theme.of(context);
+    final online = network.gatewayOnline == true;
     return CampusNetworkPolling(
       child: Scaffold(
         appBar: AppBar(
           title: const Text('网络连接'),
           actions: [
             IconButton(
-              tooltip: '刷新网关数据',
-              onPressed: canConnect && !network.refreshing
-                  ? network.refresh
-                  : null,
+              tooltip: '刷新网络状态',
+              onPressed: canRefresh ? network.refresh : null,
               icon: const Icon(Icons.refresh_rounded),
             ),
           ],
@@ -64,45 +37,50 @@ class _CampusNetworkPageState extends ConsumerState<CampusNetworkPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
               children: [
-                if (network.desktop)
-                  TextField(
-                    controller: _ssid,
-                    enabled: canConnect,
-                    onChanged: (_) => _editingSsid = true,
-                    onSubmitted: canConnect ? (_) => connect() : null,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: '备用 Wi-Fi 名称',
-                      hintText: AppSettings.defaultCampusWifiSsid,
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.wifi_rounded),
-                    ),
-                  )
-                else
-                  const Text('校园 Wi-Fi · NEU'),
-                const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: FilledButton.icon(
-                    onPressed: canConnect ? connect : null,
+                    onPressed: online
+                        ? (network.canLogout ? network.logoutGateway : null)
+                        : (network.canLogin ? network.loginGateway : null),
+                    style: online
+                        ? FilledButton.styleFrom(
+                            backgroundColor: theme.colorScheme.error,
+                            foregroundColor: theme.colorScheme.onError,
+                          )
+                        : null,
                     icon: network.busy
                         ? const SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.wifi_rounded),
-                    label: const Text('一键联网'),
+                        : Icon(
+                            online ? Icons.logout_rounded : Icons.login_rounded,
+                          ),
+                    label: Text(online ? '登出网关' : '登录网关'),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Semantics(
                   liveRegion: true,
                   child: Text(
-                    network.statusLabel,
+                    !network.busy && online
+                        ? '已连接校园网 · 已登录网关'
+                        : network.statusLabel,
                     style: theme.textTheme.titleMedium,
                   ),
                 ),
+                if (network.needsWifiPermission)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: canRefresh
+                          ? network.requestWifiPermission
+                          : null,
+                      child: const Text('授权识别 Wi-Fi'),
+                    ),
+                  ),
                 if (network.error case final error?)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
@@ -114,6 +92,15 @@ class _CampusNetworkPageState extends ConsumerState<CampusNetworkPage> {
                       ),
                     ),
                   ),
+                if (network.canOpenPortal)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () =>
+                          ExternalUrl.open(SrunPortalClient.ssoPageUrl),
+                      child: const Text('在浏览器完成统一身份认证'),
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Card(
                   margin: EdgeInsets.zero,
@@ -121,7 +108,7 @@ class _CampusNetworkPageState extends ConsumerState<CampusNetworkPage> {
                     children: [
                       ListTile(
                         title: const Text('当前网络'),
-                        trailing: Text(network.connectionLabel),
+                        subtitle: Text(network.connectionLabel),
                       ),
                       const Divider(height: 1),
                       ListTile(
