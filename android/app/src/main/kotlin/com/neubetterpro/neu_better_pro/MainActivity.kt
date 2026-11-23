@@ -17,6 +17,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -156,6 +157,36 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+                // 是否已被允许安装未知来源应用（返回后据此自动续装）。
+                "canInstallPackages" -> {
+                    val allowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        packageManager.canRequestPackageInstalls()
+                    } else {
+                        true
+                    }
+                    result.success(allowed)
+                }
+                "openInstallPermission" -> {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try {
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("open_permission_failed", error.message, null)
+                    }
+                }
+                // 打开安装包下载目录（App 内部 cache/neu_better_updates）。
+                "openDownloadFolder" -> {
+                    try {
+                        openDownloadFolder()
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("open_folder_failed", error.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -260,8 +291,7 @@ class MainActivity : FlutterActivity() {
      * 返回 "ok" 表示已拉起安装器；"need_permission" 表示用户尚未允许
      * 「安装未知应用」，此时跳转系统授权页，用户允许后需再次点击更新。
      */
-    private fun installApk(path: String): String {
-        val file = File(path)
+    private fun installApk(path: String): String {        val file = File(path)
         require(file.exists() && file.length() > 0L) {
             "apk not found or empty: $path"
         }
@@ -307,6 +337,33 @@ class MainActivity : FlutterActivity() {
             }
         }
         return "ok"
+    }
+
+    /**
+     * 打开安装包下载目录：安卓的安装包在 App 内部 cache/neu_better_updates，
+     * 系统文件管理器无法直接定位到该内部目录，这里 Toast 出完整路径并尝试
+     * 打开「文件」首页，便于用户知晓位置。
+     */
+    private fun openDownloadFolder() {
+        val dir = File(cacheDir, "neu_better_updates")
+        if (!dir.exists()) dir.mkdirs()
+        Toast.makeText(this, "下载位置：${dir.absolutePath}", Toast.LENGTH_LONG).show()
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(
+                    Uri.parse("content://com.android.externalstorage.documents/root/primary"),
+                    "vnd.android.document/root",
+                )
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            val fallback = Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(fallback)
+        }
     }
 
     override fun onRequestPermissionsResult(

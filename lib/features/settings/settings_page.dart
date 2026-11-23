@@ -11,6 +11,7 @@ import '../../core/settings/app_settings.dart';
 import '../../core/storage/account_scope.dart';
 import '../../core/update/update_service.dart';
 import '../../core/update/update_flow.dart';
+import '../../core/update/update_installer.dart';
 import '../timetable/course_override_store.dart';
 import '../notifications/notification_settings_page.dart';
 import '../timetable/timetable_models.dart';
@@ -338,6 +339,8 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                       ],
                     ),
                   ),
+                  Divider(height: 1, color: AppColors.line),
+                  const _DownloadLocationRow(),
                 ],
               ),
             ),
@@ -518,6 +521,7 @@ class MobileSettingsPage extends ConsumerWidget {
                   ],
                 ),
               ),
+              const _DownloadLocationRow(),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(

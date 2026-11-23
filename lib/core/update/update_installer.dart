@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'update_service.dart';
+
 /// 安装下载好的更新包。
 ///
 /// - Android：交给系统安装器（FileProvider 授权读 apk）。
@@ -21,6 +23,44 @@ abstract final class UpdateInstaller {
       return 'error: ${error.message}';
     } catch (error) {
       return 'error: $error';
+    }
+  }
+
+  /// 当前是否已被允许「安装未知来源应用」。
+  static Future<bool> canInstallPackages() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final result = await _channel.invokeMethod<bool>('canInstallPackages');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 跳转系统「安装未知应用」授权页。
+  static Future<void> openInstallPermission() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('openInstallPermission');
+    } catch (_) {}
+  }
+
+  /// 打开安装包下载目录。
+  static Future<void> openDownloadFolder() async {
+    if (Platform.isAndroid) {
+      try {
+        await _channel.invokeMethod<void>('openDownloadFolder');
+      } catch (_) {}
+      return;
+    }
+    if (Platform.isWindows) {
+      try {
+        await Process.start(
+          'explorer',
+          <String>[UpdateInfo.downloadDirectory(android: false).path],
+          mode: ProcessStartMode.detached,
+        );
+      } catch (_) {}
     }
   }
 

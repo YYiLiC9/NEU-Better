@@ -113,6 +113,8 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
+    // 从「允许安装未知应用」设置页返回后，若已有待安装包则自动续装。
+    unawaited(UpdateManager.instance.onAppResumed());
     if (_updates.readyFile == null || _updates.promptedReady) return;
     final ctx = _rootNavigatorKey.currentContext;
     if (ctx == null) return;
