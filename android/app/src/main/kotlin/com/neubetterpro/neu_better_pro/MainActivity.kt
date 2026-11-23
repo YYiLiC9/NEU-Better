@@ -347,45 +347,52 @@ class MainActivity : FlutterActivity() {
     private fun openDownloadFolder() {
         val dir = File(cacheDir, "neu_better_updates")
         if (!dir.exists()) dir.mkdirs()
-        // 用 FileProvider 暴露目录，再交给系统「选择打开方式」的意图选择器，
-        // 让用户挑本地文件管理器 / MT 管理器等（可仅一次或始终）。
         val folderUri = try {
             FileProvider.getUriForFile(this, "$packageName.fileprovider", dir)
         } catch (_: Exception) {
             null
         }
+        // 依次尝试目录 URI 的常见 MIME，系统/MT 管理器接受的类型不一致。
+        // 只有确实存在可处理的应用时才弹选择器，否则会得到“没有应用可执行此操作”。
+        val candidates = mutableListOf<Intent>()
         if (folderUri != null) {
-            try {
-                val target = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(folderUri, "resource/folder")
+            for (mime in listOf("resource/folder", "vnd.android.document/directory")) {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(folderUri, mime)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     clipData = ClipData.newRawUri("folder", folderUri)
                 }
-                val chooser = Intent.createChooser(target, "选择打开方式").apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (intent.resolveActivity(packageManager) != null) {
+                    candidates.add(intent)
+                    break
                 }
-                startActivity(chooser)
-                return
-            } catch (error: Exception) {
-                Log.w(LOG_TAG, "open folder chooser failed: ${error.message}")
             }
         }
-        // 兜底：Toast 路径并打开系统「文件」首页的选择器。
-        Toast.makeText(this, "下载位置：${dir.absolutePath}", Toast.LENGTH_LONG).show()
-        try {
-            val root = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(
-                    Uri.parse("content://com.android.externalstorage.documents/root/primary"),
-                    "vnd.android.document/root",
-                )
+        // 公共存储根目录（系统「文件」可处理），让用户至少能进系统文件管理器。
+        val rootUri = Uri.parse("content://com.android.externalstorage.documents/root/primary")
+        val rootIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(rootUri, "vnd.android.document/root")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (rootIntent.resolveActivity(packageManager) != null) {
+            candidates.add(rootIntent)
+        }
+        if (candidates.isNotEmpty()) {
+            val chooser = Intent.createChooser(candidates.first(), "选择打开方式").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val chooser = Intent.createChooser(root, "选择打开方式").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(chooser)
+            return
+        }
+        // 最后兜底：系统文档选择器一定能打开（用户可浏览本机存储）。
+        Toast.makeText(this, "下载位置：${dir.absolutePath}", Toast.LENGTH_LONG).show()
+        try {
+            startActivity(
+                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
         } catch (_: Exception) {
             startActivity(
                 Intent(
