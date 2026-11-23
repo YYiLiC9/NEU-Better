@@ -776,7 +776,7 @@ class _HomePageState extends ConsumerState<HomePage>
     final section = ref.watch(homeSectionProvider);
     // 卡片库（section 2）不做任何转场；只有「余额中心」二级页(1) 与首页(0)
     // 之间做「从所点卡片处放大 / 缩回卡片处」的转场。
-    final galleryInvolved = section == 2 || _lastSection == 2;
+    final galleryInvolved = section >= 2 || _lastSection >= 2;
     final detailInvolved = section == 1 || _lastSection == 1;
     final Widget content;
     if (section == 1) {
@@ -800,6 +800,22 @@ class _HomePageState extends ConsumerState<HomePage>
         onDeletePlugin: (id) => unawaited(_uninstallPlugin(id)),
         onUpdate: _downloadPlugin,
         onRetryCatalog: () => unawaited(_fetchCatalog(force: true)),
+      );
+    } else if (section == 3) {
+      content = MailPage(
+        session: widget.session,
+        onBack: () {
+          ref.read(homeSectionProvider.notifier).state = 0;
+          unawaited(_loadMailSummary());
+        },
+      );
+    } else if (section == 4) {
+      content = NotificationPage(
+        session: widget.session,
+        onBack: () {
+          ref.read(homeSectionProvider.notifier).state = 0;
+          unawaited(_loadNotifySummary());
+        },
       );
     } else {
       content = _buildHomeOverview();
@@ -988,16 +1004,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openMail() {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute<void>(
-            builder: (_) => MailPage(session: widget.session),
-          ),
-        )
-        .whenComplete(() {
-      // 从邮件页返回后刷新首页邮件卡（未读数可能因点开邮件而变化）。
-      if (mounted) unawaited(_loadMailSummary());
-    });
+    ref.read(homeSectionProvider.notifier).state = 3;
   }
 
   /// best-effort 拉取邮件摘要供首页卡片展示；任何失败都静默忽略。
@@ -1032,16 +1039,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openNotifications() {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute<void>(
-            builder: (_) => NotificationPage(session: widget.session),
-          ),
-        )
-        .whenComplete(() {
-      // 返回首页时刷新通知卡（进入列表已尽力标记已读）。
-      if (mounted) unawaited(_loadNotifySummary());
-    });
+    ref.read(homeSectionProvider.notifier).state = 4;
   }
 
   /// best-effort 拉取通知摘要供首页卡片展示；失败静默。

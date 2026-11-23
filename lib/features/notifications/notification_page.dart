@@ -9,10 +9,18 @@ import 'notification_models.dart';
 
 /// 通知列表页（校园消息中心，只读）。
 class NotificationPage extends ConsumerStatefulWidget {
-  const NotificationPage({super.key, required this.session, this.client});
+  const NotificationPage({
+    super.key,
+    required this.session,
+    this.client,
+    this.onBack,
+  });
 
   final AuthSession session;
   final NotificationClient? client;
+
+  /// 非空表示以「首页二级页」方式内嵌显示（保留底部导航），点击返回调用它。
+  final VoidCallback? onBack;
 
   @override
   ConsumerState<NotificationPage> createState() => _NotificationPageState();
@@ -30,6 +38,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   int _page = 1;
   int _total = 0;
   int _noRead = 0;
+  AppNotification? _detail;
 
   @override
   void initState() {
@@ -132,6 +141,10 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       });
       unawaited(_client.markRead([item.logId]));
     }
+    if (widget.onBack != null) {
+      setState(() => _detail = item);
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => NotificationDetailPage(item: item)),
     );
@@ -139,6 +152,72 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.onBack != null && _detail != null) {
+      return NotificationDetailPage(
+        item: _detail!,
+        onBack: () => setState(() => _detail = null),
+      );
+    }
+    final body = RefreshIndicator(
+      onRefresh: () => _load(refresh: true),
+      color: AppColors.campusBlue,
+      child: _buildBody(),
+    );
+    if (widget.onBack != null) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: '返回',
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                ),
+                Text(
+                  '通知',
+                  style: TextStyle(
+                    color: AppColors.ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (_noRead > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.campusBlue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '未读 $_noRead',
+                      style: TextStyle(
+                        color: AppColors.campusBlue,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                IconButton(
+                  tooltip: '刷新',
+                  icon: Icon(Icons.refresh_rounded, color: AppColors.muted),
+                  onPressed: () => _load(refresh: true),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: AppColors.line),
+          Expanded(child: body),
+        ],
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -183,11 +262,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => _load(refresh: true),
-        color: AppColors.campusBlue,
-        child: _buildBody(),
-      ),
+      body: body,
     );
   }
 

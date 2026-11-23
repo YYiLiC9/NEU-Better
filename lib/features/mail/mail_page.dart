@@ -16,9 +16,12 @@ import 'mail_format.dart';
 /// 正文在详情页原生渲染。初始化失败时只显示原生错误态 + 重试，不再使用
 /// WebView / 网页版兜底。
 class MailPage extends ConsumerStatefulWidget {
-  const MailPage({super.key, required this.session});
+  const MailPage({super.key, required this.session, this.onBack});
 
   final AuthSession session;
+
+  /// 非空表示以「首页二级页」方式内嵌显示（保留底部导航），点击返回调用它。
+  final VoidCallback? onBack;
 
   @override
   ConsumerState<MailPage> createState() => _MailPageState();
@@ -29,6 +32,7 @@ class _MailPageState extends ConsumerState<MailPage> {
   List<MailSummary> _items = const [];
   bool _loading = true;
   String? _error;
+  MailSummary? _detail;
 
   @override
   void initState() {
@@ -95,6 +99,10 @@ class _MailPageState extends ConsumerState<MailPage> {
     if (!summary.read) {
       unawaited(_markRead(summary, client));
     }
+    if (widget.onBack != null) {
+      setState(() => _detail = summary);
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MailDetailPage(
@@ -136,6 +144,49 @@ class _MailPageState extends ConsumerState<MailPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.onBack != null && _detail != null && _client != null) {
+      return MailDetailPage(
+        client: _client!,
+        summary: _detail!,
+        session: widget.session,
+        onBack: () => setState(() => _detail = null),
+      );
+    }
+    final body = _buildNative();
+    if (widget.onBack != null) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: '返回',
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                ),
+                Text(
+                  '邮件',
+                  style: TextStyle(
+                    color: AppColors.ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: '刷新收件箱',
+                  onPressed: _loading ? null : () => _load(refresh: true),
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: AppColors.line),
+          Expanded(child: body),
+        ],
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -152,7 +203,7 @@ class _MailPageState extends ConsumerState<MailPage> {
           ),
         ],
       ),
-      body: _buildNative(),
+      body: body,
     );
   }
 
