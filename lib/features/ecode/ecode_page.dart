@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
@@ -22,7 +21,7 @@ class EcodePage extends StatefulWidget {
   State<EcodePage> createState() => _EcodePageState();
 }
 
-class _EcodePageState extends State<EcodePage> {
+class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
   final EcodeClient _client = EcodeClient();
   final EcodeCookieStore _cookieStore = const EcodeCookieStore();
 
@@ -31,21 +30,47 @@ class _EcodePageState extends State<EcodePage> {
   bool _loading = true;
   bool _busy = false;
   Timer? _timer;
+  Timer? _retryTimer;
+  int _failureCount = 0;
+  bool _reloginPrompted = false;
   final Stopwatch _watch = Stopwatch()..start();
   bool _loggedReady = false;
-  WebViewController? _webController;
-  bool _webFallback = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load(initial: true));
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_refresh(initial: true));
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _retryTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // 息屏/切后台时停止定时器，避免无效请求；恢复时立即补一次。
+      _timer?.cancel();
+      _retryTimer?.cancel();
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      _failureCount = 0;
+      _reloginPrompted = false;
+      if (mounted) {
+        setState(() {
+          _error = null;
+          if (_qr == null) _loading = true;
+        });
+      }
+      unawaited(_refresh());
+    }
   }
 
   Future<String> _ensureCookie() async {
@@ -95,7 +120,8 @@ class _EcodePageState extends State<EcodePage> {
     }
   }
 
-  Future<void> _load({bool initial = false}) async {
+  Future<void> _refresh({bool initial = false, bool manual = false}) async {
+    _retryTimer?.cancel();
     if (initial && mounted) {
       setState(() {
         _loading = true;
@@ -105,10 +131,15 @@ class _EcodePageState extends State<EcodePage> {
     try {
       final qr = await _fetchWithRetry();
       if (!mounted) return;
+      _failureCount = 0;
+      _reloginPrompted = false;
       if (!_loggedReady) {
         _loggedReady = true;
         debugPrint('[ecode-native] first ready in ${_watch.elapsedMilliseconds}ms');
       }
+      debugPrint(
+        '[ecode-native] refresh ok at ${DateTime.now().toIso8601String()}',
+      );
       setState(() {
         _qr = qr;
         _loading = false;
@@ -118,98 +149,79 @@ class _EcodePageState extends State<EcodePage> {
       _schedule();
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _busy = false;
-        _error = error is EcodeException ? error.message : '获取二维码失败：$error';
-      });
+      _failureCount++;
+      debugPrint('[ecode-native] fetch failed ($_failureCount/3): $error');
+      if (_failureCount < 3) {
+        // 前两次失败：保留当前二维码，2 秒后自动重试。
+        setState(() {
+          _loading = false;
+          _busy = false;
+        });
+        _retryTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted) unawaited(_refresh(manual: manual));
+        });
+      } else {
+        // 连续失败三次：停止自动刷新并提示重新登录。
+        setState(() {
+          _loading = false;
+          _busy = false;
+          _error = _describeError(error);
+        });
+        _promptRelogin();
+      }
     }
   }
 
   void _schedule() {
     _timer?.cancel();
+    // 按二维码生命周期的一半续码（上限 5 秒、下限 2 秒），确保展示的码始终在有效期内。
     final life = _qr?.lifetime.inMilliseconds ?? 10000;
-    final wait = Duration(milliseconds: (life - 1500).clamp(2500, 30000));
-    _timer = Timer(wait, () {
+    final waitMs = (life ~/ 2).clamp(2000, 5000);
+    _timer = Timer(Duration(milliseconds: waitMs), () {
       if (!mounted) return;
-      unawaited(_load());
+      unawaited(_refresh());
     });
   }
 
   Future<void> _manualRefresh() async {
     if (_busy) return;
     setState(() => _busy = true);
-    await _load();
+    _failureCount = 0;
+    _retryTimer?.cancel();
+    await _refresh(manual: true);
     if (mounted && _busy) {
       setState(() => _busy = false);
     }
   }
 
-  /// 极端兜底：会话过期且未保存密码时，用网页登录一次换取 ecode Cookie，
-  /// 之后仍走原生接口（避免每次都加载 H5）。
-  Future<void> _startWebFallback() async {
-    final controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted);
-    final manager = WebViewCookieManager();
-    for (final entry in widget.session.cookies.entries) {
-      final host = entry.key;
-      if (!host.endsWith('neu.edu.cn')) continue;
-      for (final part in entry.value.split(';')) {
-        final t = part.trim();
-        final i = t.indexOf('=');
-        if (i <= 0) continue;
-        try {
-          await manager.setCookie(
-            WebViewCookie(
-              name: t.substring(0, i),
-              value: t.substring(i + 1),
-              domain: host,
-              path: '/',
-            ),
-          );
-        } catch (_) {}
-      }
+  String _describeError(Object error) {
+    if (error is EcodeException) return error.message;
+    final text = error.toString();
+    if (text.contains('Failed host lookup') ||
+        text.contains('SocketException') ||
+        text.contains('Connection') ||
+        text.contains('Timeout')) {
+      return '网络连接失败，请检查网络后重试';
     }
-    controller.setNavigationDelegate(
-      NavigationDelegate(
-        onPageFinished: (url) async {
-          if (!url.contains('ecode.neu.edu.cn')) return;
-          if (url.contains('/tpass/') || url.contains('/sso/')) return;
-          try {
-            final cookies = await manager.getCookies(
-              domain: Uri.parse('https://ecode.neu.edu.cn/ecode/api'),
-            );
-            final header = cookies
-                .map((c) => '${c.name}=${c.value}')
-                .join('; ');
-            if (cookies.any((c) => c.name == 'SESSION')) {
-              await _cookieStore.save(header);
-              if (!mounted) return;
-              setState(() {
-                _webFallback = false;
-                _webController = null;
-              });
-              await _load(initial: true);
-            }
-          } catch (error) {
-            debugPrint('[ecode-native] web fallback failed: $error');
-          }
-        },
-      ),
-    );
-    await controller.loadRequest(
-      Uri.parse('https://ecode.neu.edu.cn/ecode/'),
-    );
-    if (!mounted) return;
-    setState(() {
-      _webController = controller;
-      _webFallback = true;
-    });
+    return '获取二维码失败，请稍后重试';
   }
 
-  String _fmt(DateTime t) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+  void _promptRelogin() {
+    if (_reloginPrompted || !mounted) return;
+    _reloginPrompted = true;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('需要重新登录'),
+        content: const Text('e码通登录状态已失效或网络异常，请检查网络后重试；若仍失败请重新登录后再使用。'),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -260,9 +272,7 @@ class _EcodePageState extends State<EcodePage> {
               ),
             ),
             Expanded(
-              child: (_webFallback && _webController != null)
-                  ? WebViewWidget(controller: _webController!)
-                  : Center(child: _buildBody()),
+              child: Center(child: _buildBody()),
             ),
           ],
         ),
@@ -289,11 +299,6 @@ class _EcodePageState extends State<EcodePage> {
           FilledButton(
             onPressed: _loading ? null : _manualRefresh,
             child: const Text('重试'),
-          ),
-          const SizedBox(height: 6),
-          TextButton(
-            onPressed: _startWebFallback,
-            child: const Text('用网页登录一次（首次）'),
           ),
         ],
       );
@@ -343,16 +348,7 @@ class _EcodePageState extends State<EcodePage> {
                   backgroundColor: Colors.white,
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(
-                '有效至 ${_fmt(_qr!.invalidTime)}',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 12),
               Text(
                 '点按二维码可手动刷新',
                 style: TextStyle(color: AppColors.muted, fontSize: 11),
