@@ -480,7 +480,7 @@ class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
             ),
           ),
         ),
-        Divider(height: 1, color: AppColors.line),
+        const SizedBox(height: 4),
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 160),
@@ -511,6 +511,7 @@ class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
           _SettingsGroupCard(
             title: '主题',
             icon: Icons.palette_outlined,
+            borderless: true,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: _ThemeModeSelector(
@@ -525,6 +526,7 @@ class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
           _SettingsGroupCard(
             title: '每周起始日',
             icon: Icons.calendar_today_outlined,
+            borderless: true,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: _WeekStartSelector(
@@ -541,9 +543,10 @@ class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
           _SettingsGroupCard(
             title: '系统通知',
             icon: Icons.notifications_active_outlined,
+            borderless: true,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: const NotificationSettingsContent(),
+              child: const NotificationSettingsContent(borderless: true),
             ),
           ),
         ];
@@ -552,6 +555,7 @@ class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
           _SettingsGroupCard(
             title: '更新',
             icon: Icons.system_update_alt_rounded,
+            borderless: true,
             child: Column(
               children: [
                 _SwitchRow(
@@ -560,7 +564,7 @@ class _MobileSettingsPageState extends ConsumerState<MobileSettingsPage> {
                   value: settings.autoUpdate,
                   onChanged: controller.setAutoUpdate,
                 ),
-                Divider(height: 1, color: AppColors.line),
+                const SizedBox(height: 4),
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
@@ -651,11 +655,8 @@ class _MobileSettingsTab extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected
                 ? accent.withValues(alpha: AppColors.isDark ? 0.22 : 0.09)
-                : AppColors.surface,
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? accent.withValues(alpha: 0.55) : AppColors.line,
-            ),
           ),
           child: Row(
             children: [

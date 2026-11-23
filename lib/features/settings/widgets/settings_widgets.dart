@@ -746,11 +746,15 @@ class _SettingsGroupCard extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.child,
+    this.borderless = false,
   });
 
   final String title;
   final IconData icon;
   final Widget child;
+
+  /// 手机端为 true：不画容器描边，减少线条。
+  final bool borderless;
 
   @override
   Widget build(BuildContext context) {
@@ -762,9 +766,9 @@ class _SettingsGroupCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
           decoration: BoxDecoration(
-            color: AppColors.canvas,
+            color: borderless ? Colors.transparent : AppColors.canvas,
             borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: AppColors.line),
+            border: borderless ? null : Border.all(color: AppColors.line),
           ),
           child: child,
         ),

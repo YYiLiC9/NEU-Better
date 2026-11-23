@@ -131,7 +131,10 @@ Future<void> showNotificationSettingsDialog(BuildContext context) {
 }
 
 class NotificationSettingsContent extends ConsumerStatefulWidget {
-  const NotificationSettingsContent({super.key});
+  const NotificationSettingsContent({super.key, this.borderless = false});
+
+  /// 嵌入其它设置页时为 true：不画外层描边与行间分隔线，避免线条过多。
+  final bool borderless;
 
   @override
   ConsumerState<NotificationSettingsContent> createState() =>
@@ -205,15 +208,18 @@ class _NotificationSettingsContentState
         ),
         const SizedBox(height: 14),
         Container(
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.line),
-          ),
+          decoration: widget.borderless
+              ? null
+              : BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.line),
+                ),
           child: Column(
             children: [
               for (var i = 0; i < sources.length; i++) ...[
-                if (i > 0) Divider(height: 1, color: AppColors.line),
+                if (i > 0 && !widget.borderless)
+                  Divider(height: 1, color: AppColors.line),
                 SwitchListTile.adaptive(
                   value: controller.notifyEnabled(sources[i].key),
                   onChanged: (value) =>
