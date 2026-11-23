@@ -1,3 +1,5 @@
+const campusGatewayUsageHint = '联机网关后获取更多信息';
+
 String formatCampusBalance(double? balance) =>
     balance == null ? '—' : '¥${balance.toStringAsFixed(2)}';
 
