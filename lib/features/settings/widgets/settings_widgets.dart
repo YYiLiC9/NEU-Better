@@ -1,59 +1,5 @@
 part of '../settings_page.dart';
 
-/// 更新区底部：显示安装包下载位置，并提供「打开文件夹」。
-class _DownloadLocationRow extends StatelessWidget {
-  const _DownloadLocationRow();
-
-  @override
-  Widget build(BuildContext context) {
-    final path = UpdateInfo.downloadDirectory(android: Platform.isAndroid).path;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(Icons.folder_outlined, size: 15, color: AppColors.muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '下载位置',
-                  style: TextStyle(
-                    color: AppColors.ink,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  path,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: AppColors.muted, fontSize: 10.5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          TextButton.icon(
-            onPressed: UpdateInstaller.openDownloadFolder,
-            icon: const Icon(Icons.open_in_new_rounded, size: 15),
-            label: const Text('打开文件夹'),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.campusBlue,
-              textStyle: const TextStyle(fontSize: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 小节标签：图标 + 加宽字距的说明文字。
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({required this.icon, required this.label});
