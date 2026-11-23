@@ -7,17 +7,22 @@ class AndroidCampusWifi implements CampusWifi {
   const AndroidCampusWifi();
 
   static const _channel = MethodChannel('neu_better/campus_wifi');
-  static const ssid = 'NEU';
+
+  static bool isCampusSsid(String? ssid) => const {
+    'neu',
+    'neu-mobile',
+    'neu2.4g',
+  }.contains(ssid?.trim().toLowerCase().replaceAll('－', '-'));
 
   @override
-  Future<String?> currentSsid({String? preferred}) =>
-      _invoke<String>('currentSsid');
+  Future<String?> currentSsid() => _invoke<String>('currentSsid');
 
   @override
-  Future<String?> ipv4Address(String ssid) => _invoke<String>('ipv4Address');
+  Future<String?> ipv4Address(String ssid) =>
+      _invoke<String>('ipv4Address', ssid);
 
-  @override
-  Future<void> connect(String ssid) => _invoke<void>('connect');
+  Future<void> requestLocationPermission() =>
+      _invoke<void>('requestLocationPermission');
 
   Future<String> readGateway(Uri uri) async {
     try {
@@ -26,7 +31,10 @@ class AndroidCampusWifi implements CampusWifi {
         uri.toString(),
       );
       if (body != null) return body;
-    } on PlatformException {
+    } on PlatformException catch (error) {
+      if (error.code == 'gateway_http_error') {
+        throw const SrunRejected('学校网关返回了 HTTP 错误。');
+      }
       // Suppress transport diagnostics that may contain the signed URL.
     } on MissingPluginException {
       // The platform bridge is unavailable.
@@ -34,10 +42,13 @@ class AndroidCampusWifi implements CampusWifi {
     throw const SrunUnavailable();
   }
 
-  Future<T?> _invoke<T>(String method) async {
+  Future<T?> _invoke<T>(String method, [String? argument]) async {
     try {
-      return await _channel.invokeMethod<T>(method);
+      return await _channel.invokeMethod<T>(method, argument);
     } on PlatformException catch (error) {
+      if (error.code == 'location_required') {
+        throw const CampusWifiPermissionRequired('请允许精确位置权限，以识别当前 Wi-Fi。');
+      }
       throw CampusWifiException(error.message ?? '无法读取 Android Wi-Fi 状态。');
     } on MissingPluginException {
       throw const CampusWifiException('Android Wi-Fi 服务暂不可用。');

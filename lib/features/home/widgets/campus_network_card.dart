@@ -43,6 +43,7 @@ class _CampusNetworkDetails extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final network = ref.watch(campusNetworkControllerProvider);
+    final online = network.gatewayOnline == true;
     final metrics = [
       ('网费余额', formatCampusBalance(network.balance)),
       ('网关已用', formatCampusTraffic(network.sumBytes)),
@@ -64,13 +65,13 @@ class _CampusNetworkDetails extends ConsumerWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: labelStyle.copyWith(
-            color: network.gatewayOnline == true
-                ? AppColors.campusBlue
-                : AppColors.muted,
+            color: online ? AppColors.campusBlue : AppColors.muted,
           ),
         ),
         const SizedBox(height: 6),
-        if (wide)
+        if (!online)
+          Text(campusGatewayUsageHint, style: labelStyle)
+        else if (wide)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

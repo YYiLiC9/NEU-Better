@@ -63,7 +63,6 @@ class WindowsWifi implements CampusWifi {
     return null;
   }
 
-  @override
   Future<void> connect(String ssid) async {
     if (!isValidSsid(ssid)) {
       throw const WindowsWifiException('请输入有效的 Wi-Fi 名称（最多 32 字节）。');
@@ -327,7 +326,7 @@ class WindowsWifi implements CampusWifi {
     Duration timeout,
   ) async {
     if (!Platform.isWindows) {
-      throw const WindowsWifiException('一键联网仅支持 Windows。');
+      throw const WindowsWifiException('此 Wi-Fi 工具仅支持 Windows。');
     }
     try {
       final systemRoot = Platform.environment['SystemRoot'] ?? r'C:\Windows';

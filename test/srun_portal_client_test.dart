@@ -1,43 +1,29 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neu_better_pro/core/auth/auth_exception.dart';
+import 'package:neu_better_pro/core/network/neu_cas_client.dart';
 import 'package:neu_better_pro/core/network/srun_portal_client.dart';
 
 void main() {
   const user = '20260001@neu';
   const password = 'synthetic-pass';
   const ip = '192.0.2.7';
-  const token = '0123456789abcdef0123456789abcdef';
+  const ticket = 'ST-synthetic-ipgw-tpass';
+  const casForm =
+      '<input name="lt" value="test-lt">'
+      '<input name="execution" value="test-execution">';
 
-  test('matches the SRun xencode and login checksum reference vectors', () {
-    expect(SrunPortalClient.xencode('NEU测试', 'abc'), 'eqFzmXPyEdGqzub7');
-    expect(SrunPortalClient.xencode('', 'abc'), isEmpty);
-    final fields = SrunPortalClient.loginParameters(
-      username: user,
-      password: password,
-      ip: ip,
-      token: token,
-    );
-    expect(fields['password'], '{MD5}0f097a97e3e387c03817bd9add8ebc3c');
-    expect(
-      fields['info'],
-      '{SRBX1}rlsKHk7i/pVpIk4cd4Y3HBzxD1wQ6zjs4BeH2HkCnAh0HQWOrFn28XgCm5V2'
-      'muiNj7KLd0T/16Er0Sx2K4tqShDv04S0Z4arjzOi5V1CGFHqVjBf2QOgDh2csH'
-      'kscCO5rnNU+mzHzyB9IQ1F',
-    );
-    expect(fields['chksum'], '01d4749e44598a24d04dea574aab4ee28d14ef48');
-    expect(fields['ac_id'], '1');
-    expect(fields['double_stack'], '0');
-  });
-
-  test('parses cumulative billing, an offline address, and gateway errors', () {
+  test('parses school billing, the online session and gateway errors', () {
     final online = SrunPortalClient.parseStatus('''
       neuBetterStatus({"error":"ok","online_ip":"192.0.2.7","add_time":90,
+        "user_name":"20260001","domain":"neu",
         "user_balance":"-1.50","sum_bytes":"5368709120"});
     ''');
     expect(online.online, isTrue);
     expect(online.balance, -1.5);
     expect(online.sumBytes, 5368709120);
     expect(online.clientIp, ip);
+    expect(online.username, user);
     expect(online.connectionKey, isNotNull);
     expect(
       SrunPortalClient.parseStatus('{"error":"ok","sum_bytes":-1}').sumBytes,
@@ -66,68 +52,179 @@ void main() {
     );
   });
 
-  test('uses the mobile Wi-Fi transport for both SRun steps', () async {
+  test(
+    'gets an IPGW service ticket without contacting its HTTP callback',
+    () async {
+      final service = SrunPortalClient.ssoService;
+      final requests = <RequestOptions>[];
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (request, handler) {
+              requests.add(request);
+              if (request.method == 'GET') {
+                handler.resolve(
+                  Response<String>(
+                    requestOptions: request,
+                    statusCode: 200,
+                    data: casForm,
+                    headers: Headers.fromMap({
+                      'set-cookie': ['CAS=test-only'],
+                    }),
+                  ),
+                );
+                return;
+              }
+              handler.resolve(
+                Response<String>(
+                  requestOptions: request,
+                  statusCode: 302,
+                  headers: Headers.fromMap({
+                    'location': ['$service&ticket=$ticket'],
+                  }),
+                ),
+              );
+            },
+          ),
+        );
+      final client = NeuCasClient(dio: dio);
+      addTearDown(client.close);
+      final result = await client.requestServiceTicket(
+        username: user,
+        password: password,
+        service: service,
+      );
+      expect(result, ticket);
+      expect(requests.map((request) => request.method), ['GET', 'POST']);
+      expect(requests.map((request) => request.uri.host).toSet(), {
+        'pass.neu.edu.cn',
+      });
+      expect(requests.map((request) => request.uri.scheme).toSet(), {'https'});
+      expect(
+        requests.first.uri.queryParameters['service'],
+        'http://ipgw.neu.edu.cn/srun_portal_sso?ac_id=1',
+      );
+      expect(requests.last.headers['cookie'], 'CAS=test-only');
+    },
+  );
+
+  for (final location in [
+    'https://example.invalid/tpass/login?ticket=$ticket',
+    'http://ipgw.neu.edu.cn/srun_portal_sso?ac_id=2&ticket=$ticket',
+  ]) {
+    test('rejects an unexpected CAS callback $location', () async {
+      final requests = <Uri>[];
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (request, handler) {
+              requests.add(request.uri);
+              if (request.method == 'GET') {
+                handler.resolve(
+                  Response<String>(
+                    requestOptions: request,
+                    statusCode: 200,
+                    data: casForm,
+                  ),
+                );
+                return;
+              }
+              handler.resolve(
+                Response<String>(
+                  requestOptions: request,
+                  statusCode: 307,
+                  headers: Headers.fromMap({
+                    'location': [location],
+                  }),
+                ),
+              );
+            },
+          ),
+        );
+      final client = NeuCasClient(dio: dio);
+      addTearDown(client.close);
+      await expectLater(
+        client.requestServiceTicket(
+          username: user,
+          password: password,
+          service: SrunPortalClient.ssoService,
+        ),
+        throwsA(
+          isA<AuthException>().having(
+            (error) => error.message,
+            'message',
+            contains('意外的服务地址'),
+          ),
+        ),
+      );
+      expect(requests.map((uri) => uri.host), [
+        'pass.neu.edu.cn',
+        'pass.neu.edu.cn',
+      ]);
+    });
+  }
+
+  test('redeems the ticket on the selected HTTPS gateway transport', () async {
     final requests = <Uri>[];
     final client = SrunPortalClient(
-      deviceName: 'Android',
       readResponse: (uri) async {
         requests.add(uri);
-        return uri.path.endsWith('get_challenge')
-            ? '{"error":"ok","challenge":"$token","client_ip":"$ip"}'
-            : '{"error":"ok"}';
+        return '{"code":0,"message":"认证成功"}';
       },
     );
     addTearDown(client.close);
     client.useSourceAddress(ip);
-    await client.login(username: user, password: password, clientIp: ip);
-    expect(requests.map((url) => url.scheme), ['https', 'https']);
-    expect(requests.map((url) => url.path), [
-      '/cgi-bin/get_challenge',
-      '/cgi-bin/srun_portal',
-    ]);
-    expect(requests.last.queryParameters['os'], 'Android');
+    await client.loginWithTicket(ticket);
+    final url = requests.single;
+    expect(url.scheme, 'https');
+    expect(url.host, 'ipgw.neu.edu.cn');
+    expect(url.path, '/v1/srun_portal_sso');
+    expect(url.queryParameters, {'ac_id': '1', 'ticket': ticket});
   });
 
-  test('requests the challenge then authenticates over HTTPS and surfaces rejection', () async {
-    final requests = <Uri>[];
-    final dio = Dio()
-      ..interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            requests.add(options.uri);
-            expect(options.followRedirects, isFalse);
-            final body = options.uri.path.endsWith('get_challenge')
-                ? '{"error":"ok","challenge":"$token","client_ip":"$ip"}'
-                : '{"res":"fail","error_msg":"密码错误"}';
-            handler.resolve(
-              Response<String>(
-                requestOptions: options,
-                data: 'neuBetterStatus($body);',
-              ),
-            );
-          },
+  for (final (response, failure) in [
+    ('{"code":1,"message":"票据无效"}', '票据无效'),
+    ('{"code":7}', 'code=7'),
+    (
+      '{"code":0,"Redirect":"https://pass.neu.edu.cn/tpass/login"}',
+      '重新进行统一身份认证',
+    ),
+  ]) {
+    test('reports rejected SSO redemption $response', () async {
+      final client = SrunPortalClient(readResponse: (_) async => response);
+      addTearDown(client.close);
+      await expectLater(
+        client.loginWithTicket(ticket),
+        throwsA(
+          isA<SrunRejected>().having(
+            (error) => error.message,
+            'message',
+            contains(failure),
+          ),
         ),
       );
-    final client = SrunPortalClient(dio: dio);
-    addTearDown(client.close);
-    await expectLater(
-      client.login(username: user, password: password),
-      throwsA(
-        isA<SrunRejected>().having((error) => error.message, 'message', '密码错误'),
-      ),
+    });
+  }
+
+  test('signs out the observed session with the campus logout endpoint', () async {
+    final requests = <Uri>[];
+    final client = SrunPortalClient(
+      readResponse: (uri) async {
+        requests.add(uri);
+        return '{"error":"ok"}';
+      },
     );
-    expect(requests.map((url) => url.scheme), ['https', 'https']);
-    expect(requests.map((url) => url.host), [
-      'ipgw.neu.edu.cn',
-      'ipgw.neu.edu.cn',
-    ]);
-    expect(requests.map((url) => url.path), [
-      '/cgi-bin/get_challenge',
-      '/cgi-bin/srun_portal',
-    ]);
-    expect(requests.first.queryParameters['username'], user);
-    expect(requests.last.queryParameters['ip'], ip);
-    expect(requests.last.queryParameters['password'], startsWith('{MD5}'));
-    expect(requests.last.toString(), isNot(contains(password)));
+    addTearDown(client.close);
+    final status = SrunPortalClient.parseStatus(
+      '{"error":"ok","online_ip":"$ip","user_name":"20260001","domain":"neu"}',
+    );
+    await client.logout(status);
+    final url = requests.single;
+    expect(url.path, '/cgi-bin/srun_portal');
+    expect(url.queryParameters, containsPair('action', 'logout'));
+    expect(url.queryParameters, containsPair('username', user));
+    expect(url.queryParameters, containsPair('ip', ip));
+    expect(url.queryParameters, containsPair('ac_id', '1'));
+    expect(url.queryParameters, isNot(contains('password')));
   });
 }

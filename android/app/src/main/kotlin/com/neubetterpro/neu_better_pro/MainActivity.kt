@@ -412,11 +412,6 @@ class MainActivity : FlutterActivity() {
         campusWifi?.onPermissionResult(requestCode)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        campusWifi?.onActivityResult(requestCode, resultCode, data)
-    }
-
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         campusWifi?.close()
         campusWifi = null
