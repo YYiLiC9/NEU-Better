@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/core/plugins/plugin_models.dart';
+import 'package:neu_better_pro/core/plugins/plugin_placement_store.dart';
 import 'package:neu_better_pro/features/home/home_card_catalog.dart';
 import 'package:neu_better_pro/features/home/home_card_layout.dart';
 import 'package:neu_better_pro/features/home/home_page.dart' show HomeCardGallery;
@@ -112,5 +113,45 @@ void main() {
     await tester.pumpAndSettle();
     // 常驻内置插件删除按钮置灰，不弹确认框。
     expect(find.text('从首页移除'), findsNothing);
+  });
+
+  testWidgets('placement options replace add buttons when enabled', (
+    tester,
+  ) async {
+    final plugins = <PluginManifest>[_manifest('remote', '1.0.0')];
+    var appearances = <String, PluginAppearance>{};
+    await tester.pumpWidget(
+      _wrap(
+        StatefulBuilder(
+          builder: (context, setState) => HomeCardGallery(
+            cards: const <HomeCardLayout>[],
+            builtins: <HomeCardInfo>[homeCardInfo('dorm')!],
+            plugins: plugins,
+            installedVersions: const <String, String>{'remote': '1.0.0'},
+            appearances: appearances,
+            allowPlacementOptions: true,
+            onBack: () {},
+            onAdd: (_) {},
+            onDeletePlugin: (_) {},
+            onSetAppearance: (id, appearance) {
+              setState(() => appearances = {...appearances, id: appearance});
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 内置与远程已下载都展示三选项，旧的「添加/已添加」不再出现。
+    expect(find.text('添加'), findsNothing);
+    expect(find.text('已添加'), findsNothing);
+    expect(find.text('不添加'), findsNWidgets(2));
+    expect(find.text('添加到首页'), findsNWidgets(2));
+    expect(find.text('添加到侧栏'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('appearance-sidebar-remote')));
+    await tester.pumpAndSettle();
+    expect(appearances['remote']?.sidebar, isTrue);
+    expect(appearances['remote']?.home, isFalse);
   });
 }

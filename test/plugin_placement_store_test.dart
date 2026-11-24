@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/core/plugins/plugin_models.dart';
 import 'package:neu_better_pro/core/plugins/plugin_placement_store.dart';
+import 'package:neu_better_pro/features/home/home_card_catalog.dart';
 import 'package:neu_better_pro/features/home/home_page.dart' show HomeCardGallery;
 
 PluginManifest _manifest(String id) => PluginManifest(
@@ -27,60 +28,111 @@ void main() {
       candidates: <File>[File('${dir.path}/plugin_placements.json')],
     );
     await store.load();
-    expect(store.placementOf('demo'), PluginPlacement.none);
+    expect(store.appearanceOf('demo'), const PluginAppearance());
     expect(store.sidebarIds, isEmpty);
-    expect(store.placements, isEmpty);
+    expect(store.appearances, isEmpty);
   });
 
-  test('set and reload round-trips placements and sidebar order', () async {
+  test('builtin ids default to home, remote ids default to none', () {
+    expect(defaultPluginAppearance('dorm').home, isTrue);
+    expect(defaultPluginAppearance('notify').home, isTrue);
+    expect(defaultPluginAppearance('mail').home, isTrue);
+    expect(defaultPluginAppearance('demo').none, isTrue);
+  });
+
+  test('setAppearance round-trips both flags and sidebar order', () async {
     final dir = await Directory.systemTemp.createTemp('placement_round_');
     final file = File('${dir.path}/plugin_placements.json');
     final store = PluginPlacementStore(candidates: <File>[file]);
     await store.load();
 
-    await store.setPlacement('a', PluginPlacement.home);
-    await store.setPlacement('b', PluginPlacement.sidebar);
-    await store.setPlacement('c', PluginPlacement.sidebar);
-    expect(store.sidebarIds, <String>['b', 'c']);
+    await store.setAppearance('a', const PluginAppearance(home: true));
+    await store.setAppearance('b', const PluginAppearance(sidebar: true));
+    await store.setAppearance('c', const PluginAppearance(sidebar: true));
+    await store.setAppearance(
+      'both',
+      const PluginAppearance(home: true, sidebar: true),
+    );
+    expect(store.sidebarIds, <String>['b', 'c', 'both']);
 
     final reloaded = PluginPlacementStore(candidates: <File>[file]);
     await reloaded.load();
-    expect(reloaded.placementOf('a'), PluginPlacement.home);
-    expect(reloaded.placementOf('b'), PluginPlacement.sidebar);
-    expect(reloaded.placementOf('c'), PluginPlacement.sidebar);
-    expect(reloaded.sidebarIds, <String>['b', 'c']);
-    expect(reloaded.placements['a'], PluginPlacement.home);
+    expect(reloaded.appearanceOf('a').home, isTrue);
+    expect(reloaded.appearanceOf('a').sidebar, isFalse);
+    expect(reloaded.appearanceOf('b').sidebar, isTrue);
+    expect(reloaded.appearanceOf('both').home, isTrue);
+    expect(reloaded.appearanceOf('both').sidebar, isTrue);
+    expect(reloaded.sidebarIds, <String>['b', 'c', 'both']);
   });
 
-  test('none removes placement and sidebar membership', () async {
+  test('clearing both flags removes sidebar membership', () async {
     final dir = await Directory.systemTemp.createTemp('placement_none_');
     final file = File('${dir.path}/plugin_placements.json');
     final store = PluginPlacementStore(candidates: <File>[file]);
     await store.load();
 
-    await store.setPlacement('a', PluginPlacement.sidebar);
+    await store.setAppearance('a', const PluginAppearance(sidebar: true));
     expect(store.sidebarIds, <String>['a']);
-    await store.setPlacement('a', PluginPlacement.none);
-    expect(store.placementOf('a'), PluginPlacement.none);
+    await store.setAppearance('a', const PluginAppearance());
+    expect(store.appearanceOf('a').none, isTrue);
     expect(store.sidebarIds, isEmpty);
 
-    await store.setPlacement('b', PluginPlacement.sidebar);
+    await store.setAppearance('b', const PluginAppearance(sidebar: true));
     await store.remove('b');
-    expect(store.placementOf('b'), PluginPlacement.none);
+    expect(store.appearanceOf('b').none, isTrue);
     expect(store.sidebarIds, isEmpty);
   });
 
-  test('home placement drops the plugin out of sidebar order', () async {
-    final dir = await Directory.systemTemp.createTemp('placement_home_');
+  test('removing sidebar keeps home flag and drops sidebar order', () async {
+    final dir = await Directory.systemTemp.createTemp('placement_toggle_');
     final file = File('${dir.path}/plugin_placements.json');
     final store = PluginPlacementStore(candidates: <File>[file]);
     await store.load();
 
-    await store.setPlacement('a', PluginPlacement.sidebar);
+    await store.setAppearance(
+      'a',
+      const PluginAppearance(home: true, sidebar: true),
+    );
     expect(store.sidebarIds, <String>['a']);
-    await store.setPlacement('a', PluginPlacement.home);
-    expect(store.placementOf('a'), PluginPlacement.home);
+    await store.setAppearance('a', const PluginAppearance(home: true));
+    expect(store.appearanceOf('a').home, isTrue);
+    expect(store.appearanceOf('a').sidebar, isFalse);
     expect(store.sidebarIds, isEmpty);
+  });
+
+  test('legacy string placements migrate to PluginAppearance', () async {
+    final dir = await Directory.systemTemp.createTemp('placement_legacy_');
+    final file = File('${dir.path}/plugin_placements.json');
+    await file.writeAsString(
+      '{"placements":{"a":"home","b":"sidebar","c":"none"},'
+      '"sidebarOrder":["b"]}',
+    );
+    final store = PluginPlacementStore(candidates: <File>[file]);
+    await store.load();
+    expect(store.appearanceOf('a').home, isTrue);
+    expect(store.appearanceOf('a').sidebar, isFalse);
+    expect(store.appearanceOf('b').sidebar, isTrue);
+    expect(store.appearanceOf('c').none, isTrue);
+    expect(store.sidebarIds, <String>['b']);
+  });
+
+  test('reorderSidebar persists a custom order', () async {
+    final dir = await Directory.systemTemp.createTemp('placement_order_');
+    final file = File('${dir.path}/plugin_placements.json');
+    final store = PluginPlacementStore(candidates: <File>[file]);
+    await store.load();
+
+    await store.setAppearance('b', const PluginAppearance(sidebar: true));
+    await store.setAppearance('c', const PluginAppearance(sidebar: true));
+    expect(store.sidebarCustomOrder, isFalse);
+    await store.reorderSidebar(<String>['c', 'b']);
+    expect(store.sidebarCustomOrder, isTrue);
+    expect(store.sidebarIds, <String>['c', 'b']);
+
+    final reloaded = PluginPlacementStore(candidates: <File>[file]);
+    await reloaded.load();
+    expect(reloaded.sidebarCustomOrder, isTrue);
+    expect(reloaded.sidebarIds, <String>['c', 'b']);
   });
 
   test('corrupt file falls back to empty without throwing', () async {
@@ -89,33 +141,33 @@ void main() {
     await file.writeAsString('{not valid json');
     final store = PluginPlacementStore(candidates: <File>[file]);
     await store.load();
-    expect(store.placementOf('demo'), PluginPlacement.none);
+    expect(store.appearanceOf('demo').none, isTrue);
     expect(store.sidebarIds, isEmpty);
   });
 
-  testWidgets('downloaded plugin offers an inline placement selector', (
+  testWidgets('gallery shows home/sidebar chips and toggles independently', (
     tester,
   ) async {
-    PluginPlacement? chosen;
-    String? chosenId;
-    final placements = <String, PluginPlacement>{};
+    var appearances = <String, PluginAppearance>{};
+    String? lastId;
+    PluginAppearance? lastAppearance;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: StatefulBuilder(
             builder: (context, setState) => HomeCardGallery(
               cards: const [],
-              builtins: const [],
+              builtins: <HomeCardInfo>[homeCardInfo('dorm')!],
               plugins: <PluginManifest>[_manifest('demo')],
               installedVersions: const <String, String>{'demo': '1.0.0'},
-              placements: Map<String, PluginPlacement>.from(placements),
-              allowSidebar: true,
+              appearances: appearances,
+              allowPlacementOptions: true,
               onBack: () {},
               onAdd: (_) {},
-              onSetPlacement: (id, placement) {
-                chosenId = id;
-                chosen = placement;
-                setState(() => placements[id] = placement);
+              onSetAppearance: (id, appearance) {
+                lastId = id;
+                lastAppearance = appearance;
+                setState(() => appearances = {...appearances, id: appearance});
               },
             ),
           ),
@@ -123,20 +175,27 @@ void main() {
       ),
     );
 
-    expect(find.text('演示插件'), findsOneWidget);
-    expect(find.text('未添加'), findsOneWidget);
-    expect(find.text('添加到侧栏'), findsNothing);
+    // 内置与远程已下载都展示三选项。
+    expect(find.text('添加到首页'), findsNWidgets(2));
+    expect(find.text('添加到侧栏'), findsNWidgets(2));
+    expect(find.text('不添加'), findsNWidgets(2));
+    // 远程默认未添加，内置默认首页。
+    expect(find.byKey(const ValueKey('appearance-home-dorm')), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('placement-demo')));
+    await tester.tap(find.byKey(const ValueKey('appearance-home-demo')));
     await tester.pumpAndSettle();
-    expect(find.text('添加到首页'), findsOneWidget);
-    expect(find.text('添加到侧栏'), findsOneWidget);
+    expect(lastId, 'demo');
+    expect(lastAppearance!.home, isTrue);
+    expect(lastAppearance!.sidebar, isFalse);
 
-    await tester.tap(find.text('添加到侧栏'));
+    // 再次点击取消首页。
+    await tester.tap(find.byKey(const ValueKey('appearance-home-demo')));
     await tester.pumpAndSettle();
-    expect(chosenId, 'demo');
-    expect(chosen, PluginPlacement.sidebar);
-    expect(find.text('添加到侧栏'), findsNothing);
-    expect(find.text('侧栏'), findsOneWidget);
+    expect(lastAppearance!.home, isFalse);
+
+    // 添加到侧栏。
+    await tester.tap(find.byKey(const ValueKey('appearance-sidebar-demo')));
+    await tester.pumpAndSettle();
+    expect(lastAppearance!.sidebar, isTrue);
   });
 }

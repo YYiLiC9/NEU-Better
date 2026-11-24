@@ -115,9 +115,10 @@ class _HomePageState extends ConsumerState<HomePage>
   List<HomeCardLayout> _homeCards = defaultHomeCards();
   bool _layoutLoaded = false;
 
-  /// 插件摆放位置（home/sidebar）与侧栏顺序，按账号持久化。
+  /// 插件外观（首页 / 侧栏，可同时）与侧栏顺序，按账号持久化。
   final _placementStore = PluginPlacementStore();
-  Map<String, PluginPlacement> _placements = const <String, PluginPlacement>{};
+  Map<String, PluginAppearance> _appearances =
+      const <String, PluginAppearance>{};
   List<String> _sidebarPluginIds = const <String>[];
 
   /// 侧栏当前打开的插件内容（null = 显示一级 IndexedStack）。
@@ -265,46 +266,66 @@ class _HomePageState extends ConsumerState<HomePage>
     await _fetchCatalog();
   }
 
-  /// 读取插件摆放位置，并做一次性迁移 / 与首页布局对齐：
-  /// - 已装插件尚无记录：首页布局里有该 id → home，否则 none；
-  /// - home / sidebar 的插件都要保证首页有一张兜底卡（卸载清理时相反）。
+  /// 读取插件外观，并与首页布局对齐：
+  /// - 内置三项默认 home，远程已装默认 none（由 store 默认值给出）；
+  /// - `home || sidebar` 保证首页有一张兜底卡；none 则移除卡片；
+  /// - 侧栏成员 = sidebar==true 的插件，默认顺序为内置在前、远程按安装顺序。
   Future<void> _loadPlacements() async {
     await _placementStore.load();
-    for (final plugin in _installedPlugins) {
-      if (_placementStore.placementOf(plugin.id) != PluginPlacement.none) {
-        continue;
-      }
-      final inHome = _homeCards.any((card) => card.id == plugin.id);
-      if (inHome) {
-        await _placementStore.setPlacement(plugin.id, PluginPlacement.home);
-      }
-    }
     final allowed = _allowedCardIds;
     final nextCards = <HomeCardLayout>[..._homeCards];
     var layoutChanged = false;
-    for (final entry in _placementStore.placements.entries) {
-      if (entry.value == PluginPlacement.none) continue;
-      if (!allowed.contains(entry.key)) continue;
-      if (!nextCards.any((card) => card.id == entry.key)) {
+    for (final id in <String>{...homeCardCatalog.map((e) => e.id), ..._installedPlugins.map((e) => e.id)}) {
+      if (!allowed.contains(id)) continue;
+      final appearance = _placementStore.appearanceOf(id);
+      final hasCard = nextCards.any((card) => card.id == id);
+      if (appearance.none && hasCard) {
+        nextCards.removeWhere((card) => card.id == id);
+        layoutChanged = true;
+      } else if (!appearance.none && !hasCard) {
         nextCards.add(
-          HomeCardLayout(id: entry.key, size: HomeCardSize.s1x1),
+          HomeCardLayout(id: id, size: HomeCardSize.s1x1),
         );
         layoutChanged = true;
       }
     }
-    final sidebar = <String>[
-      for (final id in _placementStore.sidebarIds)
-        if (allowed.contains(id)) id,
-    ];
     if (!mounted) return;
     setState(() {
       _homeCards = nextCards;
-      _placements = Map<String, PluginPlacement>.from(
-        _placementStore.placements,
+      _appearances = Map<String, PluginAppearance>.from(
+        _placementStore.appearances,
       );
-      _sidebarPluginIds = sidebar;
+      _sidebarPluginIds = _computeSidebarIds();
     });
     if (layoutChanged) await _saveHomeLayout();
+  }
+
+  /// 有效外观：优先本次会话缓存，缺省回落到 store 默认。
+  PluginAppearance _appearanceOf(String id) =>
+      _appearances[id] ?? _placementStore.appearanceOf(id);
+
+  /// 计算侧栏插件顺序。
+  /// 默认：内置固定 [dorm, notify, mail]，再远程按安装顺序；
+  /// 用户拖动过后使用持久化的自定义顺序，新增项追加末尾。
+  List<String> _computeSidebarIds() {
+    final allowed = _allowedCardIds;
+    final candidates = <String>[
+      for (final id in <String>[...kDefaultHomePluginIds, ..._installedPlugins.map((e) => e.id)])
+        if (allowed.contains(id) && _appearanceOf(id).sidebar) id,
+    ];
+    final unique = <String>[];
+    for (final id in candidates) {
+      if (!unique.contains(id)) unique.add(id);
+    }
+    if (!_placementStore.sidebarCustomOrder) return unique;
+    final custom = <String>[
+      for (final id in _placementStore.sidebarIds)
+        if (unique.contains(id)) id,
+    ];
+    for (final id in unique) {
+      if (!custom.contains(id)) custom.add(id);
+    }
+    return custom;
   }
 
   /// 让「设置 → 通知」里为每个已安装插件出现一个通知开关（默认关）。
@@ -360,6 +381,19 @@ class _HomePageState extends ConsumerState<HomePage>
       ref
           .read(appSettingsProvider.notifier)
           .ensureNotifySource('plugin:${manifest.id}');
+      // Windows：下载完成默认「不添加」，由用户在插件库显式选择首页/侧栏。
+      if (_allowSidebar) {
+        await _placementStore.setAppearance(
+          manifest.id,
+          const PluginAppearance(),
+        );
+        if (!mounted) return;
+        setState(() {
+          _appearances = Map<String, PluginAppearance>.from(
+            _placementStore.appearances,
+          );
+        });
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -388,8 +422,8 @@ class _HomePageState extends ConsumerState<HomePage>
           for (final card in _homeCards)
             if (card.id != id) card,
         ];
-        _placements = <String, PluginPlacement>{
-          for (final entry in _placements.entries)
+        _appearances = <String, PluginAppearance>{
+          for (final entry in _appearances.entries)
             if (entry.key != id) entry.key: entry.value,
         };
         _sidebarPluginIds = <String>[
@@ -493,13 +527,22 @@ class _HomePageState extends ConsumerState<HomePage>
     );
   }
 
-  /// 侧栏内容区渲染。
+  /// 侧栏内容区渲染：内置（余额/通知/邮件）与远程插件各自打开内嵌页。
   Widget _buildPluginContent(String id) {
-    if (id == campusNetworkPluginId) {
-      return const CampusNetworkPage(onBack: null, visible: true);
-    }
-    if (id == 'news') {
-      return const NewsPage(onBack: null);
+    switch (id) {
+      case 'dorm':
+        return _HomeDormDetail(onBack: _returnHome);
+      case 'notify':
+        return NotificationPage(
+          session: widget.session,
+          onBack: _returnHome,
+        );
+      case 'mail':
+        return MailPage(session: widget.session, onBack: _returnHome);
+      case campusNetworkPluginId:
+        return const CampusNetworkPage(onBack: null, visible: true);
+      case 'news':
+        return const NewsPage(onBack: null);
     }
     for (final plugin in _installedPlugins) {
       if (plugin.id == id) {
@@ -513,17 +556,24 @@ class _HomePageState extends ConsumerState<HomePage>
     return const SizedBox.shrink();
   }
 
-  bool _isSidebarPlaced(String id) =>
-      _placements[id] == PluginPlacement.sidebar;
-
-  /// 设置插件摆放位置，并同步首页布局 / 侧栏 / 持久化。
-  Future<void> _setPluginPlacement(
+  /// 侧栏拖动排序：移动 id 后写入自定义顺序并持久化。
+  /// 使用 [onReorderItem]（newIndex 已按移除后的列表调整）。
+  void _reorderSidebarItems(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _sidebarPluginIds.length) return;
+    final next = <String>[..._sidebarPluginIds];
+    final moved = next.removeAt(oldIndex);
+    next.insert(newIndex.clamp(0, next.length), moved);
+    setState(() => _sidebarPluginIds = next);
+    unawaited(_placementStore.reorderSidebar(next));
+  }
+  /// 设置插件外观，并同步首页布局 / 侧栏 / 持久化。
+  Future<void> _setPluginAppearance(
     String id,
-    PluginPlacement placement,
+    PluginAppearance appearance,
   ) async {
-    await _placementStore.setPlacement(id, placement);
+    await _placementStore.setAppearance(id, appearance);
     var cards = <HomeCardLayout>[..._homeCards];
-    if (placement == PluginPlacement.none) {
+    if (appearance.none) {
       cards = <HomeCardLayout>[
         for (final card in cards)
           if (card.id != id) card,
@@ -531,19 +581,14 @@ class _HomePageState extends ConsumerState<HomePage>
     } else if (!cards.any((card) => card.id == id)) {
       cards.add(HomeCardLayout(id: id, size: HomeCardSize.s1x1));
     }
-    final sidebar = <String>[
-      for (final existing in _sidebarPluginIds)
-        if (existing != id) existing,
-    ];
-    if (placement == PluginPlacement.sidebar) sidebar.add(id);
     if (!mounted) return;
     setState(() {
       _homeCards = cards;
-      _placements = Map<String, PluginPlacement>.from(
-        _placementStore.placements,
+      _appearances = Map<String, PluginAppearance>.from(
+        _placementStore.appearances,
       );
-      _sidebarPluginIds = sidebar;
-      if (placement == PluginPlacement.none && _displayedPluginId == id) {
+      _sidebarPluginIds = _computeSidebarIds();
+      if (appearance.none && _displayedPluginId == id) {
         _displayedPluginId = null;
       }
     });
@@ -644,13 +689,13 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// 打开「首页 · 余额中心」二级页。
   void _openDormDetail() {
-    ref.read(homeTabProvider.notifier).state = 0;
+    _goToTab(0, keepHomeSection: true);
     _showHomeSection(_HomeSection.dorm);
   }
 
-  /// 一级标签切换，并实现「首页」标签的返回语义：
-  /// 从别的标签点「首页」→ 回到上次的二级页；已在首页二级再点「首页」→ 回根。
-  void _selectTab(int value) {
+  /// 一级标签切换的唯一入口：同步 homeTabProvider 与 _displayedTab，并清理
+  /// 当前侧栏插件内容，避免「点首页却仍显示课表 / 插件」的不一致。
+  void _goToTab(int target, {bool keepHomeSection = false}) {
     if (_displayedPluginId != null) {
       setState(() => _displayedPluginId = null);
       _tabFade.value = 0.0;
@@ -662,18 +707,26 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
       );
     }
+    ref.read(homeTabProvider.notifier).state = target;
+    unawaited(_animateToTab(target));
+    if (target == 0 && !keepHomeSection) {
+      _returnHome();
+    }
+  }
+
+  /// 一级标签切换，并实现「首页」标签的返回语义：
+  /// 从别的标签点「首页」→ 回到上次的二级页；已在首页根再点「首页」→ 回根。
+  void _selectTab(int value) {
     if (value == 0) {
-      if (_tab != 0) {
-        ref.read(homeTabProvider.notifier).state = 0; // 保留 section（回上次二级）
-      } else {
-        _returnHome();
-      }
+      final onHomeRoot =
+          _tab == 0 && _displayedTab == 0 && _displayedPluginId == null;
+      _goToTab(0, keepHomeSection: !onHomeRoot);
       return;
     }
     if (value == 2 && !_ecodeVisited) {
       setState(() => _ecodeVisited = true);
     }
-    ref.read(homeTabProvider.notifier).state = value;
+    _goToTab(value);
   }
 
   /// 系统返回（侧滑/返回键）在二级界面时先回一级根，而不是退出应用。
@@ -792,6 +845,7 @@ class _HomePageState extends ConsumerState<HomePage>
   Widget _buildMobile(BuildContext context) {
     return _wrapTabFade(
       IndexedStack(
+        key: const ValueKey('home-tab-stack-mobile'),
         index: _displayedTab,
         children: [
           _buildHomeTab(),
@@ -902,11 +956,31 @@ class _HomePageState extends ConsumerState<HomePage>
     );
   }
 
+  /// 侧栏项的展示信息：内置来自卡片目录，远程来自插件清单。
+  ({String label, IconData icon, String? badge})? _sidebarMeta(String id) {
+    if (builtinHomeCardIds.contains(id)) {
+      final info = homeCardInfo(id);
+      if (info == null) return null;
+      return (
+        label: info.name,
+        icon: info.icon,
+        badge: id == 'news' ? '闻' : null,
+      );
+    }
+    for (final plugin in _installedPlugins) {
+      if (plugin.id != id) continue;
+      final icon = plugin.icon;
+      return (
+        label: plugin.name,
+        icon: resolvePluginIcon(icon),
+        badge: icon?.type == 'text' ? icon!.value : null,
+      );
+    }
+    return null;
+  }
+
   Widget _buildDesktop(BuildContext context) {
     final showEcode = defaultTargetPlatform == TargetPlatform.android;
-    final pluginsById = <String, PluginManifest>{
-      for (final plugin in _installedPlugins) plugin.id: plugin,
-    };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -935,13 +1009,35 @@ class _HomePageState extends ConsumerState<HomePage>
                 active: _displayedPluginId == null && _tab == 1,
                 onTap: () => _selectTab(1),
               ),
-              for (final id in _sidebarPluginIds)
-                if (pluginsById[id] != null)
-                  _PluginNavItem(
-                    manifest: pluginsById[id]!,
-                    active: _displayedPluginId == id,
-                    onTap: () => _openSidebarPlugin(id),
+              if (_sidebarPluginIds.isNotEmpty)
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: ReorderableListView(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    buildDefaultDragHandles: false,
+                    onReorderItem: _reorderSidebarItems,
+                    children: [
+                      for (var i = 0; i < _sidebarPluginIds.length; i++)
+                        if (_sidebarMeta(_sidebarPluginIds[i])
+                            case final meta?)
+                          ReorderableDelayedDragStartListener(
+                            key: ValueKey('sidebar-${_sidebarPluginIds[i]}'),
+                            index: i,
+                            child: _PluginNavItem(
+                              label: meta.label,
+                              icon: meta.icon,
+                              badge: meta.badge,
+                              active:
+                                  _displayedPluginId == _sidebarPluginIds[i],
+                              showDragHandle: true,
+                              onTap: () =>
+                                  _openSidebarPlugin(_sidebarPluginIds[i]),
+                            ),
+                          ),
+                    ],
                   ),
+                ),
               if (showEcode)
                 _NavItem(
                   icon: Icons.qr_code_2_outlined,
@@ -966,6 +1062,7 @@ class _HomePageState extends ConsumerState<HomePage>
             _displayedPluginId != null
                 ? _buildPluginContent(_displayedPluginId!)
                 : IndexedStack(
+                    key: const ValueKey('home-tab-stack'),
                     index: !showEcode && _displayedTab > 1 ? 0 : _displayedTab,
                     children: [
                       _buildHomeTab(),
@@ -1003,10 +1100,10 @@ class _HomePageState extends ConsumerState<HomePage>
         failed: _downloadFailed,
         catalogLoading: _catalogLoading,
         catalogError: _catalogError,
-        placements: _placements,
-        onSetPlacement: (id, placement) =>
-            unawaited(_setPluginPlacement(id, placement)),
-        allowSidebar: _allowSidebar,
+        appearances: _appearances,
+        onSetAppearance: (id, appearance) =>
+            unawaited(_setPluginAppearance(id, appearance)),
+        allowPlacementOptions: _allowSidebar,
         onBack: _returnHome,
         onAdd: _addCard,
         onDeleteBuiltin: _deleteCard,
@@ -1051,11 +1148,14 @@ class _HomePageState extends ConsumerState<HomePage>
         week = null;
       }
     }
-    // 侧栏插件的卡片只在「有侧栏的桌面布局」里隐藏；安卓/窄窗仍显示全部。
+    // 侧栏专属插件（sidebar 且未同时放首页）的卡片只在「有侧栏的桌面布局」里隐藏；
+    // 同时放首页+侧栏、安卓或窄窗仍显示卡片。
     final cards = (isWide && _allowSidebar)
         ? <HomeCardLayout>[
             for (final card in _homeCards)
-              if (!_isSidebarPlaced(card.id)) card,
+              if (!(_appearanceOf(card.id).sidebar &&
+                  !_appearanceOf(card.id).home))
+                card,
           ]
         : _homeCards;
     return SingleChildScrollView(

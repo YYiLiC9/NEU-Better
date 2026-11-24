@@ -98,18 +98,23 @@ class _NavItem extends StatelessWidget {
 
 class _PluginNavItem extends StatelessWidget {
   const _PluginNavItem({
-    required this.manifest,
+    required this.label,
+    required this.icon,
+    this.badge,
     this.active = false,
+    this.showDragHandle = false,
     this.onTap,
   });
 
-  final PluginManifest manifest;
+  final String label;
+  final IconData icon;
+  final String? badge;
   final bool active;
+  final bool showDragHandle;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final badge = manifest.icon?.type == 'text' ? manifest.icon!.value : null;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -127,7 +132,7 @@ class _PluginNavItem extends StatelessWidget {
               child: badge != null
                   ? Center(
                       child: Text(
-                        badge,
+                        badge!,
                         style: TextStyle(
                           fontSize: 15,
                           height: 1,
@@ -137,7 +142,7 @@ class _PluginNavItem extends StatelessWidget {
                       ),
                     )
                   : Icon(
-                      resolvePluginIcon(manifest.icon),
+                      icon,
                       size: 19,
                       color: active ? Colors.white : AppColors.muted,
                     ),
@@ -145,7 +150,7 @@ class _PluginNavItem extends StatelessWidget {
             const SizedBox(width: 11),
             Expanded(
               child: Text(
-                manifest.name,
+                label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -155,6 +160,14 @@ class _PluginNavItem extends StatelessWidget {
                 ),
               ),
             ),
+            if (showDragHandle) ...[
+              const SizedBox(width: 4),
+              Icon(
+                Icons.drag_indicator,
+                size: 16,
+                color: active ? Colors.white70 : AppColors.faint,
+              ),
+            ],
           ],
         ),
       ),
