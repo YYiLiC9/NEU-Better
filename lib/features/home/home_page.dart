@@ -36,6 +36,7 @@ import '../mail/mail_page.dart';
 import '../mail/mail_poll_state.dart';
 import '../mail/mail_poller.dart';
 import '../plugins/campus_network_page.dart';
+import '../notifications/notification_cache.dart';
 import '../notifications/notification_models.dart';
 import '../notifications/notification_dispatch.dart';
 import '../notifications/notification_page.dart';
@@ -200,6 +201,8 @@ class _HomePageState extends ConsumerState<HomePage>
     unawaited(NotificationRouter.consumePending());
     _loadStatus();
     dormPrefsChanged.addListener(_loadStatus);
+    // 预热通知缓存：进入通知页时可同步命中内存缓存，冷启动也尽量首帧直出。
+    unawaited(NotificationCache.instance.loadFor(widget.session.studentId));
     final settings = ref.read(appSettingsProvider);
     unawaited(
       WindowsWindow.setCloseBehavior(
@@ -1453,6 +1456,15 @@ class _HomePageState extends ConsumerState<HomePage>
         _notifyRecent = items.take(2).toList(growable: false);
         _notifyUnread = counts.noRead;
       });
+      // 顺带把第一页写入本地缓存，供通知页秒开。
+      unawaited(
+        NotificationCache.instance.save(
+          widget.session.studentId,
+          items,
+          counts.total,
+          counts.noRead,
+        ),
+      );
     } catch (_) {
       // 静默失败：通知卡显示「点开查看通知」，不影响其它功能。
     }
@@ -1596,11 +1608,12 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   Future<void> _logout() async {
-    // 退出登录：停止邮件轮询并清空本地邮件缓存。
+    // 退出登录：停止邮件轮询并清空本地缓存。
     _mailPoller?.stop();
     _mailPoller = null;
-    // 清空本地邮件缓存（无需阻塞退出导航）。
+    // 清空本地邮件/通知缓存（无需阻塞退出导航）。
     unawaited(MailCache.instance.clear());
+    unawaited(NotificationCache.instance.clear());
     await ref.read(authControllerProvider.notifier).logout();
   }
 }

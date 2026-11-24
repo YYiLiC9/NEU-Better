@@ -7,8 +7,10 @@ import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/network/notification_client.dart';
+import 'notification_cache.dart';
 import 'notification_detail_page.dart';
 import 'notification_models.dart';
+import 'notification_store.dart';
 
 /// 通知列表页（校园消息中心，只读）。
 class NotificationPage extends ConsumerStatefulWidget {
@@ -42,12 +44,44 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   int _total = 0;
   int _noRead = 0;
   AppNotification? _detail;
+  NotificationStore? _localStore;
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
-    _load(refresh: true);
+    unawaited(_initCached());
+  }
+
+  /// 先用本地缓存秒开列表，再静默后台刷新。
+  Future<void> _initCached() async {
+    // 本地兜底已读（服务端标记失败时仍能展示已读），只加载一次。
+    final store = NotificationStore();
+    try {
+      await store.load();
+    } catch (error) {
+      debugPrint('[notify] local read state load failed: $error');
+    }
+    if (!mounted) return;
+    _localStore = store;
+
+    var cached = NotificationCache.instance.dataFor(widget.session.studentId);
+    if (cached == null || cached.items.isEmpty) {
+      cached = await NotificationCache.instance.loadFor(widget.session.studentId);
+      if (!mounted) return;
+    }
+    final data = cached;
+    if (data != null && data.items.isNotEmpty) {
+      setState(() {
+        _items
+          ..clear()
+          ..addAll(data.items);
+        _total = data.total;
+        _noRead = data.noRead;
+        _loading = false;
+      });
+    }
+    await _load(refresh: true, silent: true);
   }
 
   @override
@@ -64,10 +98,11 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
     }
   }
 
-  Future<void> _load({bool refresh = false}) async {
+  Future<void> _load({bool refresh = false, bool silent = false}) async {
     if (refresh) {
       setState(() {
-        _loading = true;
+        // 有缓存时秒开：刷新不清空列表，也不无条件盖全屏 loading。
+        if (!silent && _items.isEmpty) _loading = true;
         _error = null;
         _page = 1;
       });
@@ -90,6 +125,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
         _loading = false;
         _error = null;
       });
+      unawaited(_persistCache());
       // 进入列表时尽力把当前页未读标记为已读（失败不阻塞）。
       final unreadIds = [
         for (final item in items)
@@ -99,15 +135,44 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
         final ok = await _client.markRead(unreadIds);
         if (ok && mounted) {
           setState(() => _noRead = 0);
+          unawaited(_persistCache());
         }
       }
     } catch (error) {
       if (!mounted) return;
+      final hasCache = _items.isNotEmpty;
       setState(() {
         _loading = false;
-        _error = error is NotificationQueryException ? error.message : '$error';
+        // 有缓存时保留旧列表，不显示全屏错误。
+        if (!hasCache) {
+          _error = error is NotificationQueryException ? error.message : '$error';
+        }
       });
+      if (!silent && hasCache) _showRefreshFailure();
     }
+  }
+
+  /// 把当前列表写回本地缓存（供下次秒开）。
+  Future<void> _persistCache() {
+    return NotificationCache.instance.save(
+      widget.session.studentId,
+      _items,
+      _total,
+      _noRead,
+    );
+  }
+
+  void _showRefreshFailure() {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('刷新失败，已显示缓存内容')),
+    );
+  }
+
+  /// 展示层叠加本地已读：服务端标记失败但本地已读过的条目仍显示为已读。
+  bool _isRead(AppNotification item) {
+    return item.read ||
+        (_localStore?.localReadIds.contains(item.logId) ?? false);
   }
 
   Future<void> _loadMore() async {
@@ -127,6 +192,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
         }
         _loadingMore = false;
       });
+      if (items.isNotEmpty) unawaited(_persistCache());
     } catch (_) {
       if (mounted) setState(() => _loadingMore = false);
     }
@@ -149,6 +215,10 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
         if (_noRead > 0) _noRead--;
       });
       unawaited(_client.markRead([item.logId]));
+      // 本地兜底已读 + 把已读状态写回缓存，避免重进被旧缓存覆盖。
+      final store = _localStore;
+      if (store != null) unawaited(store.markLocalRead(item.logId));
+      unawaited(_persistCache());
     }
     if (widget.onBack != null) {
       setState(() => _detail = item);
@@ -318,16 +388,25 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
             ),
           );
         }
-        return _NotificationTile(item: _items[index], onTap: () => _open(_items[index]));
+        return _NotificationTile(
+          item: _items[index],
+          read: _isRead(_items[index]),
+          onTap: () => _open(_items[index]),
+        );
       },
     );
   }
 }
 
 class _NotificationTile extends StatelessWidget {
-  const _NotificationTile({required this.item, required this.onTap});
+  const _NotificationTile({
+    required this.item,
+    required this.read,
+    required this.onTap,
+  });
 
   final AppNotification item;
+  final bool read;
   final VoidCallback onTap;
 
   @override
@@ -354,7 +433,7 @@ class _NotificationTile extends StatelessWidget {
                   height: 7,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: item.read ? Colors.transparent : AppColors.nowRed,
+                    color: read ? Colors.transparent : AppColors.nowRed,
                   ),
                 ),
               ),
@@ -369,7 +448,7 @@ class _NotificationTile extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13.5,
                         height: 1.35,
-                        fontWeight: item.read ? FontWeight.w500 : FontWeight.w700,
+                        fontWeight: read ? FontWeight.w500 : FontWeight.w700,
                         color: AppColors.ink,
                       ),
                     ),
