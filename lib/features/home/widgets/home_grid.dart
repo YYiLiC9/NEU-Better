@@ -891,7 +891,7 @@ class _MailCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         header,
-        SizedBox(height: wide ? 12 : 10),
+        const Spacer(),
         for (var i = 0; i < mails.length; i++) ...[
           if (i > 0) SizedBox(height: wide ? 10 : 8),
           _mailBlock(mails[i], wide: wide),
@@ -1080,7 +1080,7 @@ class _NotifyCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         header,
-        SizedBox(height: wide ? 12 : 10),
+        const Spacer(),
         for (var i = 0; i < notes.length; i++) ...[
           if (i > 0) SizedBox(height: wide ? 10 : 8),
           _noteBlock(notes[i], wide: wide),
