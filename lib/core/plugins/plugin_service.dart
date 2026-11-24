@@ -15,8 +15,8 @@ import 'plugin_registry.dart';
 
 /// 插件目录 / 安装包读写的业务层。
 ///
-/// - 目录：远程 `plugins/index.json`（dev 分支 raw，失败走镜像），成功缓存
-///   `plugins_catalog.json`。
+/// - 目录：远程 `plugins/index.json`（固定读取 master 分支，失败走镜像），
+///   成功缓存 `plugins_catalog.json`。
 /// - 安装：写 `plugin_<id>.json` + 登记 `plugins.json`；卸载反之。
 class PluginService {
   PluginService({
@@ -36,11 +36,11 @@ class PluginService {
 
   PluginRegistry get registry => _registry;
 
-  /// 插件目录地址：优先 GitHub raw dev 分支，失败依次尝试镜像。
+  /// 插件目录地址：固定 master 分支，失败依次尝试镜像。
   static const List<String> catalogUrls = <String>[
-    'https://raw.githubusercontent.com/YYiLiC9/NEU-Better/dev/plugins/index.json',
-    'https://ghfast.top/https://raw.githubusercontent.com/YYiLiC9/NEU-Better/dev/plugins/index.json',
-    'https://gh-proxy.com/https://raw.githubusercontent.com/YYiLiC9/NEU-Better/dev/plugins/index.json',
+    'https://raw.githubusercontent.com/YYiLiC9/NEU-Better/master/plugins/index.json',
+    'https://ghfast.top/https://raw.githubusercontent.com/YYiLiC9/NEU-Better/master/plugins/index.json',
+    'https://gh-proxy.com/https://raw.githubusercontent.com/YYiLiC9/NEU-Better/master/plugins/index.json',
   ];
 
   static const int _maxCatalogBytes = 2 * 1024 * 1024;
@@ -54,13 +54,17 @@ class PluginService {
     ),
   );
 
+  /// 目录缓存文件（测试与排查可读）。
+  List<File> get catalogCacheFiles => _catalogCacheFiles;
+
   List<File> get _catalogCacheFiles {
+    const name = 'plugins_catalog.json';
     if (_cacheCandidates != null) return _cacheCandidates;
     if (_candidates != null) {
       final dir = _candidates.first.parent.path;
-      return <File>[File('$dir${Platform.pathSeparator}plugins_catalog.json')];
+      return <File>[File('$dir${Platform.pathSeparator}$name')];
     }
-    return AccountScope.scopedFiles('plugins_catalog.json');
+    return AccountScope.scopedFiles(name);
   }
 
   List<File> _pluginFiles(String id) => _candidates != null

@@ -142,6 +142,11 @@ test/             Dart / Flutter 测试
 .\tools\flutter.cmd build apk --release     # 产物 build\app\outputs\flutter-apk\app-release.apk
 ```
 
+### 插件目录
+
+插件目录固定读取 GitHub 仓库 `YYiLiC9/NEU-Better` 的 **master** 分支 `plugins/index.json`
+（失败走 `ghfast.top` / `gh-proxy.com` 镜像）；功能分支的插件目录改动需合并进 master 后才会生效。
+
 ## 数据存储
 
 所有数据只保存在本机，不上传服务器（学校接口通信除外）。运行时数据写入 exe 同目录 `data\`（找不到时依次回退 `cwd\data`、临时目录、`LOCALAPPDATA`）：

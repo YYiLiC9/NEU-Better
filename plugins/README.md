@@ -1,8 +1,9 @@
 # NEU Better 首页插件目录
 
-本目录存放「首页插件化 V1」的插件目录与说明。App 的卡片库从 dev 分支的
-`plugins/index.json` 拉取目录（失败走 ghfast.top / gh-proxy.com 镜像，并缓存到
-本地 `plugins_catalog.json`）。插件页由 App 用**原生 DSL 渲染，不使用 WebView**。
+本目录存放「首页插件化 V1」的插件目录与说明。App 的卡片库**固定读取 master 分支**的
+`plugins/index.json`（失败走 ghfast.top / gh-proxy.com 镜像，并缓存为本地
+`plugins_catalog.json`）。功能分支的插件目录改动需合并进 master 后才会生效。插件页由
+App 用**原生 DSL 渲染，不使用 WebView**。
 
 ## 目录结构
 
