@@ -160,15 +160,22 @@ class _PluginNavItem extends StatelessWidget {
                 ),
               ),
             ),
-            // 六个点只在拖动该插件项时出现，点击不显示。
-            if (showDragHandle) ...[
-              const SizedBox(width: 4),
-              Icon(
-                Icons.drag_indicator,
-                size: 16,
-                color: active ? Colors.white70 : AppColors.faint,
+            // 六个点始终占位，仅在拖动时通过渐显动画出现，避免布局跳动。
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                opacity: showDragHandle ? 1 : 0,
+                child: Icon(
+                  Icons.drag_indicator,
+                  size: 16,
+                  color: active ? Colors.white70 : AppColors.faint,
+                ),
               ),
-            ],
+            ),
           ],
         ),
       ),

@@ -120,7 +120,8 @@ class _HomePageState extends ConsumerState<HomePage>
   Map<String, PluginAppearance> _appearances =
       const <String, PluginAppearance>{};
   List<String> _sidebarPluginIds = const <String>[];
-  String? _draggingSidebarId;
+  bool _sidebarDragging = false;
+  Timer? _sidebarHintTimer;
 
   List<String> get _visibleSidebarIds => <String>[
     for (final id in _sidebarPluginIds)
@@ -562,6 +563,23 @@ class _HomePageState extends ConsumerState<HomePage>
     return const SizedBox.shrink();
   }
 
+  void _startSidebarHint() {
+    _sidebarHintTimer?.cancel();
+    _sidebarHintTimer = Timer(const Duration(milliseconds: 260), () {
+      if (mounted && !_sidebarDragging) {
+        setState(() => _sidebarDragging = true);
+      }
+    });
+  }
+
+  void _cancelSidebarHint() {
+    _sidebarHintTimer?.cancel();
+    _sidebarHintTimer = null;
+    if (mounted && _sidebarDragging) {
+      setState(() => _sidebarDragging = false);
+    }
+  }
+
   /// 侧栏拖动排序：移动 id 后写入自定义顺序并持久化。
   /// 使用 [onReorderItem]（newIndex 已按移除后的列表调整）。
   void _reorderSidebarItems(int oldIndex, int newIndex) {
@@ -576,7 +594,7 @@ class _HomePageState extends ConsumerState<HomePage>
     final next = <String>[...visible, ...hidden];
     setState(() {
       _sidebarPluginIds = next;
-      _draggingSidebarId = null;
+      _sidebarDragging = false;
     });
     unawaited(_placementStore.reorderSidebar(next));
   }
@@ -641,6 +659,7 @@ class _HomePageState extends ConsumerState<HomePage>
     NotificationRouter.openTabSignal.removeListener(_handleOpenTab);
     dormPrefsChanged.removeListener(_loadStatus);
     _notifyPoller?.stop();
+    _sidebarHintTimer?.cancel();
     _tabFade.dispose();
     super.dispose();
   }
@@ -1024,51 +1043,50 @@ class _HomePageState extends ConsumerState<HomePage>
                 onTap: () => _selectTab(1),
               ),
               if (_visibleSidebarIds.isNotEmpty)
-                SizedBox(
-                  // 固定为条数高度：让下方 Spacer 继续把账号块压到底部，
-                  // 同时 ReorderableListView 不再吞掉剩余空间。
-                  height: _visibleSidebarIds.length * 46.0,
-                  child: ReorderableListView(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    buildDefaultDragHandles: false,
-                    onReorderItem: _reorderSidebarItems,
-                    onReorderStart: (index) {
-                      final visible = _visibleSidebarIds;
-                      if (index >= 0 && index < visible.length) {
-                        setState(() => _draggingSidebarId = visible[index]);
-                      }
-                    },
-                    onReorderEnd: (_) {
-                      if (_draggingSidebarId != null) {
-                        setState(() => _draggingSidebarId = null);
-                      }
-                    },
-                    children: [
-                      for (var i = 0; i < _visibleSidebarIds.length; i++)
-                        if (_sidebarMeta(_visibleSidebarIds[i])
-                            case final meta?)
-                          ReorderableDelayedDragStartListener(
-                            key: ValueKey(
-                              'sidebar-${_visibleSidebarIds[i]}',
-                            ),
-                            index: i,
-                            child: _PluginNavItem(
-                              label: meta.label,
-                              icon: meta.icon,
-                              badge: meta.badge,
-                              active:
-                                  _displayedPluginId ==
+                Listener(
+                  onPointerDown: (_) => _startSidebarHint(),
+                  onPointerUp: (_) => _cancelSidebarHint(),
+                  onPointerCancel: (_) => _cancelSidebarHint(),
+                  child: SizedBox(
+                    // 固定为条数高度：让下方 Spacer 继续把账号块压到底部，
+                    // 同时 ReorderableListView 不再吞掉剩余空间。
+                    height: _visibleSidebarIds.length * 46.0,
+                    child: ReorderableListView(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      buildDefaultDragHandles: false,
+                      onReorderItem: _reorderSidebarItems,
+                      onReorderStart: (_) {
+                        _sidebarHintTimer?.cancel();
+                        if (!_sidebarDragging) {
+                          setState(() => _sidebarDragging = true);
+                        }
+                      },
+                      onReorderEnd: (_) => _cancelSidebarHint(),
+                      children: [
+                        for (var i = 0; i < _visibleSidebarIds.length; i++)
+                          if (_sidebarMeta(_visibleSidebarIds[i])
+                              case final meta?)
+                            ReorderableDelayedDragStartListener(
+                              key: ValueKey(
+                                'sidebar-${_visibleSidebarIds[i]}',
+                              ),
+                              index: i,
+                              child: _PluginNavItem(
+                                label: meta.label,
+                                icon: meta.icon,
+                                badge: meta.badge,
+                                active:
+                                    _displayedPluginId ==
+                                    _visibleSidebarIds[i],
+                                showDragHandle: _sidebarDragging,
+                                onTap: () => _openSidebarPlugin(
                                   _visibleSidebarIds[i],
-                              showDragHandle:
-                                  _draggingSidebarId ==
-                                  _visibleSidebarIds[i],
-                              onTap: () => _openSidebarPlugin(
-                                _visibleSidebarIds[i],
+                                ),
                               ),
                             ),
-                          ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               if (showEcode)

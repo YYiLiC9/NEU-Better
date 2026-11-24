@@ -198,14 +198,13 @@ class HomeCardGallery extends StatelessWidget {
         name: manifest.name,
         description: '${manifest.description} · v${manifest.version}',
         trailingActions: <Widget>[
-          if (updateAvailable)
+          if (updateAvailable) ...[
             _actionButton(
               label: '更新',
               onPressed: () => onUpdate?.call(manifest),
-            )
-          else
-            const SizedBox(width: 96),
-          const SizedBox(width: 8),
+            ),
+            const SizedBox(width: 8),
+          ],
           SizedBox(
             width: 64,
             child: onDeletePlugin != null
@@ -492,7 +491,7 @@ class _GalleryItem extends StatelessWidget {
               trailing,
             ],
           ),
-          if (footer != null) ...[const SizedBox(height: 10), footer!],
+          ?footer,
         ],
       ),
     );
@@ -535,9 +534,9 @@ class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
   String get _summary {
     final a = widget.appearance;
     if (a.none) return '不添加';
-    if (a.home && a.sidebar) return '首页+侧栏';
-    if (a.home) return '首页';
-    return '侧栏';
+    if (a.home && a.sidebar) return '添加到首页 + 添加到侧栏';
+    if (a.home) return '添加到首页';
+    return '添加到侧栏';
   }
 
   @override
@@ -566,7 +565,7 @@ class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '放置：$_summary',
+                    _summary,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -576,12 +575,15 @@ class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
                     ),
                   ),
                   const SizedBox(width: 3),
-                  Icon(
-                    _open
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
-                    size: 16,
-                    color: AppColors.muted,
+                  AnimatedRotation(
+                    turns: _open ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      size: 16,
+                      color: AppColors.muted,
+                    ),
                   ),
                 ],
               ),
@@ -593,14 +595,23 @@ class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
           ],
         ],
       ),
-      footer: _open
-          ? _AppearanceOptions(
-              id: widget.id,
-              appearance: widget.appearance,
-              allowSidebar: widget.allowSidebar,
-              onChanged: widget.onChanged,
-            )
-          : null,
+      footer: AnimatedSize(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        clipBehavior: Clip.hardEdge,
+        child: _open
+            ? Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _AppearanceOptions(
+                  id: widget.id,
+                  appearance: widget.appearance,
+                  allowSidebar: widget.allowSidebar,
+                  onChanged: widget.onChanged,
+                ),
+              )
+            : const SizedBox(width: double.infinity),
+      ),
     );
   }
 }

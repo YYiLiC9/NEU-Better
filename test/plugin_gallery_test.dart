@@ -150,8 +150,8 @@ void main() {
     // 内置与远程已下载都展示三选项，旧的「添加/已添加」不再出现。
     expect(find.text('添加'), findsNothing);
     expect(find.text('已添加'), findsNothing);
-    expect(find.text('不添加'), findsNWidgets(2));
-    expect(find.text('添加到首页'), findsNWidgets(2));
+    expect(find.text('不添加'), findsNWidgets(3));
+    expect(find.text('添加到首页'), findsNWidgets(3));
     expect(find.text('添加到侧栏'), findsNWidgets(2));
 
     await tester.tap(find.byKey(const ValueKey('appearance-sidebar-remote')));
