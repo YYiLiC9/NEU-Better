@@ -1235,14 +1235,7 @@ class _HomeDormDetail extends StatelessWidget {
                 tooltip: '返回首页',
               ),
               const SizedBox(width: 2),
-              Text(
-                kBalanceFeatureName,
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                ),
-              ),
+              const SecondaryPageTitle(kBalanceFeatureName),
             ],
           ),
         ),

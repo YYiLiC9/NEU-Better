@@ -54,4 +54,28 @@ void main() {
     expect(find.text('C'), findsOneWidget);
     expect(find.text('A'), findsNothing);
   });
+
+  testWidgets('转场途中更新目标页内容时保留动画进度', (tester) async {
+    await pumpSwitcher(
+      tester,
+      const KeyedSubtree(key: ValueKey('list'), child: Text('A')),
+    );
+    await pumpSwitcher(
+      tester,
+      const KeyedSubtree(key: ValueKey('detail'), child: Text('加载中')),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+
+    await pumpSwitcher(
+      tester,
+      const KeyedSubtree(key: ValueKey('detail'), child: Text('已加载')),
+    );
+    expect(find.text('A'), findsOneWidget);
+    expect(find.text('已加载'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 35));
+    expect(find.text('A'), findsNothing);
+    expect(find.text('已加载'), findsOneWidget);
+    await tester.pumpAndSettle();
+  });
 }

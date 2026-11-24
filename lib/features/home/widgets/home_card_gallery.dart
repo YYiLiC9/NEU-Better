@@ -68,14 +68,7 @@ class HomeCardGallery extends StatelessWidget {
                 tooltip: '返回首页',
               ),
               const SizedBox(width: 2),
-              Text(
-                '插件库',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                ),
-              ),
+              const SecondaryPageTitle('插件库'),
             ],
           ),
         ),

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/app_labels.dart';
 import '../../core/plugins/plugin_icon_resolver.dart';
@@ -60,9 +61,22 @@ part 'widgets/home_grid.dart';
 /// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
 final homeTabProvider = StateProvider<int>((ref) => 0);
 
-/// 首页内部的二级分区（0 = 根总览, 1 = 余额中心详情, 2 = 卡片库）。放 ProviderScope 层
-/// 以便主题切换重建后仍停留在原二级页。
-final homeSectionProvider = StateProvider<int>((ref) => 0);
+enum _HomeSection {
+  overview,
+  dorm,
+  gallery,
+  mail,
+  notifications,
+  network,
+  news,
+  library,
+}
+
+/// 主题切换重建时保留首页二级页，以及图书馆的插件清单。
+final _homeDestinationProvider =
+    StateProvider<({_HomeSection section, PluginManifest? plugin})>(
+      (ref) => (section: _HomeSection.overview, plugin: null),
+    );
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key, required this.session});
@@ -326,11 +340,18 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openPlugin(PluginManifest manifest) {
+    switch (manifest.id) {
+      case campusNetworkPluginId:
+        _showHomeSection(_HomeSection.network);
+        return;
+      case 'library':
+        _showHomeSection(_HomeSection.library, plugin: manifest);
+        return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => manifest.id == campusNetworkPluginId
-            ? const CampusNetworkPage()
-            : PluginRuntimePage(manifest: manifest, session: widget.session),
+        builder: (_) =>
+            PluginRuntimePage(manifest: manifest, session: widget.session),
       ),
     );
   }
@@ -439,8 +460,7 @@ class _HomePageState extends ConsumerState<HomePage>
   void _handleOpenDorm() {
     if (!mounted) return;
     debugPrint('[notify] openDorm -> home dorm detail');
-    ref.read(homeTabProvider.notifier).state = 0;
-    ref.read(homeSectionProvider.notifier).state = 1;
+    _openDormDetail();
   }
 
   Future<void> _loadStatus() async {
@@ -474,12 +494,20 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   final GlobalKey _dormCardKey = GlobalKey();
-  int _lastSection = 0;
+
+  void _showHomeSection(_HomeSection section, {PluginManifest? plugin}) {
+    ref.read(_homeDestinationProvider.notifier).state = (
+      section: section,
+      plugin: plugin,
+    );
+  }
+
+  void _returnHome() => _showHomeSection(_HomeSection.overview);
 
   /// 打开「首页 · 余额中心」二级页。
   void _openDormDetail() {
     ref.read(homeTabProvider.notifier).state = 0;
-    ref.read(homeSectionProvider.notifier).state = 1;
+    _showHomeSection(_HomeSection.dorm);
   }
 
   /// 一级标签切换，并实现「首页」标签的返回语义：
@@ -488,8 +516,8 @@ class _HomePageState extends ConsumerState<HomePage>
     if (value == 0) {
       if (_tab != 0) {
         ref.read(homeTabProvider.notifier).state = 0; // 保留 section（回上次二级）
-      } else if (ref.read(homeSectionProvider) != 0) {
-        ref.read(homeSectionProvider.notifier).state = 0;
+      } else {
+        _returnHome();
       }
       return;
     }
@@ -501,14 +529,12 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// 系统返回（侧滑/返回键）在二级界面时先回一级根，而不是退出应用。
   /// 优先退出设计模式，其次把首页 section 复位到根卡片。
-  void _handleSystemBack(int section) {
+  void _handleSystemBack() {
     if (_designMode) {
       setState(() => _designMode = false);
       return;
     }
-    if (section != 0) {
-      ref.read(homeSectionProvider.notifier).state = 0;
-    }
+    _returnHome();
   }
 
   /// 主标签切换：直接换到目标页，再整体淡入 + 0.96→1 轻放大（220ms）。
@@ -561,15 +587,28 @@ class _HomePageState extends ConsumerState<HomePage>
     ref.listen<int>(homeTabProvider, (previous, next) {
       unawaited(_animateToTab(next));
     });
-    final section = ref.watch(homeSectionProvider);
-    // 一级根 = 首页根卡片、非设计模式。二级界面（余额中心详情 / 卡片库 /
-    // 设计模式）时拦截系统返回：先回到一级根，再返回才退出应用。
-    final atHomeRoot = section == 0 && !_designMode;
+    final homeSection = _homeDestinationProvider.select(
+      (value) => value.section,
+    );
+    ref.listen(homeSection, (previous, _) {
+      switch (previous) {
+        case _HomeSection.mail:
+          unawaited(_loadMailSummary());
+        case _HomeSection.notifications:
+          unawaited(_loadNotifySummary());
+        case _HomeSection.news:
+          unawaited(_loadNewsSummary());
+        default:
+          break;
+      }
+    });
+    final atHomeRoot =
+        ref.watch(homeSection) == _HomeSection.overview && !_designMode;
     return PopScope(
       canPop: atHomeRoot,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        _handleSystemBack(section);
+        _handleSystemBack();
       },
       child: Scaffold(
         backgroundColor: AppColors.canvas,
@@ -775,14 +814,11 @@ class _HomePageState extends ConsumerState<HomePage>
   // ─────────────────────────── 首页 ───────────────────────────
 
   Widget _buildHomeTab() {
-    final section = ref.watch(homeSectionProvider);
-    final Widget content;
-    if (section == 1) {
-      content = _HomeDormDetail(
-        onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
-      );
-    } else if (section == 2) {
-      content = HomeCardGallery(
+    final (:section, :plugin) = ref.watch(_homeDestinationProvider);
+    final content = switch (section) {
+      _HomeSection.overview => _buildHomeOverview(),
+      _HomeSection.dorm => _HomeDormDetail(onBack: _returnHome),
+      _HomeSection.gallery => HomeCardGallery(
         cards: _homeCards,
         builtins: homeCardCatalog,
         plugins: _catalogPlugins,
@@ -791,42 +827,36 @@ class _HomePageState extends ConsumerState<HomePage>
         failed: _downloadFailed,
         catalogLoading: _catalogLoading,
         catalogError: _catalogError,
-        onBack: () => ref.read(homeSectionProvider.notifier).state = 0,
+        onBack: _returnHome,
         onAdd: _addCard,
         onDeleteBuiltin: _deleteCard,
         onDownload: _downloadPlugin,
         onDeletePlugin: (id) => unawaited(_uninstallPlugin(id)),
         onUpdate: _downloadPlugin,
         onRetryCatalog: () => unawaited(_fetchCatalog(force: true)),
-      );
-    } else if (section == 3) {
-      content = MailPage(
+      ),
+      _HomeSection.mail => MailPage(
         session: widget.session,
-        onBack: () {
-          ref.read(homeSectionProvider.notifier).state = 0;
-          unawaited(_loadMailSummary());
-        },
-      );
-    } else if (section == 4) {
-      content = NotificationPage(
+        onBack: _returnHome,
+      ),
+      _HomeSection.notifications => NotificationPage(
         session: widget.session,
-        onBack: () {
-          ref.read(homeSectionProvider.notifier).state = 0;
-          unawaited(_loadNotifySummary());
-        },
-      );
-    } else {
-      content = _buildHomeOverview();
-    }
-    // 新旧页面采用两段式水平平移（先退出、再进入），不会出现文字重叠；
-    // 余额中心 / 邮件 / 通知 / 新闻保持同一套节奏。
-    final forward = section >= _lastSection;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _lastSection = section;
-    });
+        onBack: _returnHome,
+      ),
+      _HomeSection.network => CampusNetworkPage(
+        onBack: _returnHome,
+        visible: _displayedTab == 0,
+      ),
+      _HomeSection.news => NewsPage(onBack: _returnHome),
+      _HomeSection.library => PluginRuntimePage(
+        manifest: plugin!,
+        session: widget.session,
+        onBack: _returnHome,
+      ),
+    };
     return SharedAxisSwitcher(
-      forward: forward,
-      child: KeyedSubtree(key: ValueKey<int>(section), child: content),
+      forward: section != _HomeSection.overview,
+      child: KeyedSubtree(key: ValueKey(section), child: content),
     );
   }
 
@@ -842,6 +872,7 @@ class _HomePageState extends ConsumerState<HomePage>
       }
     }
     return SingleChildScrollView(
+      key: const PageStorageKey('home-overview-scroll'),
       padding: EdgeInsets.fromLTRB(
         isWide ? 36 : 20,
         isWide ? 28 : 16,
@@ -858,7 +889,7 @@ class _HomePageState extends ConsumerState<HomePage>
                 accountLabel: widget.session.accountLabel,
                 week: week,
                 designMode: _designMode,
-                onAdd: () => ref.read(homeSectionProvider.notifier).state = 2,
+                onAdd: () => _showHomeSection(_HomeSection.gallery),
                 onDone: _exitDesign,
               ),
               const SizedBox(height: 20),
@@ -911,7 +942,7 @@ class _HomePageState extends ConsumerState<HomePage>
         size: size,
         unread: _mailUnread,
         recent: _mailRecent,
-        onOpen: _openMail,
+        onOpen: () => _showHomeSection(_HomeSection.mail),
       );
     }
     if (id == 'notify') {
@@ -919,7 +950,7 @@ class _HomePageState extends ConsumerState<HomePage>
         size: size,
         unread: _notifyUnread,
         recent: _notifyRecent,
-        onOpen: _openNotifications,
+        onOpen: () => _showHomeSection(_HomeSection.notifications),
       );
     }
     if (id == 'news') {
@@ -930,7 +961,7 @@ class _HomePageState extends ConsumerState<HomePage>
         size: size,
         unread: notifyOn ? _newsUnread : 0,
         latest: _newsLatest,
-        onOpen: _openNews,
+        onOpen: () => _showHomeSection(_HomeSection.news),
       );
     }
     for (final plugin in _installedPlugins) {
@@ -950,10 +981,6 @@ class _HomePageState extends ConsumerState<HomePage>
       }
     }
     return _PlaceholderCard(id: id, size: size);
-  }
-
-  void _openMail() {
-    ref.read(homeSectionProvider.notifier).state = 3;
   }
 
   /// best-effort 拉取邮件摘要供首页卡片展示；任何失败都静默忽略。
@@ -987,10 +1014,6 @@ class _HomePageState extends ConsumerState<HomePage>
     }
   }
 
-  void _openNotifications() {
-    ref.read(homeSectionProvider.notifier).state = 4;
-  }
-
   /// best-effort 拉取通知摘要供首页卡片展示；失败静默。
   Future<void> _loadNotifySummary() async {
     try {
@@ -1006,17 +1029,6 @@ class _HomePageState extends ConsumerState<HomePage>
     } catch (_) {
       // 静默失败：通知卡显示「点开查看通知」，不影响其它功能。
     }
-  }
-
-  /// 打开新闻插件页；返回后刷新首页新闻卡摘要。
-  void _openNews() {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute<void>(builder: (_) => const NewsPage()),
-        )
-        .whenComplete(() {
-      if (mounted) unawaited(_loadNewsSummary());
-    });
   }
 
   /// best-effort 拉取新闻摘要供首页卡片展示；失败静默。

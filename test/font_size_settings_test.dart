@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/app/app.dart';
 import 'package:neu_better_pro/app/theme/app_theme.dart';
 import 'package:neu_better_pro/app/theme/windows_font_library.dart';
+import 'package:neu_better_pro/app/widgets/secondary_page_title.dart';
 import 'package:neu_better_pro/core/auth/auth_session.dart';
 import 'package:neu_better_pro/core/settings/app_font.dart';
 import 'package:neu_better_pro/core/settings/app_settings.dart';
@@ -51,6 +52,52 @@ class _TestFontLibrary extends WindowsFontLibrary {
 }
 
 void main() {
+  testWidgets(
+    'secondary titles use the same typography in rows and app bars',
+    (tester) async {
+      final theme = AppTheme.forBrightness(
+        Brightness.light,
+        windowsFontFamily: 'Imported test font',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            appBar: AppBar(title: const SecondaryPageTitle('网络连接')),
+            body: const Row(children: [SecondaryPageTitle('余额中心')]),
+          ),
+        ),
+      );
+
+      RichText title(String label) => tester.widget<RichText>(
+        find.descendant(of: find.text(label), matching: find.byType(RichText)),
+      );
+
+      final balance = title('余额中心');
+      final network = title('网络连接');
+      expect(network.text.style, balance.text.style);
+      expect(network.text.style?.fontSize, 17);
+      expect(network.text.style?.fontWeight, FontWeight.w700);
+      expect(
+        network.text.style?.fontFamily,
+        theme.textTheme.bodyMedium?.fontFamily,
+      );
+      expect(
+        network.textScaler.scale(17),
+        closeTo(balance.textScaler.scale(17), 0.001),
+      );
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.windows,
+    }),
+  );
+
   test('Missing and invalid font sizes use medium', () {
     for (final json in <Map<String, dynamic>>[
       {},
