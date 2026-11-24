@@ -26,6 +26,9 @@ class HomeCardGallery extends StatelessWidget {
     this.onDeletePlugin,
     this.onUpdate,
     this.onRetryCatalog,
+    this.placements = const <String, PluginPlacement>{},
+    this.onSetPlacement,
+    this.allowSidebar = false,
   });
 
   final List<HomeCardLayout> cards;
@@ -43,6 +46,11 @@ class HomeCardGallery extends StatelessWidget {
   final void Function(String id)? onDeletePlugin;
   final void Function(PluginManifest manifest)? onUpdate;
   final VoidCallback? onRetryCatalog;
+  final Map<String, PluginPlacement> placements;
+  final void Function(String id, PluginPlacement placement)? onSetPlacement;
+
+  /// 是否允许「添加到侧栏」（仅 Windows 桌面为 true；其它平台沿用原行为）。
+  final bool allowSidebar;
 
   bool _added(String id) => cards.any((card) => card.id == id);
 
@@ -57,21 +65,7 @@ class HomeCardGallery extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 4),
-          child: Row(
-            children: [
-              IconButton(
-                onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded),
-                color: AppColors.ink,
-                tooltip: '返回首页',
-              ),
-              const SizedBox(width: 2),
-              const SecondaryPageTitle('插件库'),
-            ],
-          ),
-        ),
+        SecondaryPageHeader(title: '插件库', onBack: onBack),
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -175,6 +169,26 @@ class HomeCardGallery extends StatelessWidget {
     // 描述行不再重复显示版本号。
     final versionInColumn =
         !installed && !unsupported && progress == null && !hasFailed;
+
+    // 远程已下载、非内置、且平台允许摆放时，用摆放选择器取代「添加/已添加」。
+    final showPlacement =
+        installed &&
+        !unsupported &&
+        !updateAvailable &&
+        onSetPlacement != null &&
+        allowSidebar;
+    if (showPlacement) {
+      return _PlacementGalleryItem(
+        manifest: manifest,
+        placement: placements[manifest.id] ?? PluginPlacement.none,
+        allowSidebar: allowSidebar,
+        onSetPlacement: (placement) =>
+            onSetPlacement!(manifest.id, placement),
+        onDelete: onDeletePlugin != null
+            ? () => _confirmUninstall(context, manifest)
+            : null,
+      );
+    }
 
     Widget trailing;
     if (unsupported) {
@@ -438,6 +452,143 @@ class _GalleryItem extends StatelessWidget {
           const SizedBox(width: 12),
           trailing,
         ],
+      ),
+    );
+  }
+}
+
+/// 远程已下载插件的「摆放位置」选择器。
+///
+/// 收起时在 trailing 主列显示 96×40 的当前选择；点击后在本行下方内联展开
+/// 3 个紧凑单选（未添加 / 添加到首页 / 添加到侧栏），选择后立即回调并收起。
+class _PlacementGalleryItem extends StatefulWidget {
+  const _PlacementGalleryItem({
+    required this.manifest,
+    required this.placement,
+    required this.allowSidebar,
+    required this.onSetPlacement,
+    required this.onDelete,
+  });
+
+  final PluginManifest manifest;
+  final PluginPlacement placement;
+  final bool allowSidebar;
+  final void Function(PluginPlacement placement) onSetPlacement;
+  final VoidCallback? onDelete;
+
+  @override
+  State<_PlacementGalleryItem> createState() => _PlacementGalleryItemState();
+}
+
+class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
+  bool _expanded = false;
+
+  String get _currentLabel => switch (widget.placement) {
+    PluginPlacement.none => '未添加',
+    PluginPlacement.home => '首页卡片',
+    PluginPlacement.sidebar => '侧栏',
+  };
+
+  void _toggle() => setState(() => _expanded = !_expanded);
+
+  void _select(PluginPlacement? placement) {
+    if (placement == null) return;
+    widget.onSetPlacement(placement);
+    setState(() => _expanded = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final manifest = widget.manifest;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _GalleryItem(
+          icon: resolvePluginIcon(manifest.icon),
+          badge: manifest.icon?.type == 'text' ? manifest.icon!.value : null,
+          name: manifest.name,
+          description: '${manifest.description} · v${manifest.version}',
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 96,
+                height: 40,
+                child: OutlinedButton(
+                  key: ValueKey('placement-${manifest.id}'),
+                  onPressed: _toggle,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.ink,
+                    side: BorderSide(color: AppColors.line),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: Text(
+                    _currentLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 64,
+                child: widget.onDelete != null
+                    ? _deleteAction(
+                        widget.onDelete,
+                        key: ValueKey('delete-plugin-${manifest.id}'),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+        if (_expanded) _buildOptions(),
+      ],
+    );
+  }
+
+  Widget _buildOptions() {
+    final options = <(PluginPlacement, String)>[
+      (PluginPlacement.none, '未添加'),
+      (PluginPlacement.home, '添加到首页'),
+      if (widget.allowSidebar) (PluginPlacement.sidebar, '添加到侧栏'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, left: 8, right: 8),
+      child: Material(
+        color: AppColors.canvas,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AppColors.line),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: RadioGroup<PluginPlacement>(
+            groupValue: widget.placement,
+            onChanged: _select,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (value, label) in options)
+                  RadioListTile<PluginPlacement>(
+                    value: value,
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(label, style: const TextStyle(fontSize: 13)),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

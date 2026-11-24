@@ -96,6 +96,72 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+class _PluginNavItem extends StatelessWidget {
+  const _PluginNavItem({
+    required this.manifest,
+    this.active = false,
+    this.onTap,
+  });
+
+  final PluginManifest manifest;
+  final bool active;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = manifest.icon?.type == 'text' ? manifest.icon!.value : null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.campusBlue : null,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 19,
+              height: 19,
+              child: badge != null
+                  ? Center(
+                      child: Text(
+                        badge,
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 1,
+                          fontWeight: FontWeight.w700,
+                          color: active ? Colors.white : AppColors.muted,
+                        ),
+                      ),
+                    )
+                  : Icon(
+                      resolvePluginIcon(manifest.icon),
+                      size: 19,
+                      color: active ? Colors.white : AppColors.muted,
+                    ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Text(
+                manifest.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: active ? Colors.white : AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AccountTile extends StatelessWidget {
   const _AccountTile({
     required this.session,

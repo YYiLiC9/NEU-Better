@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/news_models.dart';
 import '../../core/network/news_client.dart';
+import '../../app/widgets/secondary_page_header.dart';
 import 'news_detail_page.dart';
 import 'news_sections_page.dart';
 import 'news_store.dart';
@@ -270,93 +271,65 @@ class _NewsPageState extends State<NewsPage> {
   }
 
   Widget _buildMasthead() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              IconButton(
-                key: const Key('news-back'),
-                onPressed:
-                    widget.onBack ?? () => Navigator.of(context).maybePop(),
-                tooltip: '返回',
-                icon: const Icon(
-                  Icons.arrow_back_rounded,
-                  size: 20,
-                  color: NewsPalette.inkSoft,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SecondaryPageHeader(
+          title: '东大校刊',
+          onBack: widget.onBack ?? () => Navigator.of(context).maybePop(),
+          actions: [
+            TextButton(
+              onPressed: _clearUnread,
+              style: TextButton.styleFrom(
+                foregroundColor: NewsPalette.inkSoft,
+                minimumSize: const Size(0, 32),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                side: const BorderSide(color: NewsPalette.hairline, width: 1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                style: IconButton.styleFrom(
-                  fixedSize: const Size(32, 32),
-                  minimumSize: const Size(32, 32),
-                  padding: EdgeInsets.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '东大校刊',
-                      style: newsSerif(fontSize: 27, height: 1.05),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '号外 · NEU BETTER',
-                      style: newsSans(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: NewsPalette.red,
-                      ),
-                    ),
-                  ],
-                ),
+              child: const Text('清除未读'),
+            ),
+            IconButton(
+              onPressed: _openSections,
+              tooltip: '选择板块',
+              icon: const Icon(
+                Icons.tune_rounded,
+                size: 20,
+                color: NewsPalette.inkSoft,
               ),
-              TextButton(
-                key: const Key('news-clear-unread'),
-                onPressed: _clearUnread,
-                style: TextButton.styleFrom(
-                  foregroundColor: NewsPalette.inkSoft,
-                  minimumSize: const Size(0, 32),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  side: const BorderSide(color: NewsPalette.hairline, width: 1),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                child: const Text('清除未读'),
-              ),
-              IconButton(
-                key: const Key('news-settings'),
-                onPressed: _openSections,
-                tooltip: '选择板块',
-                icon: const Icon(
-                  Icons.tune_rounded,
-                  size: 20,
-                  color: NewsPalette.inkSoft,
-                ),
-              ),
-            ],
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+          child: Text(
+            '号外 · NEU BETTER',
+            style: newsSans(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: NewsPalette.red,
+            ),
           ),
-          const SizedBox(height: 8),
-          const Divider(color: NewsPalette.ink, height: 1, thickness: 1.2),
-          const SizedBox(height: 2),
-          const Divider(color: NewsPalette.ink, height: 1, thickness: 0.4),
-        ],
-      ),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Divider(color: NewsPalette.ink, height: 1, thickness: 1.2),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Divider(color: NewsPalette.ink, height: 1, thickness: 0.4),
+          ),
+        ),
+      ],
     );
   }
 

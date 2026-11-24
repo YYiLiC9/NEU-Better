@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/secondary_page_header.dart';
 import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/app_labels.dart';
@@ -24,6 +25,7 @@ import '../../core/network/mail_client.dart';
 import '../../core/plugins/campus_network_plugin.dart';
 import '../../core/network/neu_service_session.dart';
 import '../../core/plugins/plugin_models.dart';
+import '../../core/plugins/plugin_placement_store.dart';
 import '../../core/plugins/plugin_service.dart';
 import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
@@ -112,6 +114,18 @@ class _HomePageState extends ConsumerState<HomePage>
   /// 首页卡片布局（顺序 + 尺寸），按账号持久化。
   List<HomeCardLayout> _homeCards = defaultHomeCards();
   bool _layoutLoaded = false;
+
+  /// 插件摆放位置（home/sidebar）与侧栏顺序，按账号持久化。
+  final _placementStore = PluginPlacementStore();
+  Map<String, PluginPlacement> _placements = const <String, PluginPlacement>{};
+  List<String> _sidebarPluginIds = const <String>[];
+
+  /// 侧栏当前打开的插件内容（null = 显示一级 IndexedStack）。
+  String? _displayedPluginId;
+
+  /// 是否允许「添加到侧栏」（仅 Windows 桌面）。
+  bool get _allowSidebar =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   /// 安卓「设计模式」：长按进入后可拖动/删除/改尺寸；桌面无此状态。
   bool _designMode = false;
@@ -247,7 +261,50 @@ class _HomePageState extends ConsumerState<HomePage>
       debugPrint('[plugins] load installed failed: $error');
     }
     await _loadHomeLayout();
+    await _loadPlacements();
     await _fetchCatalog();
+  }
+
+  /// 读取插件摆放位置，并做一次性迁移 / 与首页布局对齐：
+  /// - 已装插件尚无记录：首页布局里有该 id → home，否则 none；
+  /// - home / sidebar 的插件都要保证首页有一张兜底卡（卸载清理时相反）。
+  Future<void> _loadPlacements() async {
+    await _placementStore.load();
+    for (final plugin in _installedPlugins) {
+      if (_placementStore.placementOf(plugin.id) != PluginPlacement.none) {
+        continue;
+      }
+      final inHome = _homeCards.any((card) => card.id == plugin.id);
+      if (inHome) {
+        await _placementStore.setPlacement(plugin.id, PluginPlacement.home);
+      }
+    }
+    final allowed = _allowedCardIds;
+    final nextCards = <HomeCardLayout>[..._homeCards];
+    var layoutChanged = false;
+    for (final entry in _placementStore.placements.entries) {
+      if (entry.value == PluginPlacement.none) continue;
+      if (!allowed.contains(entry.key)) continue;
+      if (!nextCards.any((card) => card.id == entry.key)) {
+        nextCards.add(
+          HomeCardLayout(id: entry.key, size: HomeCardSize.s1x1),
+        );
+        layoutChanged = true;
+      }
+    }
+    final sidebar = <String>[
+      for (final id in _placementStore.sidebarIds)
+        if (allowed.contains(id)) id,
+    ];
+    if (!mounted) return;
+    setState(() {
+      _homeCards = nextCards;
+      _placements = Map<String, PluginPlacement>.from(
+        _placementStore.placements,
+      );
+      _sidebarPluginIds = sidebar;
+    });
+    if (layoutChanged) await _saveHomeLayout();
   }
 
   /// 让「设置 → 通知」里为每个已安装插件出现一个通知开关（默认关）。
@@ -331,7 +388,17 @@ class _HomePageState extends ConsumerState<HomePage>
           for (final card in _homeCards)
             if (card.id != id) card,
         ];
+        _placements = <String, PluginPlacement>{
+          for (final entry in _placements.entries)
+            if (entry.key != id) entry.key: entry.value,
+        };
+        _sidebarPluginIds = <String>[
+          for (final existing in _sidebarPluginIds)
+            if (existing != id) existing,
+        ];
+        if (_displayedPluginId == id) _displayedPluginId = null;
       });
+      await _placementStore.remove(id);
       ref.read(appSettingsProvider.notifier).removeNotifySource('plugin:$id');
       await _saveHomeLayout();
     } catch (error) {
@@ -410,6 +477,77 @@ class _HomePageState extends ConsumerState<HomePage>
     ];
     setState(() => _homeCards = next);
     unawaited(_saveHomeLayout());
+  }
+
+  /// 侧栏点击插件：把内容区切换为该插件（复用一级淡入过渡）。
+  void _openSidebarPlugin(String id) {
+    if (_displayedPluginId == id) return;
+    setState(() => _displayedPluginId = id);
+    _tabFade.value = 0.0;
+    unawaited(
+      _tabFade.animateTo(
+        1.0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
+  /// 侧栏内容区渲染。
+  Widget _buildPluginContent(String id) {
+    if (id == campusNetworkPluginId) {
+      return const CampusNetworkPage(onBack: null, visible: true);
+    }
+    if (id == 'news') {
+      return const NewsPage(onBack: null);
+    }
+    for (final plugin in _installedPlugins) {
+      if (plugin.id == id) {
+        return PluginRuntimePage(
+          manifest: plugin,
+          session: widget.session,
+          onBack: null,
+        );
+      }
+    }
+    return const SizedBox.shrink();
+  }
+
+  bool _isSidebarPlaced(String id) =>
+      _placements[id] == PluginPlacement.sidebar;
+
+  /// 设置插件摆放位置，并同步首页布局 / 侧栏 / 持久化。
+  Future<void> _setPluginPlacement(
+    String id,
+    PluginPlacement placement,
+  ) async {
+    await _placementStore.setPlacement(id, placement);
+    var cards = <HomeCardLayout>[..._homeCards];
+    if (placement == PluginPlacement.none) {
+      cards = <HomeCardLayout>[
+        for (final card in cards)
+          if (card.id != id) card,
+      ];
+    } else if (!cards.any((card) => card.id == id)) {
+      cards.add(HomeCardLayout(id: id, size: HomeCardSize.s1x1));
+    }
+    final sidebar = <String>[
+      for (final existing in _sidebarPluginIds)
+        if (existing != id) existing,
+    ];
+    if (placement == PluginPlacement.sidebar) sidebar.add(id);
+    if (!mounted) return;
+    setState(() {
+      _homeCards = cards;
+      _placements = Map<String, PluginPlacement>.from(
+        _placementStore.placements,
+      );
+      _sidebarPluginIds = sidebar;
+      if (placement == PluginPlacement.none && _displayedPluginId == id) {
+        _displayedPluginId = null;
+      }
+    });
+    await _saveHomeLayout();
   }
 
   Future<void> _ensureTimetable() async {    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
@@ -513,6 +651,17 @@ class _HomePageState extends ConsumerState<HomePage>
   /// 一级标签切换，并实现「首页」标签的返回语义：
   /// 从别的标签点「首页」→ 回到上次的二级页；已在首页二级再点「首页」→ 回根。
   void _selectTab(int value) {
+    if (_displayedPluginId != null) {
+      setState(() => _displayedPluginId = null);
+      _tabFade.value = 0.0;
+      unawaited(
+        _tabFade.animateTo(
+          1.0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    }
     if (value == 0) {
       if (_tab != 0) {
         ref.read(homeTabProvider.notifier).state = 0; // 保留 section（回上次二级）
@@ -532,6 +681,18 @@ class _HomePageState extends ConsumerState<HomePage>
   void _handleSystemBack() {
     if (_designMode) {
       setState(() => _designMode = false);
+      return;
+    }
+    if (_displayedPluginId != null) {
+      setState(() => _displayedPluginId = null);
+      _tabFade.value = 0.0;
+      unawaited(
+        _tabFade.animateTo(
+          1.0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        ),
+      );
       return;
     }
     _returnHome();
@@ -743,6 +904,9 @@ class _HomePageState extends ConsumerState<HomePage>
 
   Widget _buildDesktop(BuildContext context) {
     final showEcode = defaultTargetPlatform == TargetPlatform.android;
+    final pluginsById = <String, PluginManifest>{
+      for (final plugin in _installedPlugins) plugin.id: plugin,
+    };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -762,15 +926,22 @@ class _HomePageState extends ConsumerState<HomePage>
               _NavItem(
                 icon: Icons.home_outlined,
                 label: '首页',
-                active: _tab == 0,
+                active: _displayedPluginId == null && _tab == 0,
                 onTap: () => _selectTab(0),
               ),
               _NavItem(
                 icon: Icons.calendar_month_outlined,
                 label: '课表',
-                active: _tab == 1,
+                active: _displayedPluginId == null && _tab == 1,
                 onTap: () => _selectTab(1),
               ),
+              for (final id in _sidebarPluginIds)
+                if (pluginsById[id] != null)
+                  _PluginNavItem(
+                    manifest: pluginsById[id]!,
+                    active: _displayedPluginId == id,
+                    onTap: () => _openSidebarPlugin(id),
+                  ),
               if (showEcode)
                 _NavItem(
                   icon: Icons.qr_code_2_outlined,
@@ -792,19 +963,24 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
         Expanded(
           child: _wrapTabFade(
-            IndexedStack(
-              index: !showEcode && _displayedTab > 1 ? 0 : _displayedTab,
-              children: [
-                _buildHomeTab(),
-                TimetablePage(),
-                if (showEcode) ...[
-                  (_ecodeVisited || _tab == 2)
-                      ? EcodePage(session: widget.session, active: _tab == 2)
-                      : const SizedBox.shrink(),
-                  const SizedBox.shrink(),
-                ],
-              ],
-            ),
+            _displayedPluginId != null
+                ? _buildPluginContent(_displayedPluginId!)
+                : IndexedStack(
+                    index: !showEcode && _displayedTab > 1 ? 0 : _displayedTab,
+                    children: [
+                      _buildHomeTab(),
+                      TimetablePage(),
+                      if (showEcode) ...[
+                        (_ecodeVisited || _tab == 2)
+                            ? EcodePage(
+                                session: widget.session,
+                                active: _tab == 2,
+                              )
+                            : const SizedBox.shrink(),
+                        const SizedBox.shrink(),
+                      ],
+                    ],
+                  ),
           ),
         ),
       ],
@@ -827,6 +1003,10 @@ class _HomePageState extends ConsumerState<HomePage>
         failed: _downloadFailed,
         catalogLoading: _catalogLoading,
         catalogError: _catalogError,
+        placements: _placements,
+        onSetPlacement: (id, placement) =>
+            unawaited(_setPluginPlacement(id, placement)),
+        allowSidebar: _allowSidebar,
         onBack: _returnHome,
         onAdd: _addCard,
         onDeleteBuiltin: _deleteCard,
@@ -871,6 +1051,13 @@ class _HomePageState extends ConsumerState<HomePage>
         week = null;
       }
     }
+    // 侧栏插件的卡片只在「有侧栏的桌面布局」里隐藏；安卓/窄窗仍显示全部。
+    final cards = (isWide && _allowSidebar)
+        ? <HomeCardLayout>[
+            for (final card in _homeCards)
+              if (!_isSidebarPlaced(card.id)) card,
+          ]
+        : _homeCards;
     return SingleChildScrollView(
       key: const PageStorageKey('home-overview-scroll'),
       padding: EdgeInsets.fromLTRB(
@@ -897,7 +1084,7 @@ class _HomePageState extends ConsumerState<HomePage>
                 opacity: _layoutLoaded ? 1 : 0,
                 duration: const Duration(milliseconds: 120),
                 child: _HomeGrid(
-                  cards: _homeCards,
+                  cards: cards,
                   unit: _desktopHomeUnit,
                   wideBreakpoint: _wideLayoutMinWidth,
                   columns: 4,
