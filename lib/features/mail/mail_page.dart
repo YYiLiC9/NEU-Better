@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/secondary_page_header.dart';
 import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
@@ -178,24 +179,16 @@ class _MailPageState extends ConsumerState<MailPage> {
     }
     final listPage = Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: '返回',
-                onPressed: widget.onBack,
-                icon: const Icon(Icons.arrow_back_rounded, size: 20),
-              ),
-              const SecondaryPageTitle('邮件'),
-              const Spacer(),
-              IconButton(
-                tooltip: '刷新收件箱',
-                onPressed: _loading ? null : () => _load(refresh: true),
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-              ),
-            ],
-          ),
+        SecondaryPageHeader(
+          title: '邮件',
+          onBack: widget.onBack,
+          actions: [
+            IconButton(
+              tooltip: '刷新收件箱',
+              onPressed: _loading ? null : () => _load(refresh: true),
+              icon: const Icon(Icons.refresh_rounded, size: 20),
+            ),
+          ],
         ),
         Divider(height: 1, color: AppColors.line),
         Expanded(child: body),

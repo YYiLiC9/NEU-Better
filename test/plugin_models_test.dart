@@ -47,6 +47,16 @@ void main() {
     expect(manifest.pages['home']!.body.single.type, 'text');
     expect(manifest.cardTitle, '图书馆');
     expect(manifest.icon!.value, 'menu_book');
+    expect(manifest.enabled, 1);
+    expect(manifest.isEnabled, isTrue);
+  });
+
+  test('enabled=0 parses as disabled and keeps manifest', () {
+    final json = jsonDecode(_indexJson) as Map<String, dynamic>;
+    (json['plugins'] as List)[0]['enabled'] = 0;
+    final manifest = PluginCatalog.fromJson(json).plugins.single;
+    expect(manifest.enabled, 0);
+    expect(manifest.isEnabled, isFalse);
   });
 
   test('rejects illegal id', () {
@@ -102,5 +112,7 @@ void main() {
     expect(library, isNotNull);
     expect(library!.rendererSupported, isTrue);
     expect(library.pages.containsKey(library.startPage), isTrue);
+    expect(library.isEnabled, isFalse);
+    expect(catalog.byId('news')!.isEnabled, isTrue);
   });
 }

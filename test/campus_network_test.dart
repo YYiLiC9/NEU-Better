@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neu_better_pro/app/theme/app_theme.dart';
 import 'package:neu_better_pro/core/auth/auth_exception.dart';
 import 'package:neu_better_pro/core/auth/saved_credentials.dart';
 import 'package:neu_better_pro/core/network/srun_portal_client.dart';
@@ -327,25 +328,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsNothing);
-    expect(find.text('当前网络'), findsOneWidget);
+    expect(find.text('账号'), findsOneWidget);
+    expect(find.text('网关IP'), findsOneWidget);
     expect(find.text('Wi-Fi · Campus bridge'), findsOneWidget);
-    expect(find.text('已连接校园网'), findsOneWidget);
-    expect(find.text('未登录网关'), findsOneWidget);
-    expect(find.byIcon(Icons.router_rounded), findsOneWidget);
+    expect(find.text('未连接'), findsOneWidget);
     expect(find.text('联机网关后获取更多信息'), findsOneWidget);
     expect(find.text('网费余额'), findsNothing);
-    expect(find.text('已用流量'), findsNothing);
     expect(find.text('在浏览器查看明细'), findsNothing);
-    final gatewayCard = find.ancestor(
-      of: find.byIcon(Icons.router_rounded),
-      matching: find.byType(Card),
-    );
-    final startupCard = find.ancestor(
-      of: find.byType(SwitchListTile),
-      matching: find.byType(Card),
-    );
-    final sectionShape = tester.widget<Card>(gatewayCard).shape;
-    expect(tester.widget<Card>(startupCard).shape, sectionShape);
     final usageAnimation = find.descendant(
       of: find.byType(CampusNetworkPage),
       matching: find.byType(AnimatedSize),
@@ -355,7 +344,7 @@ void main() {
     await tester.tap(find.text('登录网关'));
     await tester.pump();
     expect(find.text('正在检测学校网关…'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsWidgets);
     network.gateway.onStatus = null;
     statusGate.complete(_offline);
     await tester.pump();
@@ -367,34 +356,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(midRevealHeight, greaterThan(0));
     expect(midRevealHeight, lessThan(tester.getSize(usageAnimation).height));
-    expect(find.text('已连接校园网'), findsOneWidget);
-    expect(find.text('已登录网关'), findsOneWidget);
+    expect(find.text('已连接'), findsOneWidget);
     expect(find.text('联机网关后获取更多信息'), findsNothing);
     expect(find.text('网费余额'), findsOneWidget);
-    expect(find.text('已用流量'), findsOneWidget);
+    expect(find.text('网关已用'), findsOneWidget);
     expect(find.text('在浏览器查看明细'), findsOneWidget);
-    final usageCard = find.ancestor(
-      of: find.text('网费余额'),
-      matching: find.byType(Card),
-    );
-    expect(tester.widget<Card>(usageCard).shape, sectionShape);
-    expect(
-      find.descendant(of: usageCard, matching: find.text('已用流量')),
-      findsOneWidget,
-    );
-    expect(
-      tester.getTopLeft(find.text('已用流量')).dy,
-      tester.getTopLeft(find.text('网费余额')).dy,
-    );
     expect(find.text('¥12.50'), findsOneWidget);
     expect(find.text('1.00 MiB'), findsOneWidget);
-    expect(find.textContaining('本次连接流量'), findsNothing);
     expect(find.text('登录网关'), findsNothing);
     final logout = find.widgetWithText(FilledButton, '登出网关');
     expect(tester.widget<FilledButton>(logout).onPressed, isNotNull);
     expect(
       tester.widget<FilledButton>(logout).style?.backgroundColor?.resolve({}),
-      Theme.of(tester.element(logout)).colorScheme.error,
+      AppColors.nowRed,
     );
 
     final logoutGate = Completer<void>();
@@ -406,11 +380,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(network.gateway.logouts, 1);
     expect(network.credentialReads, 1);
-    expect(find.text('未登录网关'), findsOneWidget);
+    expect(find.text('未连接'), findsOneWidget);
     expect(find.text('登录网关'), findsOneWidget);
     expect(find.text('联机网关后获取更多信息'), findsOneWidget);
     expect(find.text('网费余额'), findsNothing);
-    expect(find.text('已用流量'), findsNothing);
     expect(find.text('¥12.50'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -593,12 +566,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('仅支持 Windows 和 Android'), findsOneWidget);
-    expect(
-      tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, '登录网关'))
-          .onPressed,
-      isNull,
-    );
+    expect(find.text('登录网关'), findsNothing);
+    expect(find.widgetWithText(FilledButton, '登录网关'), findsNothing);
     expect(network.wifi.attempts, 0);
     await tester.pumpWidget(const SizedBox());
   });
@@ -723,21 +692,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(TextField), findsNothing);
       expect(find.byType(SwitchListTile), findsNothing);
-      expect(find.text('已连接校园网'), findsOneWidget);
-      expect(find.text('未登录网关'), findsOneWidget);
+      expect(find.text('未连接'), findsOneWidget);
       expect(find.text('Wi-Fi · NEU-mobile'), findsOneWidget);
       expect(find.text('联机网关后获取更多信息'), findsOneWidget);
       expect(find.text('网费余额'), findsNothing);
-      expect(find.text('已用流量'), findsNothing);
+      expect(find.text('本次流量'), findsNothing);
       await tester.tap(find.text('登录网关'));
       await tester.pumpAndSettle();
       expect(network.gateway.logins, 1);
-      expect(find.text('已登录网关'), findsOneWidget);
+      expect(find.text('已连接'), findsOneWidget);
       expect(network.wifi.attempts, 0);
       expect(find.text('联机网关后获取更多信息'), findsNothing);
       expect(
         tester.getTopLeft(find.text('网费余额')).dy,
-        lessThan(tester.getTopLeft(find.text('已用流量')).dy),
+        lessThan(tester.getTopLeft(find.text('网关已用')).dy),
       );
       expect(find.byType(AnimatedSize), findsNothing);
       expect(tester.takeException(), isNull);

@@ -1,8 +1,9 @@
 # NEU Better 首页插件目录
 
-本目录存放「首页插件化 V1」的插件目录与说明。App 的卡片库从 dev 分支的
-`plugins/index.json` 拉取目录（失败走 ghfast.top / gh-proxy.com 镜像，并缓存到
-本地 `plugins_catalog.json`）。插件页由 App 用**原生 DSL 渲染，不使用 WebView**。
+本目录存放「首页插件化 V1」的插件目录与说明。App 的卡片库**固定读取 master 分支**的
+`plugins/index.json`（失败走 ghfast.top / gh-proxy.com 镜像，并缓存为本地
+`plugins_catalog.json`）。功能分支的插件目录改动需合并进 master 后才会生效。插件页由
+App 用**原生 DSL 渲染，不使用 WebView**。
 
 ## 目录结构
 
@@ -26,6 +27,7 @@
 | `version` | 是 | 插件版本（用于更新判断）。 |
 | `minAppVersion` | 否 | 兼容的 App 最低版本。 |
 | `rendererVersion` | 是 | DSL 渲染器版本；高于 App 支持版本时禁用（提示「需更新App」）。 |
+| `enabled` | 否 | 远程插件开关：`0` 表示禁用（不上架、不可下载、插件库不显示）；`1` 表示正常可用。缺省按 `1` 处理。 |
 | `icon` | 否 | `{ "type": "material", "value": "menu_book" }`。 |
 | `card` | 否 | `{ "title": "...", "subtitle": "..." }` 首页卡片文案。 |
 | `startPage` | 是 | 入口页 id，必须存在于 `pages`。 |
@@ -62,6 +64,8 @@
 
 ## 版本与安全
 
+- `enabled` 为整数开关：`0` = 禁用（App 插件库不显示、禁止下载），`1` = 正常可用；
+  新增插件默认 `enabled: 1`，需要下架时改为 `0`（**不要删除条目**，便于以后恢复）。
 - `rendererVersion` 大于 App 支持值时，卡片库显示「需更新App」并禁用。
 - 非法 manifest / 重复 id / 非 http(s) URL / 响应过大都会被跳过或报错，不写入登记。
 - 所有页面为原生组件渲染，无 WebView、无脚本执行。

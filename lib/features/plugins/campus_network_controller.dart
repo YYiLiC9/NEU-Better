@@ -115,6 +115,8 @@ class CampusNetworkController extends ChangeNotifier {
   String? _connectError;
 
   String get connectionLabel => _connection.label;
+  String? get account => _account;
+  String? get gatewayAddress => _connection.address;
   bool? get gatewayOnline => _connection.status?.online;
   double? get balance => _connection.status?.balance;
   int? get sumBytes => _connection.status?.sumBytes;

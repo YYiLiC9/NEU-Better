@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/secondary_page_header.dart';
 import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
@@ -218,45 +219,33 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
     }
     final listPage = Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: '返回',
-                onPressed: widget.onBack,
-                icon: const Icon(Icons.arrow_back_rounded, size: 20),
-              ),
-              const SecondaryPageTitle('通知'),
-              if (_noRead > 0) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.campusBlue.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '未读 $_noRead',
-                    style: TextStyle(
-                      color: AppColors.campusBlue,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
+        SecondaryPageHeader(
+          title: '通知',
+          onBack: widget.onBack,
+          actions: [
+            if (_noRead > 0)
+              Container(
+                margin: const EdgeInsets.only(right: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.campusBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '未读 $_noRead',
+                  style: TextStyle(
+                    color: AppColors.campusBlue,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
-              const Spacer(),
-              IconButton(
-                tooltip: '刷新',
-                icon: Icon(Icons.refresh_rounded, color: AppColors.muted),
-                onPressed: () => _load(refresh: true),
               ),
-            ],
-          ),
+            IconButton(
+              tooltip: '刷新',
+              icon: Icon(Icons.refresh_rounded, color: AppColors.muted),
+              onPressed: () => _load(refresh: true),
+            ),
+          ],
         ),
         Divider(height: 1, color: AppColors.line),
         Expanded(child: body),

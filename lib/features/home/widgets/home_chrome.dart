@@ -96,6 +96,93 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+class _PluginNavItem extends StatelessWidget {
+  const _PluginNavItem({
+    required this.label,
+    required this.icon,
+    this.badge,
+    this.active = false,
+    this.showDragHandle = false,
+    this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final String? badge;
+  final bool active;
+  final bool showDragHandle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.campusBlue : null,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 19,
+              height: 19,
+              child: badge != null
+                  ? Center(
+                      child: Text(
+                        badge!,
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 1,
+                          fontWeight: FontWeight.w700,
+                          color: active ? Colors.white : AppColors.muted,
+                        ),
+                      ),
+                    )
+                  : Icon(
+                      icon,
+                      size: 19,
+                      color: active ? Colors.white : AppColors.muted,
+                    ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: active ? Colors.white : AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ),
+            // 六个点始终占位，仅在拖动时通过渐显动画出现，避免布局跳动。
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                opacity: showDragHandle ? 1 : 0,
+                child: Icon(
+                  Icons.drag_indicator,
+                  size: 16,
+                  color: active ? Colors.white70 : AppColors.faint,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AccountTile extends StatelessWidget {
   const _AccountTile({
     required this.session,
