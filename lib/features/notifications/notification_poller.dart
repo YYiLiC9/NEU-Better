@@ -16,6 +16,7 @@ class NotificationPoller {
     required this.client,
     required this.store,
     required this.notifyEnabled,
+    this.isCurrent,
     this.interval = const Duration(seconds: 90),
     Future<void> Function(String title, String body)? notifier,
   }) : _notifier = notifier ?? SystemNotification.show;
@@ -25,6 +26,9 @@ class NotificationPoller {
   final bool Function(String sourceKey) notifyEnabled;
   final Future<void> Function(String title, String body) _notifier;
   final Duration interval;
+  final bool Function()? isCurrent;
+
+  bool get _active => isCurrent?.call() != false;
 
   Timer? _timer;
   bool _busy = false;
@@ -33,23 +37,26 @@ class NotificationPoller {
 
   /// 立即检查一次。返回本次是否发出了系统通知。
   Future<bool> checkOnce() async {
-    if (_busy) return false;
+    if (_busy || !_active) return false;
     _busy = true;
     try {
       if (!notifyEnabled('campus')) {
         // 关闭来源时仍同步 baseline，避免重新打开后一次涌入历史未读。
         final counts = await client.counts();
+        if (!_active) return false;
         store.setBaseline(counts.noRead);
         await store.save();
         return false;
       }
       final counts = await client.counts();
+      if (!_active) return false;
       if (counts.noRead <= store.lastNoRead) {
         store.setBaseline(counts.noRead);
         await store.save();
         return false;
       }
       final items = await client.list(page: 1);
+      if (!_active) return false;
       final unread = items.where((item) => !item.read).toList(growable: false);
       final freshIds = store.takeNewUnnotified(unread.map((e) => e.logId));
       final fresh = <AppNotification>[
@@ -59,7 +66,7 @@ class NotificationPoller {
       ];
       store.setBaseline(counts.noRead);
       await store.save();
-      if (fresh.isEmpty) return false;
+      if (fresh.isEmpty || !_active) return false;
       final latest = fresh.take(2).toList(growable: false);
       final title = latest.length == 1
           ? '新通知：${latest.first.title}'

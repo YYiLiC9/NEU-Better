@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/network/mail_client.dart';
 import '../../core/storage/account_scope.dart';
+import '../../core/storage/account_snapshot_cache.dart';
 
 /// 邮件列表本地缓存（按账号隔离）。
 ///
@@ -12,8 +13,9 @@ import '../../core/storage/account_scope.dart';
 /// `mail_cache.json` 位于 [AccountScope] 数据目录，文件名带当前学号，
 /// 不同账号互不可见（其他账号读取不到旧数据）。
 class MailCacheStore {
-  MailCacheStore({List<File>? candidates})
-      : _candidates = candidates ?? AccountScope.scopedFiles(_fileName);
+  MailCacheStore({List<File>? candidates, String? studentId})
+    : _candidates =
+          candidates ?? AccountScope.scopedFiles(_fileName, account: studentId);
 
   static const _fileName = 'mail_cache.json';
 
@@ -82,10 +84,10 @@ class MailCacheData {
   final List<MailSummary> items;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'studentId': studentId,
-        'updatedAt': updatedAt.toIso8601String(),
-        'items': [for (final item in items) mailSummaryToJson(item)],
-      };
+    'studentId': studentId,
+    'updatedAt': updatedAt.toIso8601String(),
+    'items': [for (final item in items) mailSummaryToJson(item)],
+  };
 
   factory MailCacheData.fromJson(Map<String, dynamic> json) {
     final studentId = '${json['studentId'] ?? ''}'.trim();
@@ -110,14 +112,14 @@ class MailCacheData {
 
 /// [MailSummary] 序列化为 JSON（收到的日期用 ISO8601 字符串）。
 Map<String, dynamic> mailSummaryToJson(MailSummary item) => <String, dynamic>{
-      'id': item.id,
-      'subject': item.subject,
-      'from': item.from,
-      'to': item.to,
-      'receivedDate': item.receivedDate?.toIso8601String(),
-      'read': item.read,
-      'hasAttachment': item.hasAttachment,
-    };
+  'id': item.id,
+  'subject': item.subject,
+  'from': item.from,
+  'to': item.to,
+  'receivedDate': item.receivedDate?.toIso8601String(),
+  'read': item.read,
+  'hasAttachment': item.hasAttachment,
+};
 
 /// 反序列化 [MailSummary]；id 为空视为无效项，返回 null。
 MailSummary? mailSummaryFromJson(Map<String, dynamic> json) {
@@ -135,80 +137,50 @@ MailSummary? mailSummaryFromJson(Map<String, dynamic> json) {
   );
 }
 
-/// 全局邮件缓存单例：按 studentId 复用客户端并缓存列表。
-///
-/// 用途：
-/// - 邮件页进入时先取 [itemsFor] 立即渲染，再后台刷新；
-/// - 首页 / 轮询复用同一个 [MailClient]，避免重复换票；
-/// - [save] 同步写盘，失败不影响界面（内部已吞掉异常）。
+/// In-memory and disk snapshots of the most recent messages for each account.
 class MailCache {
-  MailCache({MailCacheStore? store}) : _store = store ?? MailCacheStore();
+  MailCache({MailCacheStore? store}) : _testStore = store;
 
   static final MailCache instance = MailCache();
 
-  final MailCacheStore _store;
+  final MailCacheStore? _testStore;
+  final _snapshots = AccountSnapshotCache<MailCacheData>();
+  String? _lastSavedAccount;
 
-  String? _studentId;
-  List<MailSummary> _items = const <MailSummary>[];
-  MailClient? _client;
+  MailCacheStore _store(String studentId) =>
+      _testStore ?? MailCacheStore(studentId: studentId);
 
-  /// 读取某账号的磁盘缓存并填充内存；其他账号不返回旧数据。
   Future<List<MailSummary>> loadFor(String studentId) async {
-    if (_studentId != studentId) {
-      _studentId = studentId;
-      _items = const <MailSummary>[];
-      _client = null;
-    }
-    final data = await _store.read();
-    if (data == null || data.studentId != studentId) {
-      _items = const <MailSummary>[];
-      return _items;
-    }
-    _items = data.items.take(MailCacheStore.maxItems).toList(growable: false);
-    return _items;
+    final result = await _snapshots.load(studentId, () async {
+      final data = await _store(studentId).read();
+      return data?.studentId == studentId ? data : null;
+    });
+    return result?.items ?? const [];
   }
 
-  /// 同步取内存缓存；账号不匹配时返回空。
-  List<MailSummary> itemsFor(String studentId) {
-    if (_studentId != studentId) return const <MailSummary>[];
-    return _items;
-  }
+  List<MailSummary> itemsFor(String studentId) =>
+      _snapshots.dataFor(studentId)?.items ?? const [];
 
-  /// 保存列表到内存与磁盘（截断到 [MailCacheStore.maxItems]）。
-  Future<void> save(String studentId, List<MailSummary> items) async {
-    _studentId = studentId;
-    _items = items.take(MailCacheStore.maxItems).toList(growable: false);
-    await _store.write(
-      MailCacheData(
-        studentId: studentId,
-        updatedAt: DateTime.now(),
-        items: _items,
-      ),
+  Future<void> save(String studentId, List<MailSummary> items) {
+    _lastSavedAccount = studentId;
+    final data = MailCacheData(
+      studentId: studentId,
+      updatedAt: DateTime.now(),
+      items: List.unmodifiable(items.take(MailCacheStore.maxItems)),
+    );
+    return _snapshots.save(
+      studentId,
+      data,
+      () => _store(studentId).write(data),
     );
   }
 
-  /// 按 studentId 复用客户端；账号不匹配返回 null。
-  MailClient? clientFor(String studentId) {
-    if (_studentId == studentId) return _client;
-    return null;
-  }
-
-  /// 记住当前账号的客户端，后续 [clientFor] 复用。
-  void rememberClient(String studentId, MailClient client) {
-    _studentId = studentId;
-    _client = client;
-  }
-
-  /// 丢弃缓存的客户端（会话过期时调用，下次重新换票）。
-  void forgetClient() {
-    _client = null;
-  }
-
-  /// 退出登录：清空内存与磁盘缓存。
-  Future<void> clear() async {
-    _studentId = null;
-    _items = const <MailSummary>[];
-    _client = null;
-    await _store.clear();
+  Future<void> clear([String? studentId]) async {
+    final account = studentId ?? _lastSavedAccount;
+    if (account == null) {
+      await _testStore?.clear();
+      return;
+    }
+    await _snapshots.clear(account, () => _store(account).clear());
   }
 }

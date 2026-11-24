@@ -7,6 +7,9 @@ import 'package:neu_better_pro/core/auth/credential_store.dart';
 import 'package:neu_better_pro/core/auth/saved_credentials.dart';
 import 'package:neu_better_pro/core/auth/session_store.dart';
 import 'package:neu_better_pro/features/auth/auth_controller.dart';
+import 'package:neu_better_pro/core/plugins/plugin_models.dart';
+import 'package:neu_better_pro/core/plugins/plugin_service.dart';
+import 'package:neu_better_pro/features/home/home_page.dart';
 
 class _TestSessionStore implements SessionStore {
   _TestSessionStore(this.session);
@@ -34,6 +37,12 @@ class _TestCredentialStore implements CredentialStore {
   Future<void> clear() async {}
 }
 
+class _LocalPluginService extends PluginService {
+  @override
+  Future<PluginCatalog> fetchCatalog({bool force = false}) async =>
+      const PluginCatalog(version: 1, plugins: []);
+}
+
 AuthSession _session() => AuthSession(
   studentId: '20260001',
   displayName: '测试同学',
@@ -46,6 +55,7 @@ Future<void> _pumpHome(WidgetTester tester) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        homePluginServiceProvider.overrideWithValue(_LocalPluginService()),
         sessionStoreProvider.overrideWithValue(_TestSessionStore(_session())),
         credentialStoreProvider.overrideWithValue(_TestCredentialStore()),
       ],

@@ -14,15 +14,16 @@ final ValueNotifier<int> courseOverridesChanged = ValueNotifier<int>(0);
 /// 与官方快照 `timetable.json` 分开，这样「同步课表」只会覆盖官方快照，
 /// 用户的修改作为覆盖层始终保留。文件按账号隔离。
 class CourseOverrideStore {
-  const CourseOverrideStore({this.candidates});
+  const CourseOverrideStore({this.candidates, this.account});
 
   /// 测试可注入临时文件；生产用默认候选目录。
   final List<File>? candidates;
+  final String? account;
 
   static const _fileName = 'course_overrides.json';
 
   List<File> get _primary =>
-      candidates ?? AccountScope.scopedFiles(_fileName);
+      candidates ?? AccountScope.scopedFiles(_fileName, account: account);
 
   List<File> get _legacy =>
       candidates != null ? const <File>[] : AccountScope.legacyFiles(_fileName);

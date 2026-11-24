@@ -4,14 +4,16 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../core/storage/account_scope.dart';
+import 'notification_models.dart';
 
 /// 通知的本地状态（按账号持久化）：
 /// - `lastNoRead`：上次已知未读数，用于判断“新增未读”。
 /// - `notifiedIds`：已经发过系统通知的 log_id，避免重复提醒。
 /// - `localReadIds`：服务端标记已读失败时，本地兜底记录。
 class NotificationStore {
-  NotificationStore({List<File>? candidates})
-      : _candidates = candidates ?? AccountScope.scopedFiles(_fileName);
+  NotificationStore({List<File>? candidates, String? studentId})
+    : _candidates =
+          candidates ?? AccountScope.scopedFiles(_fileName, account: studentId);
 
   static const _fileName = 'notification_state.json';
 
@@ -45,7 +47,11 @@ class NotificationStore {
     }
   }
 
-  Future<void> save() async {
+  Future<void> _pendingSave = Future.value();
+
+  Future<void> save() => _pendingSave = _pendingSave.then((_) => _save());
+
+  Future<void> _save() async {
     final payload = jsonEncode(<String, dynamic>{
       'lastNoRead': _lastNoRead,
       'notifiedIds': _notifiedIds.toList(growable: false),
@@ -71,8 +77,12 @@ class NotificationStore {
     return serverRead || _localReadIds.contains(logId);
   }
 
-  Future<void> markLocalRead(int logId) async {
-    if (_localReadIds.add(logId)) await save();
+  Future<void> markLocalRead(int logId) => markLocallyRead([logId]);
+
+  Future<void> markLocallyRead(Iterable<int> logIds) async {
+    final before = _localReadIds.length;
+    _localReadIds.addAll(logIds);
+    if (_localReadIds.length != before) await save();
   }
 
   void setBaseline(int noRead) {
@@ -107,4 +117,23 @@ int? _asInt(Object? value) {
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value.trim());
   return null;
+}
+
+AppNotification applyLocalNotificationRead(
+  AppNotification item,
+  NotificationStore? store,
+) {
+  if (item.read || store?.isRead(item.logId, serverRead: false) != true) {
+    return item;
+  }
+  return AppNotification(
+    logId: item.logId,
+    read: true,
+    time: item.time,
+    title: item.title,
+    content: item.content,
+    sourceName: item.sourceName,
+    url: item.url,
+    typeName: item.typeName,
+  );
 }

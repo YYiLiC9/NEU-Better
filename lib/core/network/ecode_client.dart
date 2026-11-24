@@ -47,8 +47,7 @@ class EcodeClient {
 
   final Dio _dio;
 
-  static const service =
-      'https://ecode.neu.edu.cn/ecode/api/sso/login';
+  static const service = 'https://ecode.neu.edu.cn/ecode/api/sso/login';
   static const _apiBase = 'https://ecode.neu.edu.cn/ecode/api';
 
   /// 用统一身份账号密码登录并返回 ecode Cookie 串。
@@ -75,7 +74,8 @@ class EcodeClient {
     absorb(r);
     final body = r.data ?? '';
     String pick(String name) {
-      final m = RegExp('name="$name"[^>]*value="([^"]*)"').firstMatch(body) ??
+      final m =
+          RegExp('name="$name"[^>]*value="([^"]*)"').firstMatch(body) ??
           RegExp('value="([^"]*)"[^>]*name="$name"').firstMatch(body);
       return m?.group(1) ?? '';
     }
@@ -158,9 +158,7 @@ class EcodeClient {
         uri.toString(),
         options: Options(
           headers: {
-            'Cookie': jar.entries
-                .map((e) => '${e.key}=${e.value}')
-                .join('; '),
+            'Cookie': jar.entries.map((e) => '${e.key}=${e.value}').join('; '),
           },
         ),
       );
@@ -201,8 +199,7 @@ class EcodeClient {
       throw const EcodeException('未获取到有效二维码');
     }
     final now = DateTime.now().millisecondsSinceEpoch;
-    final create =
-        int.tryParse('${attrs['createTime'] ?? ''}') ?? now;
+    final create = int.tryParse('${attrs['createTime'] ?? ''}') ?? now;
     final invalid =
         int.tryParse('${attrs['qrInvalidTime'] ?? ''}') ?? (now + 10000);
     return EcodeQr(
@@ -213,18 +210,21 @@ class EcodeClient {
   }
 }
 
-/// ecode Cookie 持久化（按设备，仅 ecode 会话）。
+/// ecode Cookie 持久化（仅 ecode 会话）。
 class EcodeCookieStore {
-  const EcodeCookieStore();
+  const EcodeCookieStore({this.studentId});
+
+  final String? studentId;
 
   static const _storage = FlutterSecureStorage();
-  static const _key = 'neu_better.ecode.cookie.v1';
+  String get _key =>
+      'neu_better.ecode.cookie.v1${studentId == null ? '' : '.${studentId!}'}';
 
   Future<String?> read() async {
     try {
-      final value = await _storage.read(key: _key).timeout(
-        const Duration(seconds: 3),
-      );
+      final value = await _storage
+          .read(key: _key)
+          .timeout(const Duration(seconds: 3));
       return (value == null || value.isEmpty) ? null : value;
     } catch (_) {
       return null;
@@ -233,9 +233,9 @@ class EcodeCookieStore {
 
   Future<void> save(String cookie) async {
     try {
-      await _storage.write(key: _key, value: cookie).timeout(
-        const Duration(seconds: 3),
-      );
+      await _storage
+          .write(key: _key, value: cookie)
+          .timeout(const Duration(seconds: 3));
     } catch (_) {}
   }
 

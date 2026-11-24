@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../core/storage/account_scope.dart';
+import '../../core/storage/account_snapshot_cache.dart';
 import 'timetable_models.dart';
+import 'timetable_widget_service.dart';
 
 /// 课表快照更新通知：自动同步完成后，课表页可据此从缓存重新加载。
 final ValueNotifier<int> timetableChanged = ValueNotifier<int>(0);
@@ -18,24 +20,25 @@ class TimetableStore {
 
   static const _fileName = 'timetable.json';
 
-  List<File> get _primary => AccountScope.scopedFiles(_fileName);
+  static final _snapshots = AccountSnapshotCache<TimetableData>();
 
-  List<File> get _legacy => AccountScope.legacyFiles(_fileName);
-
-  Future<TimetableData?> read() async {
-    for (final file in _primary) {
-      final data = await _tryRead(file);
-      if (data != null) return data;
-    }
-    // 兼容旧版本未加账号后缀的缓存：读到后迁移到当前账号文件。
-    for (final file in _legacy) {
-      final data = await _tryRead(file);
-      if (data != null) {
-        await save(data);
-        return data;
+  Future<TimetableData?> read({String? account}) {
+    final key = AccountScope.scopedName(_fileName, account: account);
+    final primary = AccountScope.scopedFiles(_fileName, account: account);
+    return _snapshots.load(key, () async {
+      for (final file in primary) {
+        final data = await _tryRead(file);
+        if (data != null) return data;
       }
-    }
-    return null;
+      for (final file in AccountScope.legacyFiles(_fileName)) {
+        final data = await _tryRead(file);
+        if (data != null) {
+          await _write(data, primary);
+          return data;
+        }
+      }
+      return null;
+    });
   }
 
   Future<TimetableData?> _tryRead(File file) async {
@@ -52,15 +55,25 @@ class TimetableStore {
     return null;
   }
 
-  Future<void> save(TimetableData data) async {
+  Future<void> save(TimetableData data, {String? account}) async {
+    final key = AccountScope.scopedName(_fileName, account: account);
+    final primary = AccountScope.scopedFiles(_fileName, account: account);
+    final saved = _snapshots.save(key, data, () => _write(data, primary));
+    if (key == AccountScope.scopedName(_fileName)) {
+      timetableChanged.value++;
+      await TimetableWidgetService.syncOfficial(data, account: account);
+    }
+    await saved;
+  }
+
+  Future<void> _write(TimetableData data, List<File> primary) async {
     final payload = jsonEncode(data.toJson());
     Object? lastError;
-    for (final file in _primary) {
+    for (final file in primary) {
       try {
         await file.parent.create(recursive: true);
         await file.writeAsString(payload, flush: true);
         debugPrint('[timetable] saved to ${file.path}');
-        timetableChanged.value++;
         return;
       } catch (error) {
         lastError = error;

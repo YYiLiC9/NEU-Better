@@ -19,7 +19,8 @@ class AuthGate extends ConsumerWidget {
     final String key;
     final Widget child;
     if (state is AuthAuthenticated) {
-      key = 'home';
+      key =
+          'home-${state.session.studentId}-${state.session.createdAt.microsecondsSinceEpoch}';
       child = HomePage(session: state.session);
     } else if (state is AuthInitial) {
       key = 'launch';

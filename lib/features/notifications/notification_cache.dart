@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/network/notification_models.dart';
 import '../../core/storage/account_scope.dart';
+import '../../core/storage/account_snapshot_cache.dart';
 
 /// 把 [AppNotification] 序列化为可持久化的 JSON。
 Map<String, dynamic> appNotificationToJson(AppNotification item) {
@@ -54,12 +55,12 @@ class NotificationCacheData {
   final List<AppNotification> items;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'studentId': studentId,
-        'fetchedAt': fetchedAt.toIso8601String(),
-        'total': total,
-        'noRead': noRead,
-        'items': [for (final item in items) appNotificationToJson(item)],
-      };
+    'studentId': studentId,
+    'fetchedAt': fetchedAt.toIso8601String(),
+    'total': total,
+    'noRead': noRead,
+    'items': [for (final item in items) appNotificationToJson(item)],
+  };
 
   static NotificationCacheData? fromJson(Map<String, dynamic> json) {
     final studentId = (json['studentId'] ?? '').toString();
@@ -76,7 +77,9 @@ class NotificationCacheData {
     }
     return NotificationCacheData(
       studentId: studentId,
-      fetchedAt: _parseDate(json['fetchedAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      fetchedAt:
+          _parseDate(json['fetchedAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
       total: _asInt(json['total']) ?? items.length,
       noRead: _asInt(json['noRead']) ?? 0,
       items: items,
@@ -86,8 +89,9 @@ class NotificationCacheData {
 
 /// 通知列表缓存的文件读写（默认按账号目录隔离）。
 class NotificationCacheStore {
-  NotificationCacheStore({List<File>? candidates})
-      : _candidates = candidates ?? AccountScope.scopedFiles(_fileName);
+  NotificationCacheStore({List<File>? candidates, String? studentId})
+    : _candidates =
+          candidates ?? AccountScope.scopedFiles(_fileName, account: studentId);
 
   static const _fileName = 'notification_cache.json';
 
@@ -142,65 +146,59 @@ class NotificationCacheStore {
   }
 }
 
-/// 通知列表缓存单例：进程内缓存一份，磁盘按账号隔离保存。
-///
-/// 供通知页首帧秒开与 `home_page` 摘要顺带写入。
+/// Latest notification snapshots, with an explicit account for each disk operation.
 class NotificationCache {
-  NotificationCache({NotificationCacheStore? store})
-      : _store = store ?? NotificationCacheStore();
+  NotificationCache({NotificationCacheStore? store}) : _testStore = store;
 
   static final NotificationCache instance = NotificationCache();
 
-  final NotificationCacheStore _store;
+  final NotificationCacheStore? _testStore;
+  final _snapshots = AccountSnapshotCache<NotificationCacheData>();
+  String? _lastSavedAccount;
 
-  NotificationCacheData? _data;
+  NotificationCacheStore _store(String studentId) =>
+      _testStore ?? NotificationCacheStore(studentId: studentId);
 
-  /// 同步返回内存中属于该账号的缓存（可能为 null）。
-  NotificationCacheData? dataFor(String studentId) {
-    final data = _data;
-    if (data == null || data.studentId != studentId) return null;
-    return data;
-  }
+  NotificationCacheData? dataFor(String studentId) =>
+      _snapshots.dataFor(studentId);
 
-  /// 同步返回内存中属于该账号的缓存条目。
-  List<AppNotification> itemsFor(String studentId) {
-    return dataFor(studentId)?.items ?? const <AppNotification>[];
-  }
+  List<AppNotification> itemsFor(String studentId) =>
+      dataFor(studentId)?.items ?? const [];
 
-  /// 从磁盘加载；账号不匹配时视为没有缓存。
-  Future<NotificationCacheData?> loadFor(String studentId) async {
-    final data = await _store.read();
-    if (data == null || data.studentId != studentId) {
-      _data = null;
-      return null;
-    }
-    _data = data;
-    return data;
-  }
+  Future<NotificationCacheData?> loadFor(String studentId) =>
+      _snapshots.load(studentId, () async {
+        final data = await _store(studentId).read();
+        return data?.studentId == studentId ? data : null;
+      });
 
-  /// 保存列表（最多 [NotificationCacheStore.maxItems] 条）。
   Future<void> save(
     String studentId,
     List<AppNotification> items,
     int total,
     int noRead,
-  ) async {
+  ) {
+    _lastSavedAccount = studentId;
     final data = NotificationCacheData(
       studentId: studentId,
       fetchedAt: DateTime.now(),
       total: total,
       noRead: noRead,
-      items: items
-          .take(NotificationCacheStore.maxItems)
-          .toList(growable: false),
+      items: List.unmodifiable(items.take(NotificationCacheStore.maxItems)),
     );
-    _data = data;
-    await _store.write(data);
+    return _snapshots.save(
+      studentId,
+      data,
+      () => _store(studentId).write(data),
+    );
   }
 
-  Future<void> clear() async {
-    _data = null;
-    await _store.clear();
+  Future<void> clear([String? studentId]) async {
+    final account = studentId ?? _lastSavedAccount;
+    if (account == null) {
+      await _testStore?.clear();
+      return;
+    }
+    await _snapshots.clear(account, () => _store(account).clear());
   }
 }
 

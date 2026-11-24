@@ -28,9 +28,11 @@ import '../../core/plugins/plugin_models.dart';
 import '../../core/plugins/plugin_placement_store.dart';
 import '../../core/plugins/plugin_service.dart';
 import '../dorm/electricity_service.dart';
+import '../ecode/ecode_feed.dart';
 import '../ecode/ecode_page.dart';
 import '../../core/network/notification_client.dart';
 import '../mail/mail_format.dart';
+import '../mail/mail_feed.dart';
 import '../mail/mail_cache.dart';
 import '../mail/mail_page.dart';
 import '../mail/mail_poll_state.dart';
@@ -51,6 +53,7 @@ import '../settings/settings_page.dart';
 import '../timetable/timetable_page.dart';
 import '../timetable/timetable_store.dart';
 import '../timetable/timetable_sync.dart';
+import '../timetable/timetable_widget_service.dart';
 import '../timetable/timetable_schedule.dart';
 import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
@@ -66,6 +69,9 @@ part 'widgets/home_grid.dart';
 /// 当前选中一级页（0 = 首页, 1 = 课表, 2 = e码通, 3 = 设置）。
 /// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
 final homeTabProvider = StateProvider<int>((ref) => 0);
+final homePluginServiceProvider = Provider<PluginService>(
+  (ref) => PluginService(),
+);
 
 enum _HomeSection {
   overview,
@@ -97,7 +103,7 @@ class _HomePageState extends ConsumerState<HomePage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final _elecService = DormElectricityService();
   final _homeLayoutStore = const HomeLayoutStore();
-  final _pluginService = PluginService();
+  late final _pluginService = ref.read(homePluginServiceProvider);
 
   /// 已安装的远程插件（完整清单）与已安装版本登记。
   List<PluginManifest> _installedPlugins = const <PluginManifest>[];
@@ -106,6 +112,7 @@ class _HomePageState extends ConsumerState<HomePage>
   /// 远程插件目录（卡片库「可选插件」列表）。
   List<PluginManifest> _catalogPlugins = const <PluginManifest>[];
   bool _catalogLoading = false;
+  bool _catalogLoaded = false;
   String? _catalogError;
 
   /// 下载/安装进度（0..1）与失败标记，key 为插件 id。
@@ -156,6 +163,25 @@ class _HomePageState extends ConsumerState<HomePage>
   List<AppNotification> _notifyRecent = const [];
   NotificationPoller? _notifyPoller;
   bool _notifyPollerStarted = false;
+  bool _endingSession = false;
+  late final _notifications = NotificationClient.fromSession(widget.session);
+  late final _notificationState = _loadNotificationState();
+  late final MailFeed _mailFeed;
+  EcodeFeed? _ecodeFeed;
+
+  bool _isSessionActive() {
+    if (!mounted || _endingSession) return false;
+    final current = ref.read(authControllerProvider);
+    return current is AuthAuthenticated &&
+        current.session.studentId == widget.session.studentId &&
+        current.session.createdAt == widget.session.createdAt;
+  }
+
+  Future<NotificationStore> _loadNotificationState() async {
+    final store = NotificationStore(studentId: widget.session.studentId);
+    await store.load();
+    return store;
+  }
 
   /// 新邮件轮询（App 进程存活时每 3 分钟一次，不做后台/被杀推送）。
   MailPoller? _mailPoller;
@@ -164,8 +190,7 @@ class _HomePageState extends ConsumerState<HomePage>
   int _newsUnread = 0;
   List<NewsItem> _newsLatest = const <NewsItem>[];
 
-  /// e码通页首次进入后常驻（保留 WebView 状态），避免来回切换时重建/闪烁。
-  bool _ecodeVisited = false;
+  final _visitedTabs = <int>{0};
 
   /// 一级标签「淡入淡出」转场（Material 3 Fade Through）：旧页淡出→换页→新页
   /// 淡入并轻微放大。用独立 _displayedTab 驱动 IndexedStack，保证子页状态不丢。
@@ -182,16 +207,24 @@ class _HomePageState extends ConsumerState<HomePage>
       value: 1.0,
     );
     _displayedTab = ref.read(homeTabProvider);
+    _visitedTabs.add(_displayedTab);
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
+    _mailFeed = MailFeed(
+      widget.session,
+      credentials: ref.read(credentialStoreProvider),
+      isCurrent: _isSessionActive,
+    );
     WidgetsBinding.instance.addObserver(this);
     // 预热邮件本地缓存：首页卡片与邮件页可先用上次结果秒开。
-    unawaited(MailCache.instance.loadFor(widget.session.studentId));
+    final account = widget.session.studentId;
+    unawaited(
+      MailCache.instance.loadFor(account).then((items) {
+        if (_isSessionActive()) _showMailSummary(items);
+      }),
+    );
     unawaited(ref.read(appSettingsProvider.notifier).reload());
-    // 先用内置卡片集快速读取一次已保存布局，避免首帧闪成默认布局；
-    // 已安装插件列表就绪后 `_bootstrapPlugins()` 会再读一次补全插件卡片。
-    unawaited(_loadHomeLayout());
-    unawaited(_bootstrapPlugins());
+    final layout = _bootstrapPlugins();
     // 监听「点击用电提醒通知 → 打开寝室用电页」：先装 MethodChannel 回调，
     // 再查询冷启动时原生是否已有待处理请求。
     NotificationRouter.ensureHandlerInstalled();
@@ -202,68 +235,51 @@ class _HomePageState extends ConsumerState<HomePage>
     _loadStatus();
     dormPrefsChanged.addListener(_loadStatus);
     // 预热通知缓存：进入通知页时可同步命中内存缓存，冷启动也尽量首帧直出。
-    unawaited(NotificationCache.instance.loadFor(widget.session.studentId));
+    unawaited(
+      NotificationCache.instance.loadFor(account).then((snapshot) {
+        if (_isSessionActive() && snapshot != null) {
+          _showNotifySummary(snapshot.items, snapshot.noRead);
+        }
+      }),
+    );
     final settings = ref.read(appSettingsProvider);
     unawaited(
       WindowsWindow.setCloseBehavior(
         minimizeToTaskbar: settings.minimizeOnClose && settings.showTrayIcon,
       ),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      _runDailyElectricityCheck();
-      // 通知/邮件摘要与轮询不依赖课表同步，先启动，避免课表网络失败阻断它们。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_runDailyElectricityCheck());
       unawaited(_loadMailSummary());
       unawaited(_loadNotifySummary());
-      unawaited(_loadNewsSummary());
+      unawaited(
+        layout.then((_) {
+          if (_isSessionActive() &&
+              _homeCards.any((card) => card.id == 'news')) {
+            return _loadNewsSummary();
+          }
+        }),
+      );
       unawaited(_startNotificationPoller());
       unawaited(_syncNotificationBackground());
       _syncMailPoller();
-      await _ensureTimetable();
-    });
-    // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
-    // 用户点开 e码通时二维码通常已渲染好，实现「点进去就显示」。
-    // 单元/组件测试环境跳过，避免测试里创建 WebView 与悬挂定时器。
-    final inTest = Platform.environment.containsKey('FLUTTER_TEST');
-    if (!kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android &&
-        !inTest) {
-      // 首帧后立即预热 e码通（不再延迟 1.2s），让 WebView 与课表同步并行加载，
-      // 缩短冷启动首次点开 e码通的等待时间。
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_ecodeVisited) {
-          setState(() => _ecodeVisited = true);
-        }
-      });
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant HomePage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.session.studentId != widget.session.studentId) {
-      // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电 / 首页布局。
-      AccountScope.setAccount(widget.session.studentId);
-      // 停止旧账号的邮件轮询，切换到新账号的缓存与轮询状态。
-      _mailPoller?.stop();
-      _mailPoller = null;
-      unawaited(MailCache.instance.loadFor(widget.session.studentId));
-      unawaited(ref.read(appSettingsProvider.notifier).reload());
-      unawaited(_bootstrapPlugins());
-      _loadStatus();
-      ref.read(timetableDataProvider.notifier).state = null;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _syncMailPoller();
-        _ensureTimetable();
-      });
-    }
-  }
-
-  Future<void> _loadHomeLayout() async {
-    final cards = await _homeLayoutStore.read(allowedIds: _allowedCardIds);
-    if (!mounted) return;
-    setState(() {
-      _homeCards = cards;
-      _layoutLoaded = true;
+      unawaited(_ensureTimetable());
+      if (Platform.isAndroid &&
+          !Platform.environment.containsKey('FLUTTER_TEST')) {
+        final feed = _ecodeFeed ??= EcodeFeed(
+          widget.session,
+          credentials: ref.read(credentialStoreProvider),
+        );
+        unawaited(
+          feed
+              .fetch(preferCached: true)
+              .then<void>((_) {}, onError: (Object _) {}),
+        );
+      }
+      if (ref.read(_homeDestinationProvider).section == _HomeSection.gallery) {
+        unawaited(_fetchCatalog());
+      }
     });
   }
 
@@ -273,35 +289,35 @@ class _HomePageState extends ConsumerState<HomePage>
     for (final plugin in _installedPlugins) plugin.id,
   };
 
-  /// 启动/切账号：先读取已安装插件（决定 allowedIds），再加载首页布局，最后拉目录。
   Future<void> _bootstrapPlugins() async {
+    final placements = _placementStore.load();
     try {
       final installed = await _pluginService.readInstalledManifests();
-      final versions = await _pluginService.installedVersions();
-      if (!mounted) return;
-      setState(() {
-        _installedPlugins = installed;
-        _installedPluginVersions = versions;
-      });
+      if (!_isSessionActive()) return;
+      _installedPlugins = installed;
+      _installedPluginVersions = _pluginService.registry.installed;
       _syncPluginNotifySources(installed);
     } catch (error) {
       debugPrint('[plugins] load installed failed: $error');
     }
-    await _loadHomeLayout();
-    await _loadPlacements();
-    await _fetchCatalog();
+    final cards = await _homeLayoutStore.read(allowedIds: _allowedCardIds);
+    await placements;
+    if (!_isSessionActive()) return;
+    await _applyPlacements(cards);
   }
 
   /// 读取插件外观，并与首页布局对齐：
   /// - 内置三项默认 home，远程已装默认 none（由 store 默认值给出）；
   /// - `home || sidebar` 保证首页有一张兜底卡；none 则移除卡片；
   /// - 侧栏成员 = sidebar==true 的插件，默认顺序为内置在前、远程按安装顺序。
-  Future<void> _loadPlacements() async {
-    await _placementStore.load();
+  Future<void> _applyPlacements(List<HomeCardLayout> cards) async {
     final allowed = _allowedCardIds;
-    final nextCards = <HomeCardLayout>[..._homeCards];
+    final nextCards = <HomeCardLayout>[...cards];
     var layoutChanged = false;
-    for (final id in <String>{...homeCardCatalog.map((e) => e.id), ..._installedPlugins.map((e) => e.id)}) {
+    for (final id in <String>{
+      ...homeCardCatalog.map((e) => e.id),
+      ..._installedPlugins.map((e) => e.id),
+    }) {
       if (!allowed.contains(id)) continue;
       final appearance = _placementStore.appearanceOf(id);
       final hasCard = nextCards.any((card) => card.id == id);
@@ -309,15 +325,14 @@ class _HomePageState extends ConsumerState<HomePage>
         nextCards.removeWhere((card) => card.id == id);
         layoutChanged = true;
       } else if (!appearance.none && !hasCard) {
-        nextCards.add(
-          HomeCardLayout(id: id, size: HomeCardSize.s1x1),
-        );
+        nextCards.add(HomeCardLayout(id: id, size: HomeCardSize.s1x1));
         layoutChanged = true;
       }
     }
     if (!mounted) return;
     setState(() {
       _homeCards = nextCards;
+      _layoutLoaded = true;
       _appearances = Map<String, PluginAppearance>.from(
         _placementStore.appearances,
       );
@@ -336,7 +351,10 @@ class _HomePageState extends ConsumerState<HomePage>
   List<String> _computeSidebarIds() {
     final allowed = _allowedCardIds;
     final candidates = <String>[
-      for (final id in <String>[...kDefaultHomePluginIds, ..._installedPlugins.map((e) => e.id)])
+      for (final id in <String>[
+        ...kDefaultHomePluginIds,
+        ..._installedPlugins.map((e) => e.id),
+      ])
         if (allowed.contains(id) && _appearanceOf(id).sidebar) id,
     ];
     final unique = <String>[];
@@ -363,7 +381,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   Future<void> _fetchCatalog({bool force = false}) async {
-    if (!mounted) return;
+    if (!mounted || _catalogLoading || (_catalogLoaded && !force)) return;
     setState(() {
       _catalogLoading = true;
       _catalogError = null;
@@ -373,6 +391,7 @@ class _HomePageState extends ConsumerState<HomePage>
       if (!mounted) return;
       setState(() {
         _catalogPlugins = catalog.plugins;
+        _catalogLoaded = true;
         _catalogLoading = false;
       });
     } catch (error) {
@@ -398,7 +417,7 @@ class _HomePageState extends ConsumerState<HomePage>
       if (mounted) setState(() => _downloadProgress[manifest.id] = 0.9);
       await Future<void>.delayed(const Duration(milliseconds: 300));
       final installed = await _pluginService.readInstalledManifests();
-      final versions = await _pluginService.installedVersions();
+      final versions = _pluginService.registry.installed;
       if (!mounted) return;
       setState(() {
         _downloadProgress.remove(manifest.id);
@@ -427,9 +446,8 @@ class _HomePageState extends ConsumerState<HomePage>
         _downloadProgress.remove(manifest.id);
         _downloadFailed.add(manifest.id);
       });
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('安装失败：$error')),
-      );
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text('安装失败：$error')));
     }
   }
 
@@ -438,7 +456,7 @@ class _HomePageState extends ConsumerState<HomePage>
     try {
       await _pluginService.uninstall(id);
       final installed = await _pluginService.readInstalledManifests();
-      final versions = await _pluginService.installedVersions();
+      final versions = _pluginService.registry.installed;
       if (!mounted) return;
       setState(() {
         _installedPlugins = installed;
@@ -579,11 +597,15 @@ class _HomePageState extends ConsumerState<HomePage>
       case 'notify':
         return NotificationPage(
           session: widget.session,
+          client: _notifications,
+          localState: _notificationState,
+          isCurrent: _isSessionActive,
           onBack: _returnFromSidebarPlugin,
         );
       case 'mail':
         return MailPage(
           session: widget.session,
+          feed: _mailFeed,
           onBack: _returnFromSidebarPlugin,
         );
       case campusNetworkPluginId:
@@ -641,6 +663,7 @@ class _HomePageState extends ConsumerState<HomePage>
     });
     unawaited(_placementStore.reorderSidebar(next));
   }
+
   /// 设置插件外观，并同步首页布局 / 侧栏 / 持久化。
   Future<void> _setPluginAppearance(
     String id,
@@ -670,11 +693,31 @@ class _HomePageState extends ConsumerState<HomePage>
     await _saveHomeLayout();
   }
 
-  Future<void> _ensureTimetable() async {    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
-    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+  Future<void> _ensureTimetable() async {
+    // 测试环境不联网同步（无校园网、且会悬挂网络等待）。
     try {
-      final cached = await const TimetableStore().read();
-      if (!mounted) return;
+      final account = widget.session.studentId;
+      if (!_isSessionActive()) return;
+      final owner = AccountScope.scopedName('timetable', account: account);
+      final previousOwner = ref.read(timetableAccountProvider);
+      if (previousOwner != owner) {
+        ref.read(timetableOverlayProvider.notifier).state = null;
+        ref.read(timetableAccountProvider.notifier).state = owner;
+        if (previousOwner != null) {
+          ref.read(timetableDataProvider.notifier).state = null;
+        }
+      }
+      final snapshot = ref.read(timetableDataProvider);
+      final cached =
+          snapshot ?? await const TimetableStore().read(account: account);
+      if (!_isSessionActive()) return;
+      if (cached != null && ref.read(timetableDataProvider) == null) {
+        ref.read(timetableDataProvider.notifier).state = cached;
+        unawaited(
+          TimetableWidgetService.syncOfficial(cached, account: account),
+        );
+      }
+      if (Platform.environment.containsKey('FLUTTER_TEST')) return;
       final cacheEmpty = cached == null || cached.sessions.isEmpty;
       final sinceLogin = DateTime.now().difference(widget.session.createdAt);
       final justLoggedIn =
@@ -689,7 +732,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   Future<void> _autoSyncTimetable() async {
     final data = await TimetableSyncService.syncWithSession(widget.session);
-    if (data != null && mounted) {
+    if (data != null && _isSessionActive()) {
       // 同步到的最新课表（含考试）写入共享 Provider，主题切换重挂载时可直接恢复。
       ref.read(timetableDataProvider.notifier).state = data;
       debugPrint('[timetable] auto synced ${data.sessions.length} sessions');
@@ -705,6 +748,9 @@ class _HomePageState extends ConsumerState<HomePage>
     dormPrefsChanged.removeListener(_loadStatus);
     _notifyPoller?.stop();
     _mailPoller?.stop();
+    _mailFeed.dispose();
+    _notifications.close();
+    _ecodeFeed?.dispose();
     _sidebarHintTimer?.cancel();
     _tabFade.dispose();
     super.dispose();
@@ -788,6 +834,7 @@ class _HomePageState extends ConsumerState<HomePage>
   final GlobalKey _dormCardKey = GlobalKey();
 
   void _showHomeSection(_HomeSection section, {PluginManifest? plugin}) {
+    if (section == _HomeSection.gallery) unawaited(_fetchCatalog());
     ref.read(_homeDestinationProvider.notifier).state = (
       section: section,
       plugin: plugin,
@@ -838,9 +885,6 @@ class _HomePageState extends ConsumerState<HomePage>
       _goToTab(0, keepHomeSection: !onHomeRoot);
       return;
     }
-    if (value == 2 && !_ecodeVisited) {
-      setState(() => _ecodeVisited = true);
-    }
     _goToTab(value);
   }
 
@@ -875,7 +919,10 @@ class _HomePageState extends ConsumerState<HomePage>
       final next = _pendingTab!;
       _pendingTab = null;
       if (next == _displayedTab) continue;
-      setState(() => _displayedTab = next);
+      setState(() {
+        _displayedTab = next;
+        _visitedTabs.add(next);
+      });
       _tabFade.value = 0.0;
       await _tabFade.animateTo(
         1.0,
@@ -889,9 +936,10 @@ class _HomePageState extends ConsumerState<HomePage>
   Widget _wrapTabFade(Widget child) => FadeTransition(
     opacity: _tabFade,
     child: ScaleTransition(
-      scale: Tween<double>(begin: 0.96, end: 1.0).animate(
-        CurvedAnimation(parent: _tabFade, curve: Curves.easeOutCubic),
-      ),
+      scale: Tween<double>(
+        begin: 0.96,
+        end: 1.0,
+      ).animate(CurvedAnimation(parent: _tabFade, curve: Curves.easeOutCubic)),
       child: child,
     ),
   );
@@ -966,16 +1014,31 @@ class _HomePageState extends ConsumerState<HomePage>
         index: _displayedTab,
         children: [
           _buildHomeTab(),
-          TimetablePage(compact: true, mobile: true),
-          // e码通首次进入后常驻，避免来回切换重建闪烁。
-          (_ecodeVisited || _tab == 2)
-              ? EcodePage(session: widget.session, active: _tab == 2)
+          _visitedTabs.contains(1)
+              ? TimetablePage(
+                  compact: true,
+                  mobile: true,
+                  visible: _displayedTab == 1,
+                  account: widget.session.studentId,
+                )
               : const SizedBox.shrink(),
-          MobileSettingsPage(onLogout: _logout),
+          _visitedTabs.contains(2) ? _buildEcode() : const SizedBox.shrink(),
+          _visitedTabs.contains(3)
+              ? MobileSettingsPage(onLogout: _logout)
+              : const SizedBox.shrink(),
         ],
       ),
     );
   }
+
+  Widget _buildEcode() => EcodePage(
+    session: widget.session,
+    active: _displayedTab == 2 && _displayedPluginId == null,
+    feed: _ecodeFeed ??= EcodeFeed(
+      widget.session,
+      credentials: ref.read(credentialStoreProvider),
+    ),
+  );
 
   /// 底部导航栏：首页 / 课表 / e码通 / 设置。
   /// 用自绘 Row + GestureDetector，彻底去掉 NavigationBar 选中项的胶囊
@@ -1152,21 +1215,17 @@ class _HomePageState extends ConsumerState<HomePage>
                           if (_sidebarMeta(_visibleSidebarIds[i])
                               case final meta?)
                             ReorderableDelayedDragStartListener(
-                              key: ValueKey(
-                                'sidebar-${_visibleSidebarIds[i]}',
-                              ),
+                              key: ValueKey('sidebar-${_visibleSidebarIds[i]}'),
                               index: i,
                               child: _PluginNavItem(
                                 label: meta.label,
                                 icon: meta.icon,
                                 badge: meta.badge,
                                 active:
-                                    _displayedPluginId ==
-                                    _visibleSidebarIds[i],
+                                    _displayedPluginId == _visibleSidebarIds[i],
                                 showDragHandle: _sidebarDragging,
-                                onTap: () => _openSidebarPlugin(
-                                  _visibleSidebarIds[i],
-                                ),
+                                onTap: () =>
+                                    _openSidebarPlugin(_visibleSidebarIds[i]),
                               ),
                             ),
                       ],
@@ -1194,25 +1253,37 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
         Expanded(
           child: _wrapTabFade(
-            _displayedPluginId != null
-                ? _buildPluginContent(_displayedPluginId!)
-                : IndexedStack(
+            Stack(
+              fit: StackFit.expand,
+              children: [
+                Offstage(
+                  offstage: _displayedPluginId != null,
+                  child: IndexedStack(
                     key: const ValueKey('home-tab-stack'),
                     index: !showEcode && _displayedTab > 1 ? 0 : _displayedTab,
                     children: [
                       _buildHomeTab(),
-                      TimetablePage(),
+                      _visitedTabs.contains(1)
+                          ? TimetablePage(
+                              visible:
+                                  _displayedTab == 1 &&
+                                  _displayedPluginId == null,
+                              account: widget.session.studentId,
+                            )
+                          : const SizedBox.shrink(),
                       if (showEcode) ...[
-                        (_ecodeVisited || _tab == 2)
-                            ? EcodePage(
-                                session: widget.session,
-                                active: _tab == 2,
-                              )
+                        _visitedTabs.contains(2)
+                            ? _buildEcode()
                             : const SizedBox.shrink(),
                         const SizedBox.shrink(),
                       ],
                     ],
                   ),
+                ),
+                if (_displayedPluginId case final pluginId?)
+                  _buildPluginContent(pluginId),
+              ],
+            ),
           ),
         ),
       ],
@@ -1249,10 +1320,14 @@ class _HomePageState extends ConsumerState<HomePage>
       ),
       _HomeSection.mail => MailPage(
         session: widget.session,
+        feed: _mailFeed,
         onBack: _returnHome,
       ),
       _HomeSection.notifications => NotificationPage(
         session: widget.session,
+        client: _notifications,
+        localState: _notificationState,
+        isCurrent: _isSessionActive,
         onBack: _returnHome,
       ),
       _HomeSection.network => CampusNetworkPage(
@@ -1274,7 +1349,13 @@ class _HomePageState extends ConsumerState<HomePage>
 
   Widget _buildHomeOverview() {
     final isWide = MediaQuery.sizeOf(context).width >= _wideLayoutMinWidth;
-    final data = ref.watch(timetableDataProvider);
+    final owner = AccountScope.scopedName(
+      'timetable',
+      account: widget.session.studentId,
+    );
+    final data = ref.watch(timetableAccountProvider) == owner
+        ? ref.watch(timetableDataProvider)
+        : null;
     int? week;
     if (data != null) {
       try {
@@ -1410,63 +1491,54 @@ class _HomePageState extends ConsumerState<HomePage>
     return _PlaceholderCard(id: id, size: size);
   }
 
-  /// best-effort 拉取邮件摘要供首页卡片展示；任何失败都静默忽略。
+  void _showMailSummary(List<MailSummary> items) {
+    setState(() {
+      _mailRecent = items.take(2).toList(growable: false);
+      _mailUnread = items.take(30).where((item) => !item.read).length;
+    });
+  }
+
   Future<void> _loadMailSummary() async {
     try {
-      MailClient client;
-      try {
-        client = await MailClient.fromSession(widget.session);
-      } catch (_) {
-        // 会话换票失败时，若本地保存了密码则用密码再走一次 CAS（与邮件页一致）。
-        final credentials = await ref.read(credentialStoreProvider).read();
-        final password = credentials?.password;
-        if (credentials == null || password == null || password.isEmpty) {
-          rethrow;
-        }
-        client = await MailClient.fromCredentials(
-          username: credentials.username,
-          password: password,
-        );
-      }
-      final items = await client.list(limit: 30);
-      if (!mounted) return;
-      // 记住客户端并写入本地缓存，供邮件页秒开、轮询复用。
-      MailCache.instance.rememberClient(widget.session.studentId, client);
-      unawaited(MailCache.instance.save(widget.session.studentId, items));
-      // 卡片展示「最近的邮件」，不区分已读/未读；未读数只用于标题旁的统计。
-      final unread = items.where((m) => !m.read).toList(growable: false);
-      setState(() {
-        _mailRecent = items.take(2).toList(growable: false);
-        _mailUnread = unread.length;
-      });
+      final (_, items) = await _mailFeed.refresh();
+      if (_isSessionActive()) _showMailSummary(items);
     } catch (_) {
-      // 静默失败：首页卡片显示「点开查看邮件」，不影响其它功能。
+      // Leave the cached summary visible when the mailbox is unavailable.
     }
   }
 
-  /// best-effort 拉取通知摘要供首页卡片展示；失败静默。
+  void _showNotifySummary(List<AppNotification> items, int unread) {
+    setState(() {
+      _notifyRecent = items.take(2).toList(growable: false);
+      _notifyUnread = unread;
+    });
+  }
+
   Future<void> _loadNotifySummary() async {
     try {
-      final client = NotificationClient.fromSession(widget.session);
-      final counts = await client.counts();
-      final items = await client.list(page: 1);
-      if (!mounted) return;
-      setState(() {
-        // 卡片始终展示最近两条通知（已读也显示），未读数仅作统计。
-        _notifyRecent = items.take(2).toList(growable: false);
-        _notifyUnread = counts.noRead;
-      });
-      // 顺带把第一页写入本地缓存，供通知页秒开。
+      final counts = await _notifications.counts();
+      final items = await _notifications.list();
+      final state = await _notificationState;
+      if (!_isSessionActive()) return;
+      final visible = [
+        for (final item in items) applyLocalNotificationRead(item, state),
+      ];
+      // A local read can complete while an older server response is in flight.
+      final locallyRead =
+          visible.where((item) => item.read).length -
+          items.where((item) => item.read).length;
+      final unread = (counts.noRead - locallyRead).clamp(0, counts.noRead);
+      _showNotifySummary(visible, unread);
       unawaited(
         NotificationCache.instance.save(
           widget.session.studentId,
-          items,
+          visible,
           counts.total,
-          counts.noRead,
+          unread,
         ),
       );
     } catch (_) {
-      // 静默失败：通知卡显示「点开查看通知」，不影响其它功能。
+      // Leave the cached summary visible when the message center is unavailable.
     }
   }
 
@@ -1502,8 +1574,8 @@ class _HomePageState extends ConsumerState<HomePage>
     // 组件测试环境不启动定时器，避免 "A Timer is still pending"。
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     if (!mounted) return;
-    final enabled =
-        ref.read(appSettingsProvider.notifier).notifyEnabled('mail');
+    final settings = ref.read(appSettingsProvider.notifier);
+    final enabled = settings.notifyEnabled('mail');
     if (!enabled) {
       _mailPoller?.stop();
       _mailPoller = null;
@@ -1515,8 +1587,7 @@ class _HomePageState extends ConsumerState<HomePage>
       notify: (title, body) =>
           unawaited(SystemNotification.show(title, body, route: 'mail')),
       state: MailPollState(),
-      enabled: () =>
-          ref.read(appSettingsProvider.notifier).notifyEnabled('mail'),
+      enabled: () => _isSessionActive() && settings.notifyEnabled('mail'),
     );
     _mailPoller = poller;
     unawaited(() async {
@@ -1528,50 +1599,21 @@ class _HomePageState extends ConsumerState<HomePage>
     }());
   }
 
-  /// 轮询用：拉取最新邮件；会话过期时丢弃缓存的客户端并重建重试一次。
   Future<List<MailSummary>> _fetchMailForPoll() async {
-    final studentId = widget.session.studentId;
-    var client = MailCache.instance.clientFor(studentId) ??
-        await _createMailClient(studentId);
-    try {
-      return await client.list(limit: 40);
-    } on MailSessionExpired {
-      MailCache.instance.forgetClient();
-      client = await _createMailClient(studentId);
-      return client.list(limit: 40);
-    }
-  }
-
-  /// 创建邮件客户端（会话换票，失败回退本地密码），并登记到 [MailCache]。
-  Future<MailClient> _createMailClient(String studentId) async {
-    MailClient client;
-    try {
-      client = await MailClient.fromSession(widget.session);
-    } catch (_) {
-      final credentials = await ref.read(credentialStoreProvider).read();
-      final password = credentials?.password;
-      if (credentials == null || password == null || password.isEmpty) {
-        rethrow;
-      }
-      client = await MailClient.fromCredentials(
-        username: credentials.username,
-        password: password,
-      );
-    }
-    MailCache.instance.rememberClient(studentId, client);
-    return client;
+    final (_, items) = await _mailFeed.refresh();
+    return items.take(40).toList(growable: false);
   }
 
   Future<void> _startNotificationPoller() async {
     if (_notifyPollerStarted) return;
     _notifyPollerStarted = true;
     try {
-      final client = NotificationClient.fromSession(widget.session);
-      final store = NotificationStore();
-      await store.load();
+      final store = await _notificationState;
+      if (!_isSessionActive()) return;
       final poller = NotificationPoller(
-        client: client,
+        client: _notifications,
         store: store,
+        isCurrent: _isSessionActive,
         notifyEnabled: (key) =>
             ref.read(appSettingsProvider.notifier).notifyEnabled(key),
       );
@@ -1595,8 +1637,8 @@ class _HomePageState extends ConsumerState<HomePage>
         NeuServiceSession.parseCookieJar(widget.session.cookies),
         'personal.neu.edu.cn',
       );
-      final store = NotificationStore();
-      await store.load();
+      final store = await _notificationState;
+      if (!_isSessionActive()) return;
       await NotificationBackground.sync(
         enabled: enabled,
         cookie: cookie,
@@ -1608,12 +1650,20 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   Future<void> _logout() async {
-    // 退出登录：停止邮件轮询并清空本地缓存。
+    _endingSession = true;
+    ref.read(timetableAccountProvider.notifier).state = null;
+    ref.read(timetableDataProvider.notifier).state = null;
+    ref.read(timetableOverlayProvider.notifier).state = null;
+    ref.invalidate(timetableViewProvider);
+    _notifyPoller?.stop();
+    _mailFeed.dispose();
+    _ecodeFeed?.dispose();
+    _notifications.close();
     _mailPoller?.stop();
     _mailPoller = null;
     // 清空本地邮件/通知缓存（无需阻塞退出导航）。
-    unawaited(MailCache.instance.clear());
-    unawaited(NotificationCache.instance.clear());
+    unawaited(MailCache.instance.clear(widget.session.studentId));
+    unawaited(NotificationCache.instance.clear(widget.session.studentId));
     await ref.read(authControllerProvider.notifier).logout();
   }
 }

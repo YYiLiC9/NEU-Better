@@ -11,6 +11,7 @@ import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/mail_client.dart';
 import 'mail_cache.dart';
+import 'mail_feed.dart';
 import 'mail_detail_page.dart';
 import 'mail_format.dart';
 
@@ -20,9 +21,10 @@ import 'mail_format.dart';
 /// 正文在详情页原生渲染。初始化失败时只显示原生错误态 + 重试，不再使用
 /// WebView / 网页版兜底。
 class MailPage extends ConsumerStatefulWidget {
-  const MailPage({super.key, required this.session, this.onBack});
+  const MailPage({super.key, required this.session, this.onBack, this.feed});
 
   final AuthSession session;
+  final MailFeed? feed;
 
   /// 非空表示以「首页二级页」方式内嵌显示（保留底部导航），点击返回调用它。
   final VoidCallback? onBack;
@@ -32,7 +34,11 @@ class MailPage extends ConsumerStatefulWidget {
 }
 
 class _MailPageState extends ConsumerState<MailPage> {
+  late final _feed =
+      widget.feed ??
+      MailFeed(widget.session, credentials: ref.read(credentialStoreProvider));
   MailClient? _client;
+  bool _refreshing = false;
   List<MailSummary> _items = const [];
   bool _loading = true;
   String? _error;
@@ -64,27 +70,15 @@ class _MailPageState extends ConsumerState<MailPage> {
     await _load();
   }
 
-  Future<MailClient> _createClient() async {
-    try {
-      return await MailClient.fromSession(widget.session);
-    } catch (error) {
-      // 会话换票失败时，若本地保存了密码则用密码再走一次 CAS。
-      final credentials = await ref.read(credentialStoreProvider).read();
-      final password = credentials?.password;
-      if (credentials != null &&
-          password != null &&
-          password.isNotEmpty) {
-        return MailClient.fromCredentials(
-          username: credentials.username,
-          password: password,
-        );
-      }
-      rethrow;
-    }
+  @override
+  void dispose() {
+    if (widget.feed == null) _feed.dispose();
+    super.dispose();
   }
 
   Future<void> _load({bool refresh = false}) async {
-    final studentId = widget.session.studentId;
+    if (_refreshing || !_feed.active) return;
+    _refreshing = true;
     if (refresh) {
       setState(() => _error = null);
     } else if (_items.isEmpty) {
@@ -96,13 +90,10 @@ class _MailPageState extends ConsumerState<MailPage> {
       setState(() => _error = null);
     }
     try {
-      final client = _client ??
-          MailCache.instance.clientFor(studentId) ??
-          await _createClient();
-      final items = await client.list().timeout(const Duration(seconds: 20));
+      final (client, items) = await _feed.refresh().timeout(
+        const Duration(seconds: 20),
+      );
       if (!mounted) return;
-      MailCache.instance.rememberClient(studentId, client);
-      unawaited(MailCache.instance.save(studentId, items));
       setState(() {
         _client = client;
         _items = items;
@@ -112,15 +103,15 @@ class _MailPageState extends ConsumerState<MailPage> {
     } catch (error) {
       if (!mounted) return;
       if (error is MailSessionExpired) {
-        // 会话过期：丢弃缓存的客户端，下次重新换票。
         _client = null;
-        MailCache.instance.forgetClient();
       }
       setState(() {
         _loading = false;
         // 已有缓存时不展示全屏错误，保留列表继续可读。
         _error = _items.isEmpty ? _describe(error) : null;
       });
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -132,7 +123,7 @@ class _MailPageState extends ConsumerState<MailPage> {
 
   void _openDetail(MailSummary summary) {
     final client = _client;
-    if (client == null) return;
+    if (client == null || !_feed.active) return;
     if (!summary.read) {
       unawaited(_markRead(summary, client));
     }
@@ -155,6 +146,7 @@ class _MailPageState extends ConsumerState<MailPage> {
   /// 远程失败只记录日志，不阻塞进入详情。
   Future<void> _markRead(MailSummary summary, MailClient client) async {
     if (!mounted) return;
+    _feed.markRead(summary.id);
     setState(() {
       _items = [
         for (final item in _items)
@@ -267,12 +259,19 @@ class _MailPageState extends ConsumerState<MailPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.inbox_outlined,
-                            size: 40, color: AppColors.faint),
+                        Icon(
+                          Icons.inbox_outlined,
+                          size: 40,
+                          color: AppColors.faint,
+                        ),
                         const SizedBox(height: 10),
-                        Text('收件箱暂无邮件',
-                            style: TextStyle(
-                                fontSize: 12.5, color: AppColors.muted)),
+                        Text(
+                          '收件箱暂无邮件',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.muted,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -310,10 +309,7 @@ class _MailPageState extends ConsumerState<MailPage> {
               style: TextStyle(fontSize: 12.5, color: AppColors.muted),
             ),
             const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: () => _load(),
-              child: const Text('重试'),
-            ),
+            OutlinedButton(onPressed: () => _load(), child: const Text('重试')),
           ],
         ),
       ),
@@ -365,8 +361,7 @@ class _MailListItem extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13.5,
                         height: 1.3,
-                        fontWeight:
-                            unread ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
                         color: AppColors.ink,
                       ),
                     ),
@@ -390,8 +385,11 @@ class _MailListItem extends StatelessWidget {
                   ),
                   if (item.hasAttachment) ...[
                     const SizedBox(height: 6),
-                    Icon(Icons.attach_file_rounded,
-                        size: 13, color: AppColors.muted),
+                    Icon(
+                      Icons.attach_file_rounded,
+                      size: 13,
+                      color: AppColors.muted,
+                    ),
                   ],
                 ],
               ),

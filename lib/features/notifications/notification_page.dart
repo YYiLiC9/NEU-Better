@@ -18,11 +18,15 @@ class NotificationPage extends ConsumerStatefulWidget {
     super.key,
     required this.session,
     this.client,
+    this.localState,
+    this.isCurrent,
     this.onBack,
   });
 
   final AuthSession session;
   final NotificationClient? client;
+  final Future<NotificationStore>? localState;
+  final bool Function()? isCurrent;
 
   /// 非空表示以「首页二级页」方式内嵌显示（保留底部导航），点击返回调用它。
   final VoidCallback? onBack;
@@ -39,6 +43,9 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   final List<AppNotification> _items = <AppNotification>[];
   bool _loading = true;
   bool _loadingMore = false;
+  bool _refreshing = false;
+
+  bool get _active => mounted && widget.isCurrent?.call() != false;
   String? _error;
   int _page = 1;
   int _total = 0;
@@ -50,42 +57,43 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    final cached = NotificationCache.instance.dataFor(widget.session.studentId);
+    if (cached != null) _useSnapshot(cached);
     unawaited(_initCached());
   }
 
   /// 先用本地缓存秒开列表，再静默后台刷新。
   Future<void> _initCached() async {
-    // 本地兜底已读（服务端标记失败时仍能展示已读），只加载一次。
-    final store = NotificationStore();
-    try {
-      await store.load();
-    } catch (error) {
-      debugPrint('[notify] local read state load failed: $error');
-    }
-    if (!mounted) return;
-    _localStore = store;
-
-    var cached = NotificationCache.instance.dataFor(widget.session.studentId);
-    if (cached == null || cached.items.isEmpty) {
-      cached = await NotificationCache.instance.loadFor(widget.session.studentId);
-      if (!mounted) return;
-    }
-    final data = cached;
-    if (data != null && data.items.isNotEmpty) {
-      setState(() {
-        _items
-          ..clear()
-          ..addAll(data.items);
-        _total = data.total;
-        _noRead = data.noRead;
-        _loading = false;
-      });
-    }
+    final state = widget.localState ?? _loadLocalState();
+    final cached = await NotificationCache.instance.loadFor(
+      widget.session.studentId,
+    );
+    if (!_active) return;
+    if (cached != null) setState(() => _useSnapshot(cached));
+    final store = await state;
+    if (!_active) return;
+    setState(() => _localStore = store);
     await _load(refresh: true, silent: true);
+  }
+
+  void _useSnapshot(NotificationCacheData data) {
+    _items
+      ..clear()
+      ..addAll(data.items);
+    _total = data.total;
+    _noRead = data.noRead;
+    _loading = data.items.isEmpty;
+  }
+
+  Future<NotificationStore> _loadLocalState() async {
+    final store = NotificationStore(studentId: widget.session.studentId);
+    await store.load();
+    return store;
   }
 
   @override
   void dispose() {
+    if (widget.client == null) _client.close();
     _scroll.dispose();
     super.dispose();
   }
@@ -99,6 +107,8 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   }
 
   Future<void> _load({bool refresh = false, bool silent = false}) async {
+    if (!_active || _refreshing) return;
+    _refreshing = true;
     if (refresh) {
       setState(() {
         // 有缓存时秒开：刷新不清空列表，也不无条件盖全屏 loading。
@@ -108,13 +118,13 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       });
     }
     try {
-      final counts = await _client
-          .counts()
-          .timeout(const Duration(seconds: 15));
+      final counts = await _client.counts().timeout(
+        const Duration(seconds: 15),
+      );
       final items = await _client
           .list(page: 1)
           .timeout(const Duration(seconds: 15));
-      if (!mounted) return;
+      if (!_active) return;
       setState(() {
         _items
           ..clear()
@@ -133,22 +143,28 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       ];
       if (unreadIds.isNotEmpty) {
         final ok = await _client.markRead(unreadIds);
-        if (ok && mounted) {
+        if (ok && _active) {
+          await _localStore?.markLocallyRead(unreadIds);
+          if (!_active) return;
           setState(() => _noRead = 0);
           unawaited(_persistCache());
         }
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!_active) return;
       final hasCache = _items.isNotEmpty;
       setState(() {
         _loading = false;
         // 有缓存时保留旧列表，不显示全屏错误。
         if (!hasCache) {
-          _error = error is NotificationQueryException ? error.message : '$error';
+          _error = error is NotificationQueryException
+              ? error.message
+              : '$error';
         }
       });
       if (!silent && hasCache) _showRefreshFailure();
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -156,17 +172,19 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   Future<void> _persistCache() {
     return NotificationCache.instance.save(
       widget.session.studentId,
-      _items,
+      [
+        for (final item in _items)
+          applyLocalNotificationRead(item, _localStore),
+      ],
       _total,
       _noRead,
     );
   }
 
   void _showRefreshFailure() {
-    if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('刷新失败，已显示缓存内容')),
-    );
+    if (!_active) return;
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(const SnackBar(content: Text('刷新失败，已显示缓存内容')));
   }
 
   /// 展示层叠加本地已读：服务端标记失败但本地已读过的条目仍显示为已读。
@@ -176,7 +194,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   }
 
   Future<void> _loadMore() async {
-    if (_loadingMore || _loading) return;
+    if (!_active || _loadingMore || _loading || _refreshing) return;
     if (_items.length >= _total) return;
     setState(() => _loadingMore = true);
     try {
@@ -184,7 +202,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       final items = await _client
           .list(page: next)
           .timeout(const Duration(seconds: 15));
-      if (!mounted) return;
+      if (!_active) return;
       setState(() {
         if (items.isNotEmpty) {
           _items.addAll(items);
@@ -199,6 +217,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   }
 
   Future<void> _open(AppNotification item) async {
+    if (!_active) return;
     final index = _items.indexWhere((e) => e.logId == item.logId);
     if (index >= 0 && !_items[index].read && mounted) {
       setState(() {
@@ -225,7 +244,9 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
       return;
     }
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => NotificationDetailPage(item: item)),
+      MaterialPageRoute<void>(
+        builder: (_) => NotificationDetailPage(item: item),
+      ),
     );
   }
 
@@ -334,10 +355,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
               key: ValueKey('notify-detail-${_detail!.logId}'),
               child: detailPage,
             )
-          : KeyedSubtree(
-              key: const ValueKey('notify-list'),
-              child: listPage,
-            ),
+          : KeyedSubtree(key: const ValueKey('notify-list'), child: listPage),
     );
   }
 
@@ -358,7 +376,11 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           SizedBox(height: 120),
-          Icon(Icons.notifications_none_rounded, size: 40, color: AppColors.faint),
+          Icon(
+            Icons.notifications_none_rounded,
+            size: 40,
+            color: AppColors.faint,
+          ),
           const SizedBox(height: 10),
           Center(
             child: Text(
@@ -477,7 +499,11 @@ class _NotificationTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.faint),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: AppColors.faint,
+              ),
             ],
           ),
         ),
@@ -512,7 +538,11 @@ class _ErrorState extends StatelessWidget {
             child: Text(
               message,
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.5),
+              style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
             ),
           ),
         ),
@@ -522,7 +552,9 @@ class _ErrorState extends StatelessWidget {
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded, size: 16),
             label: const Text('重试'),
-            style: OutlinedButton.styleFrom(foregroundColor: AppColors.campusBlue),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.campusBlue,
+            ),
           ),
         ),
       ],
