@@ -152,15 +152,16 @@ class _HomePageState extends ConsumerState<HomePage>
   /// 桌面卡片固定像素单元尺寸（不随窗口缩放）。
   static const double _desktopHomeUnit = 88;
 
-  DormPrefs? _statusPrefs;
+  final _statusPrefs = ValueNotifier<DormPrefs?>(null);
 
   /// 首页「邮件」卡片展示用（best-effort 拉取，失败不影响首页）。
-  int _mailUnread = 0;
-  List<MailSummary> _mailRecent = const [];
+  final _mailSummary = ValueNotifier<(int, List<MailSummary>)>((0, const []));
 
   /// 首页「通知」卡片展示用（best-effort 拉取，失败不影响首页）。
-  int _notifyUnread = 0;
-  List<AppNotification> _notifyRecent = const [];
+  final _notifySummary = ValueNotifier<(int, List<AppNotification>)>((
+    0,
+    const [],
+  ));
   NotificationPoller? _notifyPoller;
   bool _notifyPollerStarted = false;
   bool _endingSession = false;
@@ -187,8 +188,7 @@ class _HomePageState extends ConsumerState<HomePage>
   MailPoller? _mailPoller;
 
   /// 首页「新闻」卡片展示用（best-effort 拉取，失败不影响首页）。
-  int _newsUnread = 0;
-  List<NewsItem> _newsLatest = const <NewsItem>[];
+  final _newsSummary = ValueNotifier<(int, List<NewsItem>)>((0, const []));
 
   final _visitedTabs = <int>{0};
 
@@ -690,6 +690,7 @@ class _HomePageState extends ConsumerState<HomePage>
         _displayedPluginId = null;
       }
     });
+    if (id == 'news' && !appearance.none) unawaited(_loadNewsSummary());
     await _saveHomeLayout();
   }
 
@@ -752,6 +753,10 @@ class _HomePageState extends ConsumerState<HomePage>
     _notifications.close();
     _ecodeFeed?.dispose();
     _sidebarHintTimer?.cancel();
+    _statusPrefs.dispose();
+    _mailSummary.dispose();
+    _notifySummary.dispose();
+    _newsSummary.dispose();
     _tabFade.dispose();
     super.dispose();
   }
@@ -804,7 +809,7 @@ class _HomePageState extends ConsumerState<HomePage>
   Future<void> _loadStatus() async {
     final prefs = await _elecService.loadPrefs();
     if (!mounted) return;
-    setState(() => _statusPrefs = prefs);
+    _statusPrefs.value = prefs;
     final reading = prefs.lastReading;
     unawaited(
       WindowsWindow.setTrayTooltip(
@@ -1101,8 +1106,13 @@ class _HomePageState extends ConsumerState<HomePage>
     await showSettingsDialog(context);
   }
 
-  Widget _buildStatusBar(BuildContext context) {
-    final reading = _statusPrefs?.lastReading;
+  Widget _buildStatusBar(BuildContext context) => ValueListenableBuilder(
+    valueListenable: _statusPrefs,
+    builder: (context, prefs, _) => _buildStatusBarContent(prefs),
+  );
+
+  Widget _buildStatusBarContent(DormPrefs? prefs) {
+    final reading = prefs?.lastReading;
     final remaining = reading?.rawRemain.trim() ?? '';
     final text = remaining.isEmpty ? '--' : remaining;
     return Container(
@@ -1431,45 +1441,67 @@ class _HomePageState extends ConsumerState<HomePage>
     if (id == 'dorm') {
       return KeyedSubtree(
         key: _dormCardKey,
-        child: _DormCard(
-          size: size,
-          prefs: _statusPrefs,
-          onOpen: () => _openCardFeature('dorm', _openDormDetail),
+        child: ValueListenableBuilder(
+          valueListenable: _statusPrefs,
+          builder: (context, prefs, _) => _DormCard(
+            size: size,
+            prefs: prefs,
+            onOpen: () => _openCardFeature('dorm', _openDormDetail),
+          ),
         ),
       );
     }
     // 内置卡片优先于远程插件：远程目录里可能存在同名（如 id=news）的旧插件，
     // 内置原生新闻卡必须优先渲染，避免被旧插件占位页覆盖。
     if (id == 'mail') {
-      return _MailCard(
-        size: size,
-        unread: _mailUnread,
-        recent: _mailRecent,
-        onOpen: () =>
-            _openCardFeature('mail', () => _showHomeSection(_HomeSection.mail)),
+      return ValueListenableBuilder(
+        valueListenable: _mailSummary,
+        builder: (context, summary, _) => _MailCard(
+          size: size,
+          unread: summary.$1,
+          recent: summary.$2,
+          onOpen: () => _openCardFeature(
+            'mail',
+            () => _showHomeSection(_HomeSection.mail),
+          ),
+        ),
       );
     }
     if (id == 'notify') {
-      return _NotifyCard(
-        size: size,
-        unread: _notifyUnread,
-        recent: _notifyRecent,
-        onOpen: () => _openCardFeature(
-          'notify',
-          () => _showHomeSection(_HomeSection.notifications),
+      return ValueListenableBuilder(
+        valueListenable: _notifySummary,
+        builder: (context, summary, _) => _NotifyCard(
+          size: size,
+          unread: summary.$1,
+          recent: summary.$2,
+          onOpen: () => _openCardFeature(
+            'notify',
+            () => _showHomeSection(_HomeSection.notifications),
+          ),
         ),
       );
     }
     if (id == 'news') {
-      final notifyOn = ref
-          .watch(appSettingsProvider)
-          .notifyEnabled('plugin:news');
-      return NewsCard(
-        size: size,
-        unread: notifyOn ? _newsUnread : 0,
-        latest: _newsLatest,
-        onOpen: () =>
-            _openCardFeature('news', () => _showHomeSection(_HomeSection.news)),
+      return Consumer(
+        builder: (context, ref, _) {
+          final notifyOn = ref.watch(
+            appSettingsProvider.select(
+              (settings) => settings.notifyEnabled('plugin:news'),
+            ),
+          );
+          return ValueListenableBuilder(
+            valueListenable: _newsSummary,
+            builder: (context, summary, _) => NewsCard(
+              size: size,
+              unread: notifyOn ? summary.$1 : 0,
+              latest: summary.$2,
+              onOpen: () => _openCardFeature(
+                'news',
+                () => _showHomeSection(_HomeSection.news),
+              ),
+            ),
+          );
+        },
       );
     }
     for (final plugin in _installedPlugins) {
@@ -1492,10 +1524,10 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _showMailSummary(List<MailSummary> items) {
-    setState(() {
-      _mailRecent = items.take(2).toList(growable: false);
-      _mailUnread = items.take(30).where((item) => !item.read).length;
-    });
+    _mailSummary.value = (
+      items.take(30).where((item) => !item.read).length,
+      items.take(2).toList(growable: false),
+    );
   }
 
   Future<void> _loadMailSummary() async {
@@ -1508,10 +1540,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _showNotifySummary(List<AppNotification> items, int unread) {
-    setState(() {
-      _notifyRecent = items.take(2).toList(growable: false);
-      _notifyUnread = unread;
-    });
+    _notifySummary.value = (unread, items.take(2).toList(growable: false));
   }
 
   Future<void> _loadNotifySummary() async {
@@ -1557,10 +1586,10 @@ class _HomePageState extends ConsumerState<HomePage>
       final unread = result.items
           .where((item) => !item.hasRead && !readIds.contains(item.id))
           .length;
-      setState(() {
-        _newsUnread = unread;
-        _newsLatest = result.items.take(2).toList(growable: false);
-      });
+      _newsSummary.value = (
+        unread,
+        result.items.take(2).toList(growable: false),
+      );
     } catch (_) {
       // 静默失败：新闻卡显示「点开查看新闻」，不影响其它功能。
     }
@@ -1601,6 +1630,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   Future<List<MailSummary>> _fetchMailForPoll() async {
     final (_, items) = await _mailFeed.refresh();
+    if (_isSessionActive()) _showMailSummary(items);
     return items.take(40).toList(growable: false);
   }
 

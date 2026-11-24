@@ -51,13 +51,12 @@ class _MailDetailPageState extends State<MailDetailPage> {
     }
     setState(() => _downloading.add(attachment.name));
     try {
-      final bytes = await widget.client.downloadAttachment(
-        mid: widget.summary.id,
-        part: part,
-      );
-      await saveAttachmentToDownloads(
+      await saveAttachmentStreamToDownloads(
         fileName: attachment.name,
-        bytes: bytes,
+        chunks: widget.client.streamAttachment(
+          mid: widget.summary.id,
+          part: part,
+        ),
         mimeType: attachment.contentType,
       );
       _showSnack('已保存到 下载/${attachment.name}');
@@ -198,11 +197,7 @@ class _MailDetailPageState extends State<MailDetailPage> {
             )
           : SelectableText(
               trimmed,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.6,
-                color: AppColors.ink,
-              ),
+              style: TextStyle(fontSize: 15, height: 1.6, color: AppColors.ink),
             ),
     );
   }
@@ -228,9 +223,7 @@ class _MailDetailPageState extends State<MailDetailPage> {
           _MetaRow(label: '收件人', value: _to.isEmpty ? '—' : _to),
           _MetaRow(
             label: '时间',
-            value: formatMailDate(_date).isEmpty
-                ? '—'
-                : formatMailDate(_date),
+            value: formatMailDate(_date).isEmpty ? '—' : formatMailDate(_date),
           ),
           if (_loading)
             Padding(
@@ -243,8 +236,10 @@ class _MailDetailPageState extends State<MailDetailPage> {
                     child: CircularProgressIndicator(strokeWidth: 1.6),
                   ),
                   const SizedBox(width: 8),
-                  Text('正在获取邮件信息…',
-                      style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                  Text(
+                    '正在获取邮件信息…',
+                    style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  ),
                 ],
               ),
             ),
@@ -273,8 +268,10 @@ class _MailDetailPageState extends State<MailDetailPage> {
               children: [
                 for (final attachment in attachments)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.surface,
                       borderRadius: BorderRadius.circular(8),
@@ -283,20 +280,24 @@ class _MailDetailPageState extends State<MailDetailPage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.attach_file_rounded,
-                            size: 13, color: AppColors.muted),
+                        Icon(
+                          Icons.attach_file_rounded,
+                          size: 13,
+                          color: AppColors.muted,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           attachment.name,
-                          style: TextStyle(
-                              fontSize: 11, color: AppColors.ink),
+                          style: TextStyle(fontSize: 11, color: AppColors.ink),
                         ),
                         if (formatMailSize(attachment.size).isNotEmpty) ...[
                           const SizedBox(width: 4),
                           Text(
                             formatMailSize(attachment.size),
                             style: TextStyle(
-                                fontSize: 10, color: AppColors.faint),
+                              fontSize: 10,
+                              color: AppColors.faint,
+                            ),
                           ),
                         ],
                         const SizedBox(width: 4),
@@ -306,8 +307,9 @@ class _MailDetailPageState extends State<MailDetailPage> {
                             child: SizedBox(
                               width: 12,
                               height: 12,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 1.6),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.6,
+                              ),
                             ),
                           )
                         else
@@ -318,7 +320,9 @@ class _MailDetailPageState extends State<MailDetailPage> {
                             borderRadius: BorderRadius.circular(4),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 2),
+                                horizontal: 4,
+                                vertical: 2,
+                              ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [

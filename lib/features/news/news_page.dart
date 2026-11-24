@@ -12,6 +12,30 @@ import 'news_theme.dart';
 ///
 /// 报头 + 横向板块标签（全部 / 已选板块）+ 新闻列表。首条为头条（大图 + 衬线标题），
 /// 其余为细线分隔行，右侧小缩略图。支持下拉刷新与上拉分页。
+Image _newsThumbnail(
+  BuildContext context,
+  String url,
+  double width,
+  double height, {
+  ImageFrameBuilder? frameBuilder,
+  required ImageErrorWidgetBuilder errorBuilder,
+}) {
+  final scale = MediaQuery.devicePixelRatioOf(context);
+  return Image(
+    image: ResizeImage(
+      NetworkImage(url),
+      width: (width * scale).ceil().clamp(1, 4096),
+      height: (height * scale).ceil().clamp(1, 4096),
+      policy: ResizeImagePolicy.fit,
+    ),
+    width: width,
+    height: height,
+    fit: BoxFit.cover,
+    frameBuilder: frameBuilder,
+    errorBuilder: errorBuilder,
+  );
+}
+
 class NewsPage extends StatefulWidget {
   const NewsPage({super.key, this.client, this.store, this.onBack});
 
@@ -209,16 +233,13 @@ class _NewsPageState extends State<NewsPage> {
   Future<void> _openSections() async {
     final result = await Navigator.of(context).push<List<String>>(
       MaterialPageRoute<List<String>>(
-        builder: (_) => NewsSectionsPage(
-          sections: _sections,
-          initialSelected: _selected,
-        ),
+        builder: (_) =>
+            NewsSectionsPage(sections: _sections, initialSelected: _selected),
       ),
     );
     if (result == null) return;
-    final normalized = NewsPrefs(selectedCids: result).normalized(
-      _sections.map((s) => s.id),
-    );
+    final normalized = NewsPrefs(selectedCids: result)
+        .normalized(_sections.map((s) => s.id));
     await _store.savePrefs(NewsPrefs(selectedCids: normalized));
     setState(() {
       _selected = normalized;
@@ -336,7 +357,8 @@ class _NewsPageState extends State<NewsPage> {
   Widget _buildTabs() {
     final tabs = <MapEntry<String, String>>[
       const MapEntry<String, String>(_allTab, '全部'),
-      for (final id in _selected) MapEntry<String, String>(id, _sectionName(id)),
+      for (final id in _selected)
+        MapEntry<String, String>(id, _sectionName(id)),
     ];
     return SizedBox(
       height: 42,
@@ -439,11 +461,13 @@ class _NewsPageState extends State<NewsPage> {
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         const SizedBox(height: 100),
-        const Icon(Icons.cloud_off_rounded, size: 32, color: NewsPalette.inkSoft),
-        const SizedBox(height: 10),
-        Center(
-          child: Text('加载失败', style: newsSans(fontSize: 14)),
+        const Icon(
+          Icons.cloud_off_rounded,
+          size: 32,
+          color: NewsPalette.inkSoft,
         ),
+        const SizedBox(height: 10),
+        Center(child: Text('加载失败', style: newsSans(fontSize: 14))),
         const SizedBox(height: 4),
         Center(
           child: Text(
@@ -523,13 +547,18 @@ class _NewsPageState extends State<NewsPage> {
                       child: SizedBox(
                         width: width,
                         height: height,
-                        child: Image.network(
+                        child: _newsThumbnail(
+                          context,
                           item.firstPic!,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(color: NewsPalette.hairline);
-                          },
+                          width,
+                          height,
+                          frameBuilder:
+                              (context, child, frame, wasSynchronous) {
+                                if (wasSynchronous || frame != null) {
+                                  return child;
+                                }
+                                return Container(color: NewsPalette.hairline);
+                              },
                           errorBuilder: (context, error, stack) => Container(
                             color: NewsPalette.hairline,
                             child: const Center(
@@ -651,11 +680,11 @@ class _NewsPageState extends State<NewsPage> {
               const SizedBox(width: 12),
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
-                child: Image.network(
+                child: _newsThumbnail(
+                  context,
                   item.firstPic!,
-                  width: 96,
-                  height: 72,
-                  fit: BoxFit.cover,
+                  96,
+                  72,
                   errorBuilder: (context, error, stack) => Container(
                     width: 96,
                     height: 72,

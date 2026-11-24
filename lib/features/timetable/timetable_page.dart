@@ -116,7 +116,8 @@ class TimetablePage extends ConsumerStatefulWidget {
   ConsumerState<TimetablePage> createState() => _TimetablePageState();
 }
 
-class _TimetablePageState extends ConsumerState<TimetablePage> {
+class _TimetablePageState extends ConsumerState<TimetablePage>
+    with WidgetsBindingObserver {
   late final _scope = AccountScope.scopedName(
     'timetable',
     account: widget.account,
@@ -138,7 +139,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   bool _weekView = true;
   int? _selectedCellDay;
   int? _selectedCellPeriod;
-  int _lastNowMinute = DateTime.now().hour * 60 + DateTime.now().minute;
+  bool _routeVisible = true;
+  TimetableSchedule? _cachedSchedule;
   Timer? _minuteTimer;
   final ScrollController _scrollController = ScrollController();
 
@@ -180,18 +182,55 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     }
     timetableChanged.addListener(_onTimetableChanged);
     courseOverridesChanged.addListener(_onOverridesChanged);
-    // "当前时间线"是信息不是装饰：每半分钟检查一次，只在跨过整分时重建。
-    _minuteTimer = Timer.periodic(const Duration(milliseconds: 15000), (_) {
-      final now = DateTime.now();
-      final minute = now.hour * 60 + now.minute;
-      if (minute != _lastNowMinute && mounted) {
-        setState(() => _lastNowMinute = minute);
-      }
-    });
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeVisible = ModalRoute.isCurrentOf(context) ?? true;
+    _scheduleClock();
+  }
+
+  @override
+  void didUpdateWidget(covariant TimetablePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visible != widget.visible) _scheduleClock();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _scheduleClock();
+    if (state == AppLifecycleState.resumed && widget.visible && _routeVisible) {
+      setState(() {});
+    }
+  }
+
+  void _scheduleClock() {
+    _minuteTimer?.cancel();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (!widget.visible ||
+        !_routeVisible ||
+        lifecycle == AppLifecycleState.hidden ||
+        lifecycle == AppLifecycleState.paused ||
+        lifecycle == AppLifecycleState.detached) {
+      return;
+    }
+    final now = DateTime.now();
+    final minute = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    _minuteTimer = Timer(
+      minute.add(const Duration(minutes: 1)).difference(now),
+      () {
+        if (!mounted) return;
+        setState(() {});
+        _scheduleClock();
+      },
+    );
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     timetableChanged.removeListener(_onTimetableChanged);
     courseOverridesChanged.removeListener(_onOverridesChanged);
     _minuteTimer?.cancel();
@@ -558,10 +597,16 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     await const CourseNoteStore().save(next);
   }
 
-  TimetableSchedule get _schedule => TimetableSchedule(
-    _data,
-    weekStartSetting: ref.read(appSettingsProvider).weekStart,
-  );
+  TimetableSchedule get _schedule {
+    final start = ref.read(appSettingsProvider).weekStart;
+    final cached = _cachedSchedule;
+    if (cached != null &&
+        identical(cached.data, _data) &&
+        cached.weekStartSetting == start) {
+      return cached;
+    }
+    return _cachedSchedule = TimetableSchedule(_data, weekStartSetting: start);
+  }
 
   int get _nowWeek => _schedule.nowWeek();
 

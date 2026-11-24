@@ -125,23 +125,34 @@ class _HomeGrid extends StatefulWidget {
 class _HomeGridState extends State<_HomeGrid> {
   final _gridKey = GlobalKey();
 
-  HomePackResult _pack(double width) => packHomeCards(
-    widget.cards,
-    width,
-    // 用「网格实际可用宽度」判断桌面/手机，而不是外部 MediaQuery，
-    // 避免首帧窗口尺寸尚未就绪时误用等比单位导致卡片过大。
-    unit: (widget.unit != null && width >= widget.wideBreakpoint)
-        ? widget.unit
-        : null,
-    columns: widget.columns,
-  );
+  ({List<HomeCardLayout> cards, double width, double? unit, int columns})?
+  _packedLayout;
+  HomePackResult? _packed;
+
+  HomePackResult _pack(double width) {
+    final layout = (
+      cards: widget.cards,
+      width: width,
+      unit: width >= widget.wideBreakpoint ? widget.unit : null,
+      columns: widget.columns,
+    );
+    if (layout == _packedLayout) return _packed!;
+    _packedLayout = layout;
+    return _packed = packHomeCards(
+      layout.cards,
+      width,
+      unit: layout.unit,
+      columns: layout.columns,
+    );
+  }
 
   /// 实时拖动重排：手指移到某张卡范围内即把它插到该卡位置（顺序变化才回调）。
   void _handleDragMove(String id, Offset globalPosition) {
     final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final local = box.globalToLocal(globalPosition);
-    final pack = _pack(box.size.width);
+    final pack = _packed;
+    if (pack == null) return;
     int? targetIndex;
     for (final placed in pack.cards) {
       if (placed.id == id) continue;
@@ -170,7 +181,7 @@ class _HomeGridState extends State<_HomeGrid> {
   /// 尺寸发生变化的那一帧不做位置/尺寸补间（否则大卡内容在 1×1 的小框里
   /// 被裁切会闪出「奇怪的东西」）；普通拖动重排仍保留 200ms 平滑动画。
   Widget _cardWidget(PlacedHomeCard placed) {
-    final size = widget.cards.firstWhere((card) => card.id == placed.id).size;
+    final size = widget.cards[placed.index].size;
     final prev = _lastSizes[placed.id];
     final duration = (prev == null || prev == size)
         ? const Duration(milliseconds: 200)
@@ -400,10 +411,8 @@ class _DraggableCardState extends State<_DraggableCard> {
                       icon: Icons.aspect_ratio_rounded,
                       color: AppColors.muted,
                       tooltip: '调整尺寸',
-                      onTap: () => widget.onResize(
-                        widget.id,
-                        nextSizeOf(widget.size),
-                      ),
+                      onTap: () =>
+                          widget.onResize(widget.id, nextSizeOf(widget.size)),
                     ),
                   ),
                 ),
@@ -509,13 +518,18 @@ Widget _cardGlyph(String id, IconData icon, double size) {
   return Icon(icon, size: size, color: AppColors.muted);
 }
 
-String _formatKwh(double? value) {  if (value == null) return '--';
+String _formatKwh(double? value) {
+  if (value == null) return '--';
   if (value == value.truncateToDouble()) return value.truncate().toString();
   return value.toStringAsFixed(1);
 }
 
 class _DormCard extends StatelessWidget {
-  const _DormCard({required this.size, required this.prefs, required this.onOpen});
+  const _DormCard({
+    required this.size,
+    required this.prefs,
+    required this.onOpen,
+  });
 
   final HomeCardSize size;
   final DormPrefs? prefs;
@@ -575,8 +589,11 @@ class _DormCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.account_balance_wallet_outlined,
-                  size: 18, color: AppColors.campusBlue),
+              Icon(
+                Icons.account_balance_wallet_outlined,
+                size: 18,
+                color: AppColors.campusBlue,
+              ),
               const SizedBox(height: 5),
               Text(
                 kBalanceFeatureName,
@@ -671,9 +688,7 @@ class _DormCard extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.8,
                             color: accent,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures(),
-                            ],
+                            fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -921,10 +936,7 @@ class _MailCard extends StatelessWidget {
           _fromLine(mail),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: wide ? 10 : 9.5,
-            color: AppColors.muted,
-          ),
+          style: TextStyle(fontSize: wide ? 10 : 9.5, color: AppColors.muted),
         ),
       ],
     );
@@ -977,8 +989,11 @@ class _NotifyCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.notifications_none_rounded,
-              size: 18, color: AppColors.muted),
+          Icon(
+            Icons.notifications_none_rounded,
+            size: 18,
+            color: AppColors.muted,
+          ),
           const SizedBox(height: 5),
           Text(
             '通知',
@@ -1024,7 +1039,11 @@ class _NotifyCard extends StatelessWidget {
   Widget _buildDetailedBody(bool wide, List<AppNotification> notes) {
     final header = Row(
       children: [
-        Icon(Icons.notifications_none_rounded, size: 18, color: AppColors.muted),
+        Icon(
+          Icons.notifications_none_rounded,
+          size: 18,
+          color: AppColors.muted,
+        ),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
@@ -1251,7 +1270,11 @@ class _HomeEmpty extends StatelessWidget {
       decoration: _homeCardDecoration(),
       child: Column(
         children: [
-          Icon(Icons.dashboard_customize_outlined, size: 30, color: AppColors.faint),
+          Icon(
+            Icons.dashboard_customize_outlined,
+            size: 30,
+            color: AppColors.faint,
+          ),
           const SizedBox(height: 8),
           Text(
             '首页卡片准备中',

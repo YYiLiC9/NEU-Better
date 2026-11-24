@@ -35,13 +35,11 @@ String mimeForFileName(String fileName, {String? declared}) {
   const map = <String, String>{
     'pdf': 'application/pdf',
     'doc': 'application/msword',
-    'docx':
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'xls': 'application/vnd.ms-excel',
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'ppt': 'application/vnd.ms-powerpoint',
-    'pptx':
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'zip': 'application/zip',
     'rar': 'application/vnd.rar',
     '7z': 'application/x-7z-compressed',
@@ -73,52 +71,88 @@ Future<String> saveAttachmentToDownloads({
   required Uint8List bytes,
   String? mimeType,
   Directory? windowsDownloadsDir,
+}) => saveAttachmentStreamToDownloads(
+  fileName: fileName,
+  chunks: Stream.value(bytes),
+  mimeType: mimeType,
+  windowsDownloadsDir: windowsDownloadsDir,
+);
+
+Future<String> saveAttachmentStreamToDownloads({
+  required String fileName,
+  required Stream<List<int>> chunks,
+  String? mimeType,
+  Directory? windowsDownloadsDir,
 }) async {
   final safeName = sanitizeFileName(fileName);
-  final mime = mimeForFileName(safeName, declared: mimeType);
-
-  if (Platform.isAndroid) {
-    final result = await _filesChannel.invokeMethod<String>('saveToDownloads', {
-      'fileName': safeName,
-      'mime': mime,
-      'bytes': bytes,
-    });
-    if (result == null || result.isEmpty) {
-      throw const MailAttachmentSaveException('无法保存到系统下载目录');
+  final targetDir = windowsDownloadsDir ?? _downloadDirectory();
+  await targetDir.create(recursive: true);
+  final scratch = await targetDir.createTemp('.neu-attachment-');
+  final temporary = File('${scratch.path}${Platform.pathSeparator}attachment');
+  try {
+    final output = await temporary.open(mode: FileMode.writeOnly);
+    try {
+      await for (final chunk in chunks) {
+        await output.writeFrom(chunk);
+      }
+      await output.flush();
+    } finally {
+      await output.close();
     }
-    return result;
-  }
-
-  Directory targetDir;
-  if (windowsDownloadsDir != null) {
-    targetDir = windowsDownloadsDir;
-  } else if (Platform.isWindows) {
-    final home =
-        Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
-    if (home == null || home.isEmpty) {
-      throw const MailAttachmentSaveException('找不到用户下载目录');
+    if (Platform.isAndroid && windowsDownloadsDir == null) {
+      final result = await _filesChannel.invokeMethod<String>(
+        'publishAttachment',
+        {
+          'fileName': safeName,
+          'mime': mimeForFileName(safeName, declared: mimeType),
+          'path': temporary.path,
+        },
+      );
+      if (result == null || result.isEmpty) {
+        throw const MailAttachmentSaveException('无法保存到系统下载目录');
+      }
+      return result;
     }
-    targetDir = Directory('$home\\Downloads');
-  } else {
-    targetDir = Directory.systemTemp;
+    final destination = await _reserveDestination(targetDir, safeName);
+    try {
+      return (await temporary.rename(destination.path)).path;
+    } catch (_) {
+      await destination.delete();
+      rethrow;
+    }
+  } finally {
+    if (await temporary.exists()) await temporary.delete();
+    await scratch.delete();
   }
-  if (!targetDir.existsSync()) {
-    targetDir.createSync(recursive: true);
-  }
+}
 
-  var candidate = safeName;
-  var path = '${targetDir.path}${Platform.pathSeparator}$candidate';
-  var index = 1;
-  while (File(path).existsSync()) {
-    final dot = safeName.lastIndexOf('.');
-    candidate = dot > 0
-        ? '${safeName.substring(0, dot)}($index)${safeName.substring(dot)}'
-        : '$safeName($index)';
-    path = '${targetDir.path}${Platform.pathSeparator}$candidate';
-    index++;
+Directory _downloadDirectory() {
+  if (!Platform.isWindows) return Directory.systemTemp;
+  final home =
+      Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
+  if (home == null || home.isEmpty) {
+    throw const MailAttachmentSaveException('找不到用户下载目录');
   }
-  await File(path).writeAsBytes(bytes, flush: true);
-  return path;
+  return Directory('$home\\Downloads');
+}
+
+Future<File> _reserveDestination(Directory directory, String name) async {
+  final dot = name.lastIndexOf('.');
+  for (var index = 0; ; index++) {
+    final candidate = index == 0
+        ? name
+        : dot > 0
+        ? '${name.substring(0, dot)}($index)${name.substring(dot)}'
+        : '$name($index)';
+    final destination = File(
+      '${directory.path}${Platform.pathSeparator}$candidate',
+    );
+    try {
+      return await destination.create(exclusive: true);
+    } on PathExistsException {
+      // Another download reserved this name.
+    }
+  }
 }
 
 class MailAttachmentSaveException implements Exception {
