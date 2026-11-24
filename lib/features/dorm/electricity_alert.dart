@@ -107,6 +107,12 @@ class NotificationRouter {
   static final ValueNotifier<int> openTabSignal = ValueNotifier<int>(0);
   static int requestedTab = 1;
 
+  /// 每次收到「打开邮件」请求时自增；界面侧监听后切到邮件二级页。
+  static final ValueNotifier<int> openMailSignal = ValueNotifier<int>(0);
+
+  /// 冷启动时原生是否有待处理的「打开邮件」请求（由 [consumePending] 消费）。
+  static bool requestedOpenMail = false;
+
   static bool _handlerInstalled = false;
 
   /// 安装 MethodChannel 回调（幂等，只装一次）。
@@ -119,6 +125,8 @@ class NotificationRouter {
       } else if (call.method == 'openTab') {
         requestedTab = (call.arguments as num?)?.toInt() ?? 1;
         openTabSignal.value++;
+      } else if (call.method == 'openMail') {
+        openMailSignal.value++;
       }
       return null;
     });
@@ -138,6 +146,12 @@ class NotificationRouter {
       if (pendingTab != null && pendingTab >= 0) {
         requestedTab = pendingTab;
         openTabSignal.value++;
+      }
+      final pendingMail = await AndroidHeadsUpChannel.channel
+          .invokeMethod<bool>('getPendingOpenMail');
+      if (pendingMail == true) {
+        requestedOpenMail = true;
+        openMailSignal.value++;
       }
     } catch (_) {
       // 非 Android 引擎无此实现（MissingPluginException 等），忽略。

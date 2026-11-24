@@ -42,6 +42,9 @@ class MainActivity : FlutterActivity() {
     /** 冷启动时待切换的一级标签（桌面小部件点击 -> 课表=1），-1 表示无。 */
     private var pendingOpenTab = -1
 
+    /** 冷启动时待打开邮件页的请求（点击新邮件通知拉起应用），由 Dart 取走。 */
+    private var pendingOpenMail = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ensureElectricityAlertChannel()
@@ -83,6 +86,13 @@ class MainActivity : FlutterActivity() {
                     Log.d(LOG_TAG, "getPendingOpenTab -> $tab")
                     result.success(tab)
                 }
+                // 冷启动兜底：点击新邮件通知拉起应用后待打开的邮件页。
+                "getPendingOpenMail" -> {
+                    val pending = pendingOpenMail
+                    pendingOpenMail = false
+                    Log.d(LOG_TAG, "getPendingOpenMail -> $pending")
+                    result.success(pending)
+                }
                 // 用系统默认浏览器打开外部链接（新闻「查看原文」等）。
                 "openUrl" -> {
                     val url = call.argument<String>("url") ?: ""
@@ -101,8 +111,9 @@ class MainActivity : FlutterActivity() {
                 "showPluginNotification" -> {
                     val title = call.argument<String>("title") ?: "通知"
                     val body = call.argument<String>("body") ?: ""
+                    val route = call.argument<String>("route")
                     try {
-                        showPluginNotification(title, body)
+                        showPluginNotification(title, body, route)
                         result.success(true)
                     } catch (error: Exception) {
                         result.error("show_failed", error.message, null)
@@ -448,6 +459,19 @@ class MainActivity : FlutterActivity() {
                 pendingOpenDorm = true
             }
         }
+        val wantsOpenMail = intent.getBooleanExtra(EXTRA_OPEN_MAIL, false)
+        if (wantsOpenMail) {
+            intent.removeExtra(EXTRA_OPEN_MAIL)
+            val channel = notificationChannel
+            if (channel != null) {
+                // 应用已在运行：直接回调 Dart 打开邮件页。
+                Log.d(LOG_TAG, "onNewIntent openMail -> invoke Dart openMail")
+                channel.invokeMethod("openMail", null)
+            } else {
+                Log.d(LOG_TAG, "onNewIntent openMail -> channel not ready, mark pending")
+                pendingOpenMail = true
+            }
+        }
     }
 
     /** 处理启动 intent：若带 openDorm extra，记为待处理并清掉 extra 防重复触发。 */
@@ -463,6 +487,11 @@ class MainActivity : FlutterActivity() {
             pendingOpenDorm = true
             intent.removeExtra(EXTRA_OPEN_DORM)
             Log.d(LOG_TAG, "handleLaunchIntent openDorm -> mark pending (cold start)")
+        }
+        if (intent.getBooleanExtra(EXTRA_OPEN_MAIL, false)) {
+            pendingOpenMail = true
+            intent.removeExtra(EXTRA_OPEN_MAIL)
+            Log.d(LOG_TAG, "handleLaunchIntent openMail -> mark pending (cold start)")
         }
     }
 
@@ -515,7 +544,7 @@ class MainActivity : FlutterActivity() {
     }
 
     /** 发一条插件/校园通知悬浮通知；未授予通知权限时静默跳过。 */
-    private fun showPluginNotification(title: String, body: String) {
+    private fun showPluginNotification(title: String, body: String, route: String? = null) {
         ensurePluginNotifyChannel()
         if (!hasNotificationPermission()) {
             return
@@ -531,6 +560,10 @@ class MainActivity : FlutterActivity() {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
+        // 邮件通知点击后打开邮件页；其他通知维持默认（仅打开应用）。
+        if (route == "mail") {
+            builder.setContentIntent(buildOpenMailPendingIntent())
+        }
         NotificationManagerCompat.from(this)
             .notify(PLUGIN_NOTIFICATION_ID, builder.build())
     }
@@ -570,6 +603,20 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    /** 点击新邮件通知 → 复用/拉起 MainActivity 并带上 openMail extra。 */
+    private fun buildOpenMailPendingIntent(): PendingIntent {
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_MAIL, true)
+        }
+        return PendingIntent.getActivity(
+            this,
+            REQUEST_CODE_OPEN_MAIL,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     private fun hasNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return ContextCompat.checkSelfPermission(
@@ -598,7 +645,9 @@ class MainActivity : FlutterActivity() {
         private const val PLUGIN_NOTIFICATION_ID = 0xE1ED
         private const val EXTRA_OPEN_DORM = "openDorm"
         private const val EXTRA_OPEN_TAB = "openTab"
+        private const val EXTRA_OPEN_MAIL = "openMail"
         private const val REQUEST_CODE_OPEN_DORM = 0x0D0E
+        private const val REQUEST_CODE_OPEN_MAIL = 0x0D0F
         private const val LOG_TAG = "NEUNotify"
     }
 }

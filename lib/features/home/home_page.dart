@@ -31,7 +31,10 @@ import '../dorm/electricity_service.dart';
 import '../ecode/ecode_page.dart';
 import '../../core/network/notification_client.dart';
 import '../mail/mail_format.dart';
+import '../mail/mail_cache.dart';
 import '../mail/mail_page.dart';
+import '../mail/mail_poll_state.dart';
+import '../mail/mail_poller.dart';
 import '../plugins/campus_network_page.dart';
 import '../notifications/notification_models.dart';
 import '../notifications/notification_dispatch.dart';
@@ -90,7 +93,7 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final _elecService = DormElectricityService();
   final _homeLayoutStore = const HomeLayoutStore();
   final _pluginService = PluginService();
@@ -153,6 +156,9 @@ class _HomePageState extends ConsumerState<HomePage>
   NotificationPoller? _notifyPoller;
   bool _notifyPollerStarted = false;
 
+  /// 新邮件轮询（App 进程存活时每 3 分钟一次，不做后台/被杀推送）。
+  MailPoller? _mailPoller;
+
   /// 首页「新闻」卡片展示用（best-effort 拉取，失败不影响首页）。
   int _newsUnread = 0;
   List<NewsItem> _newsLatest = const <NewsItem>[];
@@ -177,6 +183,9 @@ class _HomePageState extends ConsumerState<HomePage>
     _displayedTab = ref.read(homeTabProvider);
     // 所有用户数据（课表 / 修改 / 备注 / 寝室号）都按当前账号隔离存储。
     AccountScope.setAccount(widget.session.studentId);
+    WidgetsBinding.instance.addObserver(this);
+    // 预热邮件本地缓存：首页卡片与邮件页可先用上次结果秒开。
+    unawaited(MailCache.instance.loadFor(widget.session.studentId));
     unawaited(ref.read(appSettingsProvider.notifier).reload());
     // 先用内置卡片集快速读取一次已保存布局，避免首帧闪成默认布局；
     // 已安装插件列表就绪后 `_bootstrapPlugins()` 会再读一次补全插件卡片。
@@ -187,6 +196,7 @@ class _HomePageState extends ConsumerState<HomePage>
     NotificationRouter.ensureHandlerInstalled();
     NotificationRouter.openDormSignal.addListener(_handleOpenDorm);
     NotificationRouter.openTabSignal.addListener(_handleOpenTab);
+    NotificationRouter.openMailSignal.addListener(_handleOpenMail);
     unawaited(NotificationRouter.consumePending());
     _loadStatus();
     dormPrefsChanged.addListener(_loadStatus);
@@ -204,6 +214,7 @@ class _HomePageState extends ConsumerState<HomePage>
       unawaited(_loadNewsSummary());
       unawaited(_startNotificationPoller());
       unawaited(_syncNotificationBackground());
+      _syncMailPoller();
       await _ensureTimetable();
     });
     // 预热 e码通 WebView：首帧后延迟 1.2s 在后台创建并加载官方 H5，
@@ -229,11 +240,16 @@ class _HomePageState extends ConsumerState<HomePage>
     if (oldWidget.session.studentId != widget.session.studentId) {
       // 账号变化：切换数据作用域并重新加载该账号的课表 / 用电 / 首页布局。
       AccountScope.setAccount(widget.session.studentId);
+      // 停止旧账号的邮件轮询，切换到新账号的缓存与轮询状态。
+      _mailPoller?.stop();
+      _mailPoller = null;
+      unawaited(MailCache.instance.loadFor(widget.session.studentId));
       unawaited(ref.read(appSettingsProvider.notifier).reload());
       unawaited(_bootstrapPlugins());
       _loadStatus();
       ref.read(timetableDataProvider.notifier).state = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncMailPoller();
         _ensureTimetable();
       });
     }
@@ -681,11 +697,30 @@ class _HomePageState extends ConsumerState<HomePage>
   void dispose() {
     NotificationRouter.openDormSignal.removeListener(_handleOpenDorm);
     NotificationRouter.openTabSignal.removeListener(_handleOpenTab);
+    NotificationRouter.openMailSignal.removeListener(_handleOpenMail);
+    WidgetsBinding.instance.removeObserver(this);
     dormPrefsChanged.removeListener(_loadStatus);
     _notifyPoller?.stop();
+    _mailPoller?.stop();
     _sidebarHintTimer?.cancel();
     _tabFade.dispose();
     super.dispose();
+  }
+
+  /// 应用回到前台时补一次邮件检查（≥30s 节流，避免频繁切页重复拉取）。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    final poller = _mailPoller;
+    if (poller == null) return;
+    final last = poller.state.lastCheckAt;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    unawaited(poller.checkOnce());
+    unawaited(_loadMailSummary());
   }
 
   /// 收到桌面小部件点击请求：切到「课表」一级页。
@@ -701,6 +736,20 @@ class _HomePageState extends ConsumerState<HomePage>
     if (!mounted) return;
     debugPrint('[notify] openDorm -> home dorm detail');
     _openDormDetail();
+  }
+
+  /// 收到新邮件通知点击请求：切到「首页 · 邮件」二级页。
+  void _handleOpenMail() {
+    if (!mounted) return;
+    NotificationRouter.requestedOpenMail = false;
+    debugPrint('[notify] openMail -> home mail section');
+    _openMail();
+  }
+
+  /// 打开邮件二级页（保留底部导航，不破坏内嵌 onBack 与详情逻辑）。
+  void _openMail() {
+    _goToTab(0, keepHomeSection: true);
+    _showHomeSection(_HomeSection.mail);
   }
 
   Future<void> _loadStatus() async {
@@ -860,6 +909,8 @@ class _HomePageState extends ConsumerState<HomePage>
           minimizeToTaskbar: next.minimizeOnClose && next.showTrayIcon,
         ),
       );
+      // 通知开关变化时同步启停邮件轮询（关闭后不再 fetch/通知）。
+      _syncMailPoller();
     });
     ref.listen<int>(homeTabProvider, (previous, next) {
       unawaited(_animateToTab(next));
@@ -1376,6 +1427,9 @@ class _HomePageState extends ConsumerState<HomePage>
       }
       final items = await client.list(limit: 30);
       if (!mounted) return;
+      // 记住客户端并写入本地缓存，供邮件页秒开、轮询复用。
+      MailCache.instance.rememberClient(widget.session.studentId, client);
+      unawaited(MailCache.instance.save(widget.session.studentId, items));
       // 卡片展示「最近的邮件」，不区分已读/未读；未读数只用于标题旁的统计。
       final unread = items.where((m) => !m.read).toList(growable: false);
       setState(() {
@@ -1428,6 +1482,74 @@ class _HomePageState extends ConsumerState<HomePage>
     }
   }
 
+  /// 根据设置启动/停止「新邮件轮询」。
+  ///
+  /// 仅在 App 进程存活时用 [Timer.periodic] 每 3 分钟检查一次，不做后台任务、
+  /// 不做应用被杀后的推送。设置里关闭邮件通知时不拉取、不通知。
+  void _syncMailPoller() {
+    // 组件测试环境不启动定时器，避免 "A Timer is still pending"。
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    if (!mounted) return;
+    final enabled =
+        ref.read(appSettingsProvider.notifier).notifyEnabled('mail');
+    if (!enabled) {
+      _mailPoller?.stop();
+      _mailPoller = null;
+      return;
+    }
+    if (_mailPoller != null) return;
+    final poller = MailPoller(
+      fetch: _fetchMailForPoll,
+      notify: (title, body) =>
+          unawaited(SystemNotification.show(title, body, route: 'mail')),
+      state: MailPollState(),
+      enabled: () =>
+          ref.read(appSettingsProvider.notifier).notifyEnabled('mail'),
+    );
+    _mailPoller = poller;
+    unawaited(() async {
+      await poller.state.load();
+      if (!mounted || _mailPoller != poller) return;
+      poller.start();
+      // 首次检查只建立基线；恢复上次 knownIds，避免把历史邮件当新邮件刷屏。
+      await poller.checkOnce();
+    }());
+  }
+
+  /// 轮询用：拉取最新邮件；会话过期时丢弃缓存的客户端并重建重试一次。
+  Future<List<MailSummary>> _fetchMailForPoll() async {
+    final studentId = widget.session.studentId;
+    var client = MailCache.instance.clientFor(studentId) ??
+        await _createMailClient(studentId);
+    try {
+      return await client.list(limit: 40);
+    } on MailSessionExpired {
+      MailCache.instance.forgetClient();
+      client = await _createMailClient(studentId);
+      return client.list(limit: 40);
+    }
+  }
+
+  /// 创建邮件客户端（会话换票，失败回退本地密码），并登记到 [MailCache]。
+  Future<MailClient> _createMailClient(String studentId) async {
+    MailClient client;
+    try {
+      client = await MailClient.fromSession(widget.session);
+    } catch (_) {
+      final credentials = await ref.read(credentialStoreProvider).read();
+      final password = credentials?.password;
+      if (credentials == null || password == null || password.isEmpty) {
+        rethrow;
+      }
+      client = await MailClient.fromCredentials(
+        username: credentials.username,
+        password: password,
+      );
+    }
+    MailCache.instance.rememberClient(studentId, client);
+    return client;
+  }
+
   Future<void> _startNotificationPoller() async {
     if (_notifyPollerStarted) return;
     _notifyPollerStarted = true;
@@ -1474,6 +1596,11 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   Future<void> _logout() async {
+    // 退出登录：停止邮件轮询并清空本地邮件缓存。
+    _mailPoller?.stop();
+    _mailPoller = null;
+    // 清空本地邮件缓存（无需阻塞退出导航）。
+    unawaited(MailCache.instance.clear());
     await ref.read(authControllerProvider.notifier).logout();
   }
 }
