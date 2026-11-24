@@ -54,19 +54,12 @@ class _SharedAxisSwitcherState extends State<SharedAxisSwitcher>
     super.didUpdateWidget(oldWidget);
     if (identical(oldWidget.child, widget.child)) return;
 
-    final keyChanged = oldWidget.child.key != widget.child.key;
+    // 页面数据可以在转场途中更新，仍沿用当前动画的方向和进度。
     _current = widget.child;
-    _forward = widget.forward;
-
-    if (keyChanged) {
+    if (oldWidget.child.key != widget.child.key) {
+      _forward = widget.forward;
       _previous = oldWidget.child;
       _controller.forward(from: 0);
-    } else {
-      // 同一个页面（key 不变）内部数据变化：直接替换当前内容，不播放
-      // 转场。之前这里只在 key 变化时更新，导致首页异步加载布局、调整
-      // 卡片尺寸/删除、卡片库按钮状态等全部被吞掉。
-      _previous = null;
-      _controller.value = 1;
     }
   }
 
@@ -85,7 +78,8 @@ class _SharedAxisSwitcherState extends State<SharedAxisSwitcher>
         Widget page;
         double opacity;
         double dx;
-        if (_previous != null && t < _split) {
+        final exiting = _previous != null && t < _split;
+        if (exiting) {
           final u = Curves.easeInCubic.transform((t / _split).clamp(0.0, 1.0));
           page = _previous!;
           opacity = 1.0 - u;
@@ -108,9 +102,12 @@ class _SharedAxisSwitcherState extends State<SharedAxisSwitcher>
             children: [
               FractionalTranslation(
                 translation: Offset(dx, 0),
-                child: Opacity(
-                  opacity: opacity.clamp(0.0, 1.0),
-                  child: RepaintBoundary(child: page),
+                child: IgnorePointer(
+                  ignoring: exiting,
+                  child: Opacity(
+                    opacity: opacity.clamp(0.0, 1.0),
+                    child: RepaintBoundary(child: page),
+                  ),
                 ),
               ),
             ],

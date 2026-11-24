@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/widgets/secondary_page_title.dart';
 import '../../core/network/srun_portal_client.dart';
 import '../../core/platform/external_url.dart';
 import '../../core/plugins/campus_network_plugin.dart';
@@ -12,7 +13,10 @@ import 'campus_network_polling.dart';
 import 'campus_network_provider.dart';
 
 class CampusNetworkPage extends ConsumerWidget {
-  const CampusNetworkPage({super.key});
+  const CampusNetworkPage({super.key, this.onBack, this.visible = true});
+
+  final VoidCallback? onBack;
+  final bool visible;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,9 +54,11 @@ class CampusNetworkPage extends ConsumerWidget {
           );
 
     return CampusNetworkPolling(
+      active: visible,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('网络连接'),
+          leading: onBack == null ? null : BackButton(onPressed: onBack),
+          title: const SecondaryPageTitle('网络连接'),
           actions: [
             IconButton(
               tooltip: '刷新网络状态',

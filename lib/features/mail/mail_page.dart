@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
@@ -163,7 +164,7 @@ class _MailPageState extends ConsumerState<MailPage> {
           surfaceTintColor: Colors.transparent,
           elevation: 0,
           foregroundColor: AppColors.ink,
-          title: const Text('邮件', style: TextStyle(fontSize: 16)),
+          title: const SecondaryPageTitle('邮件'),
           actions: [
             IconButton(
               tooltip: '刷新收件箱',
@@ -186,14 +187,7 @@ class _MailPageState extends ConsumerState<MailPage> {
                 onPressed: widget.onBack,
                 icon: const Icon(Icons.arrow_back_rounded, size: 20),
               ),
-              Text(
-                '邮件',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              const SecondaryPageTitle('邮件'),
               const Spacer(),
               IconButton(
                 tooltip: '刷新收件箱',

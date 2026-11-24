@@ -12,10 +12,11 @@ import 'news_theme.dart';
 /// 报头 + 横向板块标签（全部 / 已选板块）+ 新闻列表。首条为头条（大图 + 衬线标题），
 /// 其余为细线分隔行，右侧小缩略图。支持下拉刷新与上拉分页。
 class NewsPage extends StatefulWidget {
-  const NewsPage({super.key, this.client, this.store});
+  const NewsPage({super.key, this.client, this.store, this.onBack});
 
   final NewsClient? client;
   final NewsStore? store;
+  final VoidCallback? onBack;
 
   @override
   State<NewsPage> createState() => _NewsPageState();
@@ -279,7 +280,8 @@ class _NewsPageState extends State<NewsPage> {
             children: [
               IconButton(
                 key: const Key('news-back'),
-                onPressed: () => Navigator.of(context).maybePop(),
+                onPressed:
+                    widget.onBack ?? () => Navigator.of(context).maybePop(),
                 tooltip: '返回',
                 icon: const Icon(
                   Icons.arrow_back_rounded,

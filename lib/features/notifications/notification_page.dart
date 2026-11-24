@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_theme.dart';
+import '../../app/widgets/secondary_page_title.dart';
 import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/network/notification_client.dart';
@@ -180,14 +181,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
           elevation: 0,
           title: Row(
             children: [
-              Text(
-                '通知',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              const SecondaryPageTitle('通知'),
               if (_noRead > 0) ...[
                 const SizedBox(width: 8),
                 Container(
@@ -233,14 +227,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
                 onPressed: widget.onBack,
                 icon: const Icon(Icons.arrow_back_rounded, size: 20),
               ),
-              Text(
-                '通知',
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              const SecondaryPageTitle('通知'),
               if (_noRead > 0) ...[
                 const SizedBox(width: 8),
                 Container(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../app/widgets/secondary_page_title.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/plugins/plugin_models.dart';
 import '../../core/plugins/plugin_renderer.dart';
@@ -16,12 +17,14 @@ class PluginRuntimePage extends StatefulWidget {
     required this.session,
     this.pageId,
     this.params = const <String, Object?>{},
+    this.onBack,
   });
 
   final PluginManifest manifest;
   final AuthSession? session;
   final String? pageId;
   final Map<String, Object?> params;
+  final VoidCallback? onBack;
 
   @override
   State<PluginRuntimePage> createState() => _PluginRuntimePageState();
@@ -63,7 +66,12 @@ class _PluginRuntimePageState extends State<PluginRuntimePage> {
     final page = widget.manifest.pages[_pageId];
     final title = page?.title ?? widget.manifest.name;
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        leading: widget.onBack == null
+            ? null
+            : BackButton(onPressed: widget.onBack),
+        title: SecondaryPageTitle(title),
+      ),
       body: PluginRuntimeScope(
         openPage: _openPage,
         openUrl: _openUrl,
