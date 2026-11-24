@@ -729,8 +729,14 @@ class _HomePageState extends ConsumerState<HomePage>
   /// 一级标签切换的唯一入口：同步 homeTabProvider 与 _displayedTab，并清理
   /// 当前侧栏插件内容，避免「点首页却仍显示课表 / 插件」的不一致。
   void _goToTab(int target, {bool keepHomeSection = false}) {
-    if (_displayedPluginId != null) {
+    final hadPlugin = _displayedPluginId != null;
+    if (hadPlugin) {
       setState(() => _displayedPluginId = null);
+    }
+    ref.read(homeTabProvider.notifier).state = target;
+    if (hadPlugin && target == _displayedTab) {
+      // 当前 IndexedStack 已停在目标 tab，只是被插件内容盖住：做一次
+      // 单段淡入切换到该 tab，不重复触发 _animateToTab 的排队逻辑。
       _tabFade.value = 0.0;
       unawaited(
         _tabFade.animateTo(
@@ -739,9 +745,9 @@ class _HomePageState extends ConsumerState<HomePage>
           curve: Curves.easeOutCubic,
         ),
       );
+    } else {
+      unawaited(_animateToTab(target));
     }
-    ref.read(homeTabProvider.notifier).state = target;
-    unawaited(_animateToTab(target));
     if (target == 0 && !keepHomeSection) {
       _returnHome();
     }
