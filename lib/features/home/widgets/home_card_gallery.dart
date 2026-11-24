@@ -143,7 +143,7 @@ class HomeCardGallery extends StatelessWidget {
         name: info.name,
         description: info.description,
         trailing: const SizedBox.shrink(),
-        footer: _AppearanceOptions(
+        footer: _PlacementDropdown(
           id: info.id,
           appearance: _appearanceFor(info.id),
           allowSidebar: true,
@@ -222,7 +222,7 @@ class HomeCardGallery extends StatelessWidget {
             ),
           ],
         ),
-        footer: _AppearanceOptions(
+        footer: _PlacementDropdown(
           id: manifest.id,
           appearance: _appearanceFor(manifest.id),
           allowSidebar: true,
@@ -510,6 +510,94 @@ class _GalleryItem extends StatelessWidget {
 /// 三选项「不添加 / 添加到首页 / 添加到侧栏」。
 ///
 /// 首页与侧栏各自独立开关；点「不添加」两者同时清除。
+/// 折叠式放置栏：平时只显示当前放置摘要，点击后展开三个选项。
+class _PlacementDropdown extends StatefulWidget {
+  const _PlacementDropdown({
+    required this.id,
+    required this.appearance,
+    required this.allowSidebar,
+    required this.onChanged,
+  });
+
+  final String id;
+  final PluginAppearance appearance;
+  final bool allowSidebar;
+  final ValueChanged<PluginAppearance> onChanged;
+
+  @override
+  State<_PlacementDropdown> createState() => _PlacementDropdownState();
+}
+
+class _PlacementDropdownState extends State<_PlacementDropdown> {
+  bool _open = false;
+
+  String get _summary {
+    final a = widget.appearance;
+    if (a.none) return '不添加';
+    if (a.home && a.sidebar) return '添加到首页 + 添加到侧栏';
+    if (a.home) return '添加到首页';
+    return '添加到侧栏';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          key: ValueKey<String>('placement-dropdown-${widget.id}'),
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => setState(() => _open = !_open),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: AppColors.canvas,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  '放置：$_summary',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    color: _summary == '不添加'
+                        ? AppColors.muted
+                        : AppColors.campusBlue,
+                  ),
+                ),
+                const Spacer(),
+                Icon(
+                  _open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                  size: 18,
+                  color: AppColors.muted,
+                ),
+              ],
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _open
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _AppearanceOptions(
+                    id: widget.id,
+                    appearance: widget.appearance,
+                    allowSidebar: widget.allowSidebar,
+                    onChanged: widget.onChanged,
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+      ],
+    );
+  }
+}
+
 class _AppearanceOptions extends StatelessWidget {
   const _AppearanceOptions({
     required this.id,

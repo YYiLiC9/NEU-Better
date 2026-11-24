@@ -1010,8 +1010,10 @@ class _HomePageState extends ConsumerState<HomePage>
                 onTap: () => _selectTab(1),
               ),
               if (_sidebarPluginIds.isNotEmpty)
-                Flexible(
-                  fit: FlexFit.loose,
+                SizedBox(
+                  // 固定为条数高度：让下方 Spacer 继续把账号块压到底部，
+                  // 同时 ReorderableListView 不再吞掉剩余空间。
+                  height: _sidebarPluginIds.length * 46.0,
                   child: ReorderableListView(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),

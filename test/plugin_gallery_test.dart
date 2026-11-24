@@ -141,6 +141,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // 放置选项默认折叠，先展开内置与远程两项。
+    await tester.tap(find.byKey(const ValueKey('placement-dropdown-dorm')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('placement-dropdown-remote')));
+    await tester.pumpAndSettle();
 
     // 内置与远程已下载都展示三选项，旧的「添加/已添加」不再出现。
     expect(find.text('添加'), findsNothing);

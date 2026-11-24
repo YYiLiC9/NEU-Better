@@ -175,6 +175,12 @@ void main() {
       ),
     );
 
+    // 放置选项默认折叠，先展开内置与远程两项。
+    await tester.tap(find.byKey(const ValueKey('placement-dropdown-dorm')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('placement-dropdown-demo')));
+    await tester.pumpAndSettle();
+
     // 内置与远程已下载都展示三选项。
     expect(find.text('添加到首页'), findsNWidgets(2));
     expect(find.text('添加到侧栏'), findsNWidgets(2));
