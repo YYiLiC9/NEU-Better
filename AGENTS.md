@@ -20,11 +20,9 @@
 - 插件目录固定读取 GitHub 仓库 `YYiLiC9/NEU-Better` 的 **master** 分支 `plugins/index.json`（失败走 `ghfast.top` / `gh-proxy.com` 镜像）。
 - 缓存为 `plugins_catalog.json`；拉取失败依次回退缓存 → 随包 `assets/plugins/index.json`。
 - 功能分支里的 `plugins/index.json` 改动**不会**自动生效，必须先合并进 master 并发版。
-- 不要引入构建渠道/`PLUGIN_CHANNEL`/本地目录覆盖（2026-11 已按用户要求移除）。
 - 插件清单 `enabled`：`0` 表示禁用/不上架/不可下载，缺省按 `1`。字段说明见 [plugins/README.md](plugins/README.md)。
 
 ## 其它约定
 - 提交信息用中文、动词开头（如 `feat: ...`、`fix: ...`）。
-- 探查接口用的临时脚本（`test/probe_*.dart`、`.tmp/*`）用完删掉，不要进 git；`账号.txt` 已被 gitignore，绝不提交。
 - 数据只写本机 `data/`（按账号隔离见 `lib/core/storage/account_scope.dart`）。
 - Android 测试机：`adb -P 5070 connect 127.0.0.1:16416`（MuMu test 实例）。
