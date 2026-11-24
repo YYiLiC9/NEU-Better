@@ -65,7 +65,9 @@ class HomeCardGallery extends StatelessWidget {
     // 不再重复展示，避免内置卡与插件行同名混淆。
     final pluginList = <PluginManifest>[
       for (final plugin in plugins)
-        if (!builtins.any((info) => info.id == plugin.id)) plugin,
+        if (plugin.isEnabled &&
+            !builtins.any((info) => info.id == plugin.id))
+          plugin,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

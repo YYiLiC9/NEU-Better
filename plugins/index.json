@@ -8,18 +8,33 @@
       "version": "1.0.0",
       "minAppVersion": "0.3.1",
       "rendererVersion": 1,
-      "icon": { "type": "text", "value": "闻" },
-      "card": { "title": "新闻", "subtitle": "校园新闻" },
+      "icon": {
+        "type": "text",
+        "value": "闻"
+      },
+      "card": {
+        "title": "新闻",
+        "subtitle": "校园新闻"
+      },
       "startPage": "home",
       "pages": {
         "home": {
           "title": "新闻",
           "body": [
-            { "type": "text", "style": "title", "value": "校园新闻" },
-            { "type": "text", "style": "caption", "value": "即将上线，敬请期待。" }
+            {
+              "type": "text",
+              "style": "title",
+              "value": "校园新闻"
+            },
+            {
+              "type": "text",
+              "style": "caption",
+              "value": "即将上线，敬请期待。"
+            }
           ]
         }
-      }
+      },
+      "enabled": 1
     },
     {
       "id": "library",
@@ -28,8 +43,14 @@
       "version": "1.0.0",
       "minAppVersion": "0.3.1",
       "rendererVersion": 1,
-      "icon": { "type": "material", "value": "menu_book" },
-      "card": { "title": "图书馆", "subtitle": "馆藏 / 借阅" },
+      "icon": {
+        "type": "material",
+        "value": "menu_book"
+      },
+      "card": {
+        "title": "图书馆",
+        "subtitle": "馆藏 / 借阅"
+      },
       "startPage": "home",
       "pages": {
         "home": {
@@ -44,10 +65,30 @@
               "data": {
                 "type": "static",
                 "items": [
-                  { "id": "b001", "title": "三体", "author": "刘慈欣", "call": "I247.55/L717" },
-                  { "id": "b002", "title": "人类简史", "author": "尤瓦尔·赫拉利", "call": "K02/H339" },
-                  { "id": "b003", "title": "深度学习", "author": "Ian Goodfellow", "call": "TP181/G646" },
-                  { "id": "b004", "title": "东北大学校史", "author": "校史编委会", "call": "G649.28/N874" }
+                  {
+                    "id": "b001",
+                    "title": "三体",
+                    "author": "刘慈欣",
+                    "call": "I247.55/L717"
+                  },
+                  {
+                    "id": "b002",
+                    "title": "人类简史",
+                    "author": "尤瓦尔·赫拉利",
+                    "call": "K02/H339"
+                  },
+                  {
+                    "id": "b003",
+                    "title": "深度学习",
+                    "author": "Ian Goodfellow",
+                    "call": "TP181/G646"
+                  },
+                  {
+                    "id": "b004",
+                    "title": "东北大学校史",
+                    "author": "校史编委会",
+                    "call": "G649.28/N874"
+                  }
                 ]
               },
               "item": {
@@ -56,33 +97,68 @@
                 "onTap": {
                   "type": "openPage",
                   "page": "detail",
-                  "params": { "id": "{{id}}", "title": "{{title}}", "author": "{{author}}", "call": "{{call}}" }
+                  "params": {
+                    "id": "{{id}}",
+                    "title": "{{title}}",
+                    "author": "{{author}}",
+                    "call": "{{call}}"
+                  }
                 }
               }
             },
-            { "type": "divider" },
+            {
+              "type": "divider"
+            },
             {
               "type": "form",
               "fields": [
-                { "key": "keyword", "label": "书名 / 作者", "type": "text" },
-                { "key": "remark", "label": "备注（选填）", "type": "multiline" }
+                {
+                  "key": "keyword",
+                  "label": "书名 / 作者",
+                  "type": "text"
+                },
+                {
+                  "key": "remark",
+                  "label": "备注（选填）",
+                  "type": "multiline"
+                }
               ],
-              "action": { "type": "refresh" }
+              "action": {
+                "type": "refresh"
+              }
             },
             {
               "type": "button",
               "text": "打开图书馆官网",
-              "action": { "type": "openUrl", "url": "https://library.neu.edu.cn" }
+              "action": {
+                "type": "openUrl",
+                "url": "https://library.neu.edu.cn"
+              }
             }
           ]
         },
         "detail": {
           "title": "馆藏详情",
           "body": [
-            { "type": "text", "style": "title", "value": "{{title}}" },
-            { "type": "text", "style": "caption", "value": "作者：{{author}}" },
-            { "type": "text", "style": "body", "value": "索书号：{{call}}" },
-            { "type": "spacer", "height": 12 },
+            {
+              "type": "text",
+              "style": "title",
+              "value": "{{title}}"
+            },
+            {
+              "type": "text",
+              "style": "caption",
+              "value": "作者：{{author}}"
+            },
+            {
+              "type": "text",
+              "style": "body",
+              "value": "索书号：{{call}}"
+            },
+            {
+              "type": "spacer",
+              "height": 12
+            },
             {
               "type": "card",
               "title": "借阅说明",
@@ -90,7 +166,8 @@
             }
           ]
         }
-      }
+      },
+      "enabled": 0
     }
   ]
 }

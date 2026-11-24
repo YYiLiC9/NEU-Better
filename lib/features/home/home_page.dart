@@ -367,6 +367,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// 下载/安装（或更新）远程插件。用分步进度反馈写入过程。
   Future<void> _downloadPlugin(PluginManifest manifest) async {
+    if (!manifest.isEnabled) return;
     setState(() {
       _downloadProgress[manifest.id] = 0.05;
       _downloadFailed.remove(manifest.id);

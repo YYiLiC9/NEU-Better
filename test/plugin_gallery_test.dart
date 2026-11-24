@@ -8,11 +8,16 @@ import 'package:neu_better_pro/features/home/home_card_catalog.dart';
 import 'package:neu_better_pro/features/home/home_card_layout.dart';
 import 'package:neu_better_pro/features/home/home_page.dart' show HomeCardGallery;
 
-PluginManifest _manifest(String id, String version, {int renderer = 1}) {
+PluginManifest _manifest(
+  String id,
+  String version, {
+  int renderer = 1,
+  int enabled = 1,
+}) {
   return PluginManifest.fromJson(jsonDecode('''
   {
     "id": "$id", "name": "$id", "description": "desc $id", "version": "$version",
-    "rendererVersion": $renderer, "startPage": "home",
+    "rendererVersion": $renderer, "enabled": $enabled, "startPage": "home",
     "pages": {"home": {"title": "$id", "body": []}}
   }
   '''))!;
@@ -68,6 +73,30 @@ void main() {
 
     await tester.tap(find.text('下载'));
     expect(downloaded, 'newplug');
+  });
+
+  testWidgets('disabled plugin is hidden from gallery', (tester) async {
+    final plugins = <PluginManifest>[
+      _manifest('hiddenplug', '1.0.0', enabled: 0),
+      _manifest('shownplug', '1.0.0'),
+    ];
+    await tester.pumpWidget(
+      _wrap(
+        HomeCardGallery(
+          cards: const <HomeCardLayout>[],
+          builtins: const <HomeCardInfo>[],
+          plugins: plugins,
+          onBack: () {},
+          onAdd: (_) {},
+          onDownload: (_) {},
+          onDeletePlugin: (_) {},
+          onUpdate: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hiddenplug'), findsNothing);
+    expect(find.text('shownplug'), findsOneWidget);
   });
 
   testWidgets('gallery shows progress and retry states', (tester) async {

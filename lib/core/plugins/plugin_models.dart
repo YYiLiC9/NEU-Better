@@ -143,6 +143,7 @@ class PluginManifest {
     this.icon,
     this.cardTitle,
     this.cardSubtitle,
+    this.enabled = 1,
     required this.raw,
   });
 
@@ -157,7 +158,14 @@ class PluginManifest {
   final PluginIcon? icon;
   final String? cardTitle;
   final String? cardSubtitle;
+
+  /// 远程插件开关：0=禁用（不上架、不可下载、插件库不显示）；1=正常可用。
+  /// 缺省按 1 处理，兼容旧插件清单。
+  final int enabled;
+
   final Map<String, Object?> raw;
+
+  bool get isEnabled => enabled == 1;
 
   String get title => name;
 
@@ -200,6 +208,7 @@ class PluginManifest {
       icon: PluginIcon.fromJson(json['icon']),
       cardTitle: card['title']?.toString(),
       cardSubtitle: card['subtitle']?.toString(),
+      enabled: int.tryParse(json['enabled']?.toString() ?? '') ?? 1,
       raw: _asMap(json),
     );
     return manifest.isValid ? manifest : null;
