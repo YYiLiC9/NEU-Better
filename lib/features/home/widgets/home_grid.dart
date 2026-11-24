@@ -887,25 +887,16 @@ class _MailCard extends StatelessWidget {
       );
     }
 
-    if (wide) {
-      // 2×4 高度充足：header 顶部、两封邮件在其中均匀铺开，避免下半大片空白。
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          header,
-          for (final mail in mails) _mailBlock(mail, wide: true),
-        ],
-      );
-    }
-
-    // 2×2：header 顶部，邮件行在剩余高度内自然分布，避免下半大片空白。
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         header,
-        for (final mail in mails) _mailBlock(mail, wide: false),
+        SizedBox(height: wide ? 12 : 10),
+        for (var i = 0; i < mails.length; i++) ...[
+          if (i > 0) SizedBox(height: wide ? 10 : 8),
+          _mailBlock(mails[i], wide: wide),
+        ],
+        const Spacer(),
       ],
     );
   }
@@ -1087,10 +1078,14 @@ class _NotifyCard extends StatelessWidget {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         header,
-        for (final note in notes) _noteBlock(note, wide: wide),
+        SizedBox(height: wide ? 12 : 10),
+        for (var i = 0; i < notes.length; i++) ...[
+          if (i > 0) SizedBox(height: wide ? 10 : 8),
+          _noteBlock(notes[i], wide: wide),
+        ],
+        const Spacer(),
       ],
     );
   }
