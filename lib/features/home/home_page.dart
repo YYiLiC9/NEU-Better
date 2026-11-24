@@ -120,6 +120,12 @@ class _HomePageState extends ConsumerState<HomePage>
   Map<String, PluginAppearance> _appearances =
       const <String, PluginAppearance>{};
   List<String> _sidebarPluginIds = const <String>[];
+  String? _draggingSidebarId;
+
+  List<String> get _visibleSidebarIds => <String>[
+    for (final id in _sidebarPluginIds)
+      if (_sidebarMeta(id) != null) id,
+  ];
 
   /// 侧栏当前打开的插件内容（null = 显示一级 IndexedStack）。
   String? _displayedPluginId;
@@ -559,11 +565,19 @@ class _HomePageState extends ConsumerState<HomePage>
   /// 侧栏拖动排序：移动 id 后写入自定义顺序并持久化。
   /// 使用 [onReorderItem]（newIndex 已按移除后的列表调整）。
   void _reorderSidebarItems(int oldIndex, int newIndex) {
-    if (oldIndex < 0 || oldIndex >= _sidebarPluginIds.length) return;
-    final next = <String>[..._sidebarPluginIds];
-    final moved = next.removeAt(oldIndex);
-    next.insert(newIndex.clamp(0, next.length), moved);
-    setState(() => _sidebarPluginIds = next);
+    final visible = _visibleSidebarIds;
+    if (oldIndex < 0 || oldIndex >= visible.length) return;
+    final moved = visible.removeAt(oldIndex);
+    visible.insert(newIndex.clamp(0, visible.length), moved);
+    final hidden = <String>[
+      for (final id in _sidebarPluginIds)
+        if (!visible.contains(id)) id,
+    ];
+    final next = <String>[...visible, ...hidden];
+    setState(() {
+      _sidebarPluginIds = next;
+      _draggingSidebarId = null;
+    });
     unawaited(_placementStore.reorderSidebar(next));
   }
   /// 设置插件外观，并同步首页布局 / 侧栏 / 持久化。
@@ -1009,32 +1023,49 @@ class _HomePageState extends ConsumerState<HomePage>
                 active: _displayedPluginId == null && _tab == 1,
                 onTap: () => _selectTab(1),
               ),
-              if (_sidebarPluginIds.isNotEmpty)
+              if (_visibleSidebarIds.isNotEmpty)
                 SizedBox(
                   // 固定为条数高度：让下方 Spacer 继续把账号块压到底部，
                   // 同时 ReorderableListView 不再吞掉剩余空间。
-                  height: _sidebarPluginIds.length * 46.0,
+                  height: _visibleSidebarIds.length * 46.0,
                   child: ReorderableListView(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     buildDefaultDragHandles: false,
                     onReorderItem: _reorderSidebarItems,
+                    onReorderStart: (index) {
+                      final visible = _visibleSidebarIds;
+                      if (index >= 0 && index < visible.length) {
+                        setState(() => _draggingSidebarId = visible[index]);
+                      }
+                    },
+                    onReorderEnd: (_) {
+                      if (_draggingSidebarId != null) {
+                        setState(() => _draggingSidebarId = null);
+                      }
+                    },
                     children: [
-                      for (var i = 0; i < _sidebarPluginIds.length; i++)
-                        if (_sidebarMeta(_sidebarPluginIds[i])
+                      for (var i = 0; i < _visibleSidebarIds.length; i++)
+                        if (_sidebarMeta(_visibleSidebarIds[i])
                             case final meta?)
                           ReorderableDelayedDragStartListener(
-                            key: ValueKey('sidebar-${_sidebarPluginIds[i]}'),
+                            key: ValueKey(
+                              'sidebar-${_visibleSidebarIds[i]}',
+                            ),
                             index: i,
                             child: _PluginNavItem(
                               label: meta.label,
                               icon: meta.icon,
                               badge: meta.badge,
                               active:
-                                  _displayedPluginId == _sidebarPluginIds[i],
-                              showDragHandle: true,
-                              onTap: () =>
-                                  _openSidebarPlugin(_sidebarPluginIds[i]),
+                                  _displayedPluginId ==
+                                  _visibleSidebarIds[i],
+                              showDragHandle:
+                                  _draggingSidebarId ==
+                                  _visibleSidebarIds[i],
+                              onTap: () => _openSidebarPlugin(
+                                _visibleSidebarIds[i],
+                              ),
                             ),
                           ),
                     ],

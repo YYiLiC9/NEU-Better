@@ -137,19 +137,16 @@ class HomeCardGallery extends StatelessWidget {
   Widget _buildBuiltinItem(BuildContext context, HomeCardInfo info) {
     final added = _added(info.id);
     if (_showOptions) {
-      return _GalleryItem(
+      return _PlacementGalleryItem(
         icon: info.icon,
         badge: info.id == 'news' ? '闻' : null,
         name: info.name,
         description: info.description,
-        trailing: const SizedBox.shrink(),
-        footer: _PlacementDropdown(
-          id: info.id,
-          appearance: _appearanceFor(info.id),
-          allowSidebar: true,
-          onChanged: (appearance) =>
-              onSetAppearance!(info.id, appearance),
-        ),
+        trailingActions: const <Widget>[],
+        id: info.id,
+        appearance: _appearanceFor(info.id),
+        allowSidebar: true,
+        onChanged: (appearance) => onSetAppearance!(info.id, appearance),
       );
     }
     return _GalleryItem(
@@ -195,40 +192,35 @@ class HomeCardGallery extends StatelessWidget {
     // 右侧仅保留「更新 / 删除」。
     final showAppearance = installed && !unsupported && _showOptions;
     if (showAppearance) {
-      return _GalleryItem(
+      return _PlacementGalleryItem(
         icon: resolvePluginIcon(manifest.icon),
         badge: manifest.icon?.type == 'text' ? manifest.icon!.value : null,
         name: manifest.name,
         description: '${manifest.description} · v${manifest.version}',
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (updateAvailable)
-              _actionButton(
-                label: '更新',
-                onPressed: () => onUpdate?.call(manifest),
-              )
-            else
-              const SizedBox(width: 96),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 64,
-              child: onDeletePlugin != null
-                  ? _deleteAction(
-                      () => _confirmUninstall(context, manifest),
-                      key: ValueKey('delete-plugin-${manifest.id}'),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ],
-        ),
-        footer: _PlacementDropdown(
-          id: manifest.id,
-          appearance: _appearanceFor(manifest.id),
-          allowSidebar: true,
-          onChanged: (appearance) =>
-              onSetAppearance!(manifest.id, appearance),
-        ),
+        trailingActions: <Widget>[
+          if (updateAvailable)
+            _actionButton(
+              label: '更新',
+              onPressed: () => onUpdate?.call(manifest),
+            )
+          else
+            const SizedBox(width: 96),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 64,
+            child: onDeletePlugin != null
+                ? _deleteAction(
+                    () => _confirmUninstall(context, manifest),
+                    key: ValueKey('delete-plugin-${manifest.id}'),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+        id: manifest.id,
+        appearance: _appearanceFor(manifest.id),
+        allowSidebar: true,
+        onChanged: (appearance) =>
+            onSetAppearance!(manifest.id, appearance),
       );
     }
 
@@ -509,91 +501,106 @@ class _GalleryItem extends StatelessWidget {
 
 /// 三选项「不添加 / 添加到首页 / 添加到侧栏」。
 ///
-/// 首页与侧栏各自独立开关；点「不添加」两者同时清除。
-/// 折叠式放置栏：平时只显示当前放置摘要，点击后展开三个选项。
-class _PlacementDropdown extends StatefulWidget {
-  const _PlacementDropdown({
+/// 折叠时摘要按钮与「删除/更新」同一行，展开后在下方显示三个选项。
+class _PlacementGalleryItem extends StatefulWidget {
+  const _PlacementGalleryItem({
+    required this.icon,
+    this.badge,
+    required this.name,
+    required this.description,
+    this.trailingActions = const <Widget>[],
     required this.id,
     required this.appearance,
     required this.allowSidebar,
     required this.onChanged,
   });
 
+  final IconData icon;
+  final String? badge;
+  final String name;
+  final String description;
+  final List<Widget> trailingActions;
   final String id;
   final PluginAppearance appearance;
   final bool allowSidebar;
   final ValueChanged<PluginAppearance> onChanged;
 
   @override
-  State<_PlacementDropdown> createState() => _PlacementDropdownState();
+  State<_PlacementGalleryItem> createState() => _PlacementGalleryItemState();
 }
 
-class _PlacementDropdownState extends State<_PlacementDropdown> {
+class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
   bool _open = false;
 
   String get _summary {
     final a = widget.appearance;
     if (a.none) return '不添加';
-    if (a.home && a.sidebar) return '添加到首页 + 添加到侧栏';
-    if (a.home) return '添加到首页';
-    return '添加到侧栏';
+    if (a.home && a.sidebar) return '首页+侧栏';
+    if (a.home) return '首页';
+    return '侧栏';
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        InkWell(
-          key: ValueKey<String>('placement-dropdown-${widget.id}'),
-          borderRadius: BorderRadius.circular(8),
-          onTap: () => setState(() => _open = !_open),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            decoration: BoxDecoration(
-              color: AppColors.canvas,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.line),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '放置：$_summary',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    color: _summary == '不添加'
-                        ? AppColors.muted
-                        : AppColors.campusBlue,
+    return _GalleryItem(
+      icon: widget.icon,
+      badge: widget.badge,
+      name: widget.name,
+      description: widget.description,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            key: ValueKey<String>('placement-dropdown-${widget.id}'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _open = !_open),
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: AppColors.canvas,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '放置：$_summary',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: widget.appearance.none
+                          ? AppColors.muted
+                          : AppColors.campusBlue,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                Icon(
-                  _open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                  size: 18,
-                  color: AppColors.muted,
-                ),
-              ],
+                  const SizedBox(width: 3),
+                  Icon(
+                    _open
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 16,
+                    color: AppColors.muted,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _open
-              ? Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: _AppearanceOptions(
-                    id: widget.id,
-                    appearance: widget.appearance,
-                    allowSidebar: widget.allowSidebar,
-                    onChanged: widget.onChanged,
-                  ),
-                )
-              : const SizedBox(width: double.infinity),
-        ),
-      ],
+          for (final action in widget.trailingActions) ...[
+            const SizedBox(width: 8),
+            action,
+          ],
+        ],
+      ),
+      footer: _open
+          ? _AppearanceOptions(
+              id: widget.id,
+              appearance: widget.appearance,
+              allowSidebar: widget.allowSidebar,
+              onChanged: widget.onChanged,
+            )
+          : null,
     );
   }
 }

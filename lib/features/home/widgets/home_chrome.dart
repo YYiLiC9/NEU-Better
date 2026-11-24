@@ -96,7 +96,7 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-class _PluginNavItem extends StatefulWidget {
+class _PluginNavItem extends StatelessWidget {
   const _PluginNavItem({
     required this.label,
     required this.icon,
@@ -114,86 +114,62 @@ class _PluginNavItem extends StatefulWidget {
   final VoidCallback? onTap;
 
   @override
-  State<_PluginNavItem> createState() => _PluginNavItemState();
-}
-
-class _PluginNavItemState extends State<_PluginNavItem> {
-  bool _pressed = false;
-
-  @override
   Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (_) {
-        if (widget.showDragHandle && !_pressed) {
-          setState(() => _pressed = true);
-        }
-      },
-      onPointerUp: (_) {
-        if (_pressed) setState(() => _pressed = false);
-      },
-      onPointerCancel: (_) {
-        if (_pressed) setState(() => _pressed = false);
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-          decoration: BoxDecoration(
-            color: widget.active ? AppColors.campusBlue : null,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 19,
-                height: 19,
-                child: widget.badge != null
-                    ? Center(
-                        child: Text(
-                          widget.badge!,
-                          style: TextStyle(
-                            fontSize: 15,
-                            height: 1,
-                            fontWeight: FontWeight.w700,
-                            color: widget.active
-                                ? Colors.white
-                                : AppColors.muted,
-                          ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.campusBlue : null,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 19,
+              height: 19,
+              child: badge != null
+                  ? Center(
+                      child: Text(
+                        badge!,
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 1,
+                          fontWeight: FontWeight.w700,
+                          color: active ? Colors.white : AppColors.muted,
                         ),
-                      )
-                    : Icon(
-                        widget.icon,
-                        size: 19,
-                        color: widget.active ? Colors.white : AppColors.muted,
                       ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: widget.active ? Colors.white : AppColors.muted,
-                    fontSize: 12,
-                    fontWeight: widget.active
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                  ),
+                    )
+                  : Icon(
+                      icon,
+                      size: 19,
+                      color: active ? Colors.white : AppColors.muted,
+                    ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: active ? Colors.white : AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
-              // 六个点仅在按住/拖动插件项时出现，平时保持干净。
-              if (widget.showDragHandle && _pressed) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.drag_indicator,
-                  size: 16,
-                  color: widget.active ? Colors.white70 : AppColors.faint,
-                ),
-              ],
+            ),
+            // 六个点只在拖动该插件项时出现，点击不显示。
+            if (showDragHandle) ...[
+              const SizedBox(width: 4),
+              Icon(
+                Icons.drag_indicator,
+                size: 16,
+                color: active ? Colors.white70 : AppColors.faint,
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
