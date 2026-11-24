@@ -10,7 +10,9 @@ import 'package:local_notifier/local_notifier.dart';
 abstract final class SystemNotification {
   static const MethodChannel _channel = MethodChannel('neu_better/notifications');
 
-  static Future<void> show(String title, String body) async {
+  /// [route] 仅 Android 下生效：随通知带给原生层，点击时用于决定跳转页面
+  /// （如 'mail' 打开邮件页）；Windows 的 local_notifier 暂不支持点击跳转，忽略。
+  static Future<void> show(String title, String body, {String? route}) async {
     if (Platform.isWindows) {
       try {
         final notification = LocalNotification(title: title, body: body);
@@ -28,6 +30,7 @@ abstract final class SystemNotification {
         await _channel.invokeMethod<bool>('showPluginNotification', {
           'title': title,
           'body': body,
+          'route': ?route,
         });
       } on MissingPluginException catch (error) {
         debugPrint('[notify] android channel unavailable: $error');

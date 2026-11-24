@@ -10,6 +10,7 @@ import '../../app/widgets/shared_axis_switcher.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/mail_client.dart';
+import 'mail_cache.dart';
 import 'mail_detail_page.dart';
 import 'mail_format.dart';
 
@@ -40,7 +41,27 @@ class _MailPageState extends ConsumerState<MailPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    // 有本地缓存时立即渲染，避免进入邮件页先看到整屏 loading。
+    final cached = MailCache.instance.itemsFor(widget.session.studentId);
+    if (cached.isNotEmpty) {
+      _items = cached;
+      _loading = false;
+    }
+    unawaited(_hydrateAndLoad());
+  }
+
+  /// 先读磁盘缓存立即渲染，再后台刷新。
+  Future<void> _hydrateAndLoad() async {
+    final studentId = widget.session.studentId;
+    final cached = await MailCache.instance.loadFor(studentId);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _items = cached;
+        _loading = false;
+      });
+    }
+    await _load();
   }
 
   Future<MailClient> _createClient() async {
@@ -63,18 +84,25 @@ class _MailPageState extends ConsumerState<MailPage> {
   }
 
   Future<void> _load({bool refresh = false}) async {
+    final studentId = widget.session.studentId;
     if (refresh) {
       setState(() => _error = null);
-    } else {
+    } else if (_items.isEmpty) {
       setState(() {
         _loading = true;
         _error = null;
       });
+    } else {
+      setState(() => _error = null);
     }
     try {
-      final client = _client ?? await _createClient();
+      final client = _client ??
+          MailCache.instance.clientFor(studentId) ??
+          await _createClient();
       final items = await client.list().timeout(const Duration(seconds: 20));
       if (!mounted) return;
+      MailCache.instance.rememberClient(studentId, client);
+      unawaited(MailCache.instance.save(studentId, items));
       setState(() {
         _client = client;
         _items = items;
@@ -83,9 +111,15 @@ class _MailPageState extends ConsumerState<MailPage> {
       });
     } catch (error) {
       if (!mounted) return;
+      if (error is MailSessionExpired) {
+        // 会话过期：丢弃缓存的客户端，下次重新换票。
+        _client = null;
+        MailCache.instance.forgetClient();
+      }
       setState(() {
         _loading = false;
-        _error = _describe(error);
+        // 已有缓存时不展示全屏错误，保留列表继续可读。
+        _error = _items.isEmpty ? _describe(error) : null;
       });
     }
   }
@@ -138,6 +172,7 @@ class _MailPageState extends ConsumerState<MailPage> {
             item,
       ];
     });
+    unawaited(MailCache.instance.save(widget.session.studentId, _items));
     try {
       await client.markRead(summary.id);
     } catch (error) {
