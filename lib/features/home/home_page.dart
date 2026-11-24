@@ -1376,10 +1376,10 @@ class _HomePageState extends ConsumerState<HomePage>
       }
       final items = await client.list(limit: 30);
       if (!mounted) return;
-      // 邮件卡只展示「最近两封未读」：已读邮件不出现在卡片上。
+      // 卡片展示「最近的邮件」，不区分已读/未读；未读数只用于标题旁的统计。
       final unread = items.where((m) => !m.read).toList(growable: false);
       setState(() {
-        _mailRecent = unread.take(2).toList(growable: false);
+        _mailRecent = items.take(2).toList(growable: false);
         _mailUnread = unread.length;
       });
     } catch (_) {
@@ -1394,9 +1394,9 @@ class _HomePageState extends ConsumerState<HomePage>
       final counts = await client.counts();
       final items = await client.list(page: 1);
       if (!mounted) return;
-      final unread = items.where((n) => !n.read).toList(growable: false);
       setState(() {
-        _notifyRecent = unread.take(2).toList(growable: false);
+        // 卡片始终展示最近两条通知（已读也显示），未读数仅作统计。
+        _notifyRecent = items.take(2).toList(growable: false);
         _notifyUnread = counts.noRead;
       });
     } catch (_) {

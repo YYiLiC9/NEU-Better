@@ -878,7 +878,7 @@ class _MailCard extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                '无未读',
+                '暂无邮件',
                 style: TextStyle(fontSize: 12, color: AppColors.faint),
               ),
             ),
@@ -921,7 +921,7 @@ class _MailCard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: wide ? 13 : 12.5,
-            fontWeight: FontWeight.w600,
+            fontWeight: mail.read ? FontWeight.w500 : FontWeight.w700,
             color: AppColors.ink,
           ),
         ),
@@ -1076,7 +1076,7 @@ class _NotifyCard extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                '无未读',
+                '暂无通知',
                 style: TextStyle(fontSize: 12, color: AppColors.faint),
               ),
             ),
@@ -1106,7 +1106,7 @@ class _NotifyCard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: wide ? 13 : 12.5,
-            fontWeight: FontWeight.w600,
+            fontWeight: note.read ? FontWeight.w500 : FontWeight.w700,
             color: AppColors.ink,
           ),
         ),
