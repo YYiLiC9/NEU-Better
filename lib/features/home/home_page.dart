@@ -448,6 +448,10 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _openPlugin(PluginManifest manifest) {
+    if (_visibleSidebarIds.contains(manifest.id)) {
+      _openSidebarPlugin(manifest.id);
+      return;
+    }
     switch (manifest.id) {
       case campusNetworkPluginId:
         _showHomeSection(_HomeSection.network);
@@ -534,29 +538,48 @@ class _HomePageState extends ConsumerState<HomePage>
     );
   }
 
+  /// 首页卡片点击：若该功能也在侧栏中，则从侧栏进入（侧栏同步高亮）；
+  /// 否则走各自的内嵌二级页。
+  void _openCardFeature(String id, VoidCallback fallback) {
+    if (_visibleSidebarIds.contains(id)) {
+      _openSidebarPlugin(id);
+    } else {
+      fallback();
+    }
+  }
+
+  /// 从侧栏插件内容返回：回到首页根（并清除侧栏选中）。
+  void _returnFromSidebarPlugin() => _goToTab(0);
+
   /// 侧栏内容区渲染：内置（余额/通知/邮件）与远程插件各自打开内嵌页。
   Widget _buildPluginContent(String id) {
     switch (id) {
       case 'dorm':
-        return _HomeDormDetail(onBack: _returnHome);
+        return _HomeDormDetail(onBack: _returnFromSidebarPlugin);
       case 'notify':
         return NotificationPage(
           session: widget.session,
-          onBack: _returnHome,
+          onBack: _returnFromSidebarPlugin,
         );
       case 'mail':
-        return MailPage(session: widget.session, onBack: _returnHome);
+        return MailPage(
+          session: widget.session,
+          onBack: _returnFromSidebarPlugin,
+        );
       case campusNetworkPluginId:
-        return const CampusNetworkPage(onBack: null, visible: true);
+        return CampusNetworkPage(
+          onBack: _returnFromSidebarPlugin,
+          visible: true,
+        );
       case 'news':
-        return const NewsPage(onBack: null);
+        return NewsPage(onBack: _returnFromSidebarPlugin);
     }
     for (final plugin in _installedPlugins) {
       if (plugin.id == id) {
         return PluginRuntimePage(
           manifest: plugin,
           session: widget.session,
-          onBack: null,
+          onBack: _returnFromSidebarPlugin,
         );
       }
     }
@@ -1275,7 +1298,7 @@ class _HomePageState extends ConsumerState<HomePage>
         child: _DormCard(
           size: size,
           prefs: _statusPrefs,
-          onOpen: _openDormDetail,
+          onOpen: () => _openCardFeature('dorm', _openDormDetail),
         ),
       );
     }
@@ -1286,7 +1309,8 @@ class _HomePageState extends ConsumerState<HomePage>
         size: size,
         unread: _mailUnread,
         recent: _mailRecent,
-        onOpen: () => _showHomeSection(_HomeSection.mail),
+        onOpen: () =>
+            _openCardFeature('mail', () => _showHomeSection(_HomeSection.mail)),
       );
     }
     if (id == 'notify') {
@@ -1294,7 +1318,10 @@ class _HomePageState extends ConsumerState<HomePage>
         size: size,
         unread: _notifyUnread,
         recent: _notifyRecent,
-        onOpen: () => _showHomeSection(_HomeSection.notifications),
+        onOpen: () => _openCardFeature(
+          'notify',
+          () => _showHomeSection(_HomeSection.notifications),
+        ),
       );
     }
     if (id == 'news') {
@@ -1305,7 +1332,8 @@ class _HomePageState extends ConsumerState<HomePage>
         size: size,
         unread: notifyOn ? _newsUnread : 0,
         latest: _newsLatest,
-        onOpen: () => _showHomeSection(_HomeSection.news),
+        onOpen: () =>
+            _openCardFeature('news', () => _showHomeSection(_HomeSection.news)),
       );
     }
     for (final plugin in _installedPlugins) {
@@ -1314,13 +1342,13 @@ class _HomePageState extends ConsumerState<HomePage>
           return CampusNetworkCard(
             size: size,
             visible: _displayedTab == 0,
-            onTap: () => _openPlugin(plugin),
+            onTap: () => _openCardFeature(plugin.id, () => _openPlugin(plugin)),
           );
         }
         return PluginCard(
           size: size,
           manifest: plugin,
-          onTap: () => _openPlugin(plugin),
+          onTap: () => _openCardFeature(plugin.id, () => _openPlugin(plugin)),
         );
       }
     }
