@@ -94,13 +94,13 @@ void main() {
       expect(find.text('我的课表'), findsOneWidget);
 
       // 从课表点「首页」应回到上次的「插件库」二级页，而不是课表。
-      await tester.tap(find.text('首页'));
+      await tester.tap(find.text('首页').first);
       await tester.pumpAndSettle();
       expect(find.text('我的课表'), findsNothing);
       expect(find.text('插件库'), findsOneWidget);
 
       // 已在首页二级页再次点「首页」→ 回到概览根。
-      await tester.tap(find.text('首页'));
+      await tester.tap(find.text('首页').first);
       await tester.pumpAndSettle();
       expect(find.text('余额中心'), findsOneWidget);
       expect(find.text('插件库'), findsNothing);

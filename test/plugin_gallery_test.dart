@@ -151,8 +151,8 @@ void main() {
     expect(find.text('添加'), findsNothing);
     expect(find.text('已添加'), findsNothing);
     expect(find.text('不添加'), findsNWidgets(3));
-    expect(find.text('添加到首页'), findsNWidgets(3));
-    expect(find.text('添加到侧栏'), findsNWidgets(2));
+    expect(find.text('首页'), findsNWidgets(3));
+    expect(find.text('侧栏'), findsNWidgets(2));
 
     await tester.tap(find.byKey(const ValueKey('appearance-sidebar-remote')));
     await tester.pumpAndSettle();

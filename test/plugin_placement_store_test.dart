@@ -182,8 +182,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // 内置与远程已下载都展示三选项。
-    expect(find.text('添加到首页'), findsNWidgets(3));
-    expect(find.text('添加到侧栏'), findsNWidgets(2));
+    expect(find.text('首页'), findsNWidgets(3));
+    expect(find.text('侧栏'), findsNWidgets(2));
     expect(find.text('不添加'), findsNWidgets(3));
     // 远程默认未添加，内置默认首页。
     expect(find.byKey(const ValueKey('appearance-home-dorm')), findsOneWidget);

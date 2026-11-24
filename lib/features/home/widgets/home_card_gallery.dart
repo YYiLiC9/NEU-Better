@@ -534,9 +534,9 @@ class _PlacementGalleryItemState extends State<_PlacementGalleryItem> {
   String get _summary {
     final a = widget.appearance;
     if (a.none) return '不添加';
-    if (a.home && a.sidebar) return '添加到首页 + 添加到侧栏';
-    if (a.home) return '添加到首页';
-    return '添加到侧栏';
+    if (a.home && a.sidebar) return '首页+侧栏';
+    if (a.home) return '首页';
+    return '侧栏';
   }
 
   @override
@@ -643,14 +643,14 @@ class _AppearanceOptions extends StatelessWidget {
         ),
         _AppearanceChip(
           key: ValueKey('appearance-home-$id'),
-          label: '添加到首页',
+          label: '首页',
           selected: appearance.home,
           onTap: () => onChanged(appearance.copyWith(home: !appearance.home)),
         ),
         if (allowSidebar)
           _AppearanceChip(
             key: ValueKey('appearance-sidebar-$id'),
-            label: '添加到侧栏',
+            label: '侧栏',
             selected: appearance.sidebar,
             onTap: () =>
                 onChanged(appearance.copyWith(sidebar: !appearance.sidebar)),
