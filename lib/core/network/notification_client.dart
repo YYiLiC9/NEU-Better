@@ -7,6 +7,7 @@ import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/neu_cas_client.dart';
 import '../../core/network/neu_service_session.dart';
+import 'in_flight_request.dart';
 import 'notification_models.dart';
 
 /// 通知接口错误（鉴权失效 / 网络 / 业务失败）。
@@ -26,12 +27,9 @@ class NotificationQueryException implements Exception {
 /// 阶段0 已实测：CAS 默认登录后的 cookies 含 `personal.neu.edu.cn`，之后所有
 /// ucs API 只需 GET + cookie + `X-Requested-With: XMLHttpRequest`，无需 CSRF。
 class NotificationClient {
-  NotificationClient(
-    this._session, {
-    Dio? dio,
-    CredentialStore? credentials,
-  })  : _dio = dio ?? _buildDio(),
-        _credentials = credentials ?? const SecureCredentialStore();
+  NotificationClient(this._session, {Dio? dio, CredentialStore? credentials})
+    : _dio = dio ?? _buildDio(),
+      _credentials = credentials ?? const SecureCredentialStore();
 
   final AuthSession _session;
   final Dio _dio;
@@ -66,6 +64,11 @@ class NotificationClient {
   }
 
   String? _cookieHeader;
+  final _counts = InFlightRequest<NotificationCounts>();
+  final _firstPage = InFlightRequest<List<AppNotification>>();
+  final _sessionRefresh = InFlightRequest<void>();
+
+  void close() => _dio.close(force: true);
 
   String get _cookie {
     return _cookieHeader ??=
@@ -77,26 +80,28 @@ class NotificationClient {
   }
 
   Map<String, String> get _headers => {
-        if (_cookie.isNotEmpty) 'Cookie': _cookie,
-        'X-Requested-With': 'XMLHttpRequest',
-        'Referer': 'https://personal.neu.edu.cn/portal/',
-      };
+    if (_cookie.isNotEmpty) 'Cookie': _cookie,
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': 'https://personal.neu.edu.cn/portal/',
+  };
 
   /// 拉取未读统计。
-  Future<NotificationCounts> counts() async {
+  Future<NotificationCounts> counts() => _counts.run(() async {
     final body = await _getJson('/countData');
     final root = _asMap(body);
     _ensureBusinessOk(root);
     return parseCounts(root);
-  }
+  });
 
   /// 拉取一页通知（type=3：APP 消息推送）。实际每页 10 条。
-  Future<List<AppNotification>> list({int page = 1}) async {
-    final body = await _getJson('/index', query: {
-      'type': '3',
-      'pageNum': '$page',
-      'pageSize': '20',
-    });
+  Future<List<AppNotification>> list({int page = 1}) =>
+      page == 1 ? _firstPage.run(() => _list(1)) : _list(page);
+
+  Future<List<AppNotification>> _list(int page) async {
+    final body = await _getJson(
+      '/index',
+      query: {'type': '3', 'pageNum': '$page', 'pageSize': '20'},
+    );
     final root = _asMap(body);
     _ensureBusinessOk(root);
     return parseIndex(root);
@@ -136,10 +141,16 @@ class NotificationClient {
 
   Future<Object?> _getJson(String path, {Map<String, String>? query}) async {
     final uri = Uri.parse('$_base$path').replace(queryParameters: query);
-    var response = await _dio.get<String>(uri.toString(), options: Options(headers: _headers));
+    var response = await _dio.get<String>(
+      uri.toString(),
+      options: Options(headers: _headers),
+    );
     if (_looksExpired(response)) {
       await _refreshSession();
-      response = await _dio.get<String>(uri.toString(), options: Options(headers: _headers));
+      response = await _dio.get<String>(
+        uri.toString(),
+        options: Options(headers: _headers),
+      );
       if (_looksExpired(response)) {
         throw const NotificationQueryException('session', '消息中心会话已过期，请重新登录');
       }
@@ -175,7 +186,9 @@ class NotificationClient {
     return false;
   }
 
-  Future<void> _refreshSession() async {
+  Future<void> _refreshSession() => _sessionRefresh.run(_renewSession);
+
+  Future<void> _renewSession() async {
     // 优先用已保存的 CAS 会话换取 personal 门户的 cookies：WebView 登录的用户
     // 往往没有保存密码，只有 TGT，这条路才是可用的。
     try {

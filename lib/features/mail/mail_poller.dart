@@ -74,6 +74,7 @@ class MailPoller {
         debugPrint('[mail] poll fetch failed: $error');
         return;
       }
+      if (isEnabled != null && !isEnabled()) return;
       state.setLastCheckAt(now());
 
       if (!state.initialized) {
@@ -93,7 +94,7 @@ class MailPoller {
       state.takeNew(fetched.map((m) => m.id));
       await state.save();
 
-      if (fresh.isEmpty) return;
+      if (fresh.isEmpty || isEnabled?.call() == false) return;
 
       final String title;
       final String body;

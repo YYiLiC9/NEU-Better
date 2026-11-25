@@ -6,9 +6,16 @@ import 'timetable_models.dart';
 /// Keeps calendar/week calculations and ordering rules in one place so the
 /// timetable page only renders state and forwards user intents.
 class TimetableSchedule {
-  const TimetableSchedule(this.data, {this.weekStartSetting = WeekStart.monday});
+  TimetableSchedule(this.data, {this.weekStartSetting = WeekStart.monday});
 
   final TimetableData data;
+  final _weekSessions = <int, List<CourseSession>>{};
+  final _daySessions = <(int, int), List<CourseSession>>{};
+  final _weekExams = <DateTime, List<ExamEntry>>{};
+  final _dayExams = <DateTime, List<ExamEntry>>{};
+  late final List<ExamEntry> allExams = List<ExamEntry>.unmodifiable(
+    data.exams.toList()..sort(examOrder),
+  );
 
   /// 每周起始日（周一 / 周日）。它只改变“周的日期边界与列日期”，
   /// 数据里 [CourseSession.day] 恒为 1=周一 … 7=周日，语义不变。
@@ -60,29 +67,35 @@ class TimetableSchedule {
     return !today.isBefore(start) && !today.isAfter(end);
   }
 
-  List<CourseSession> weekSessions(int week) => data.forWeek(week);
+  List<CourseSession> weekSessions(int week) =>
+      _weekSessions.putIfAbsent(week, () => data.forWeek(week));
 
   List<ExamEntry> examsForWeek(int week) {
     final start = weekStartFor(week);
     if (start == null) return const [];
-    final end = start.add(const Duration(days: 7));
-    return data.exams
-        .where((exam) => !exam.date.isBefore(start) && exam.date.isBefore(end))
-        .toList()
-      ..sort(examOrder);
+    return _weekExams.putIfAbsent(start, () {
+      final end = start.add(const Duration(days: 7));
+      return List.unmodifiable(
+        allExams.where(
+          (exam) => !exam.date.isBefore(start) && exam.date.isBefore(end),
+        ),
+      );
+    });
   }
 
-  List<ExamEntry> get allExams => [...data.exams]..sort(examOrder);
-
-  List<CourseSession> daySessions(int day, int week) => data.forDay(day, week);
+  List<CourseSession> daySessions(int day, int week) =>
+      _daySessions.putIfAbsent((week, day), () => data.forDay(day, week));
 
   List<ExamEntry> dayExams(int day, int week) {
     final start = weekStartFor(week);
     if (start == null) return const [];
     // 列内偏移：周一开头时 day-1；周日开头时 周日=0、周一..周六=1..6。
     final offset = weekStartSetting == WeekStart.sunday ? day % 7 : day - 1;
-    return (data.examsOn(start.add(Duration(days: offset))).toList()
-      ..sort(examOrder));
+    final date = start.add(Duration(days: offset));
+    return _dayExams.putIfAbsent(
+      date,
+      () => List.unmodifiable(data.examsOn(date).toList()..sort(examOrder)),
+    );
   }
 
   /// The next class in [week]: still upcoming today, later this week, or the
@@ -91,22 +104,20 @@ class TimetableSchedule {
     final clock = now ?? DateTime.now();
     final sessions = weekSessions(week);
     if (sessions.isEmpty) return null;
-    final sorted = [...sessions]..sort(sessionOrder);
-    if (week != nowWeek(clock)) return (sorted.first, '');
+    if (week != nowWeek(clock)) return (sessions.first, '');
 
     final minutesNow = clock.hour * 60 + clock.minute;
-    for (final session in sorted.where((s) => s.day == clock.weekday)) {
+    for (final session in daySessions(clock.weekday, week)) {
       if (PeriodTimes.startMinutes(session.startPeriod) > minutesNow) {
         return (session, '');
       }
     }
-    for (final session in sorted) {
+    for (final session in sessions) {
       if (session.day > clock.weekday) return (session, '');
     }
     final nextWeek = weekSessions(week + 1);
     if (nextWeek.isEmpty) return null;
-    final sortedNext = [...nextWeek]..sort(sessionOrder);
-    return (sortedNext.first, '下');
+    return (nextWeek.first, '下');
   }
 
   static int sessionOrder(CourseSession a, CourseSession b) {

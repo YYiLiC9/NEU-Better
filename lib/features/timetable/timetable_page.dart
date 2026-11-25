@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/settings/app_settings.dart';
+import '../../core/storage/account_scope.dart';
 import 'course_note_store.dart';
 import 'course_override_store.dart';
 import 'timetable_models.dart';
@@ -25,6 +26,7 @@ part 'widgets/course_editor_sheet.dart';
 /// 课表数据的跨重建共享缓存：主题切换会重挂载根子树，把它放在
 /// ProviderScope 层可在重建后立即恢复（含考试信息），不必再读磁盘。
 final timetableDataProvider = StateProvider<TimetableData?>((ref) => null);
+final timetableAccountProvider = StateProvider<String?>((ref) => null);
 
 /// 课表本地覆盖层（新增/修改/删除）的跨重建共享缓存。
 /// 主题切换会重挂载根子树，放在 ProviderScope 层可在重建后立刻恢复。
@@ -43,8 +45,9 @@ class _TimetableViewState {
   final bool weekView;
 }
 
-final timetableViewProvider =
-    StateProvider<_TimetableViewState>((ref) => const _TimetableViewState());
+final timetableViewProvider = StateProvider<_TimetableViewState>(
+  (ref) => const _TimetableViewState(),
+);
 
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
@@ -55,6 +58,7 @@ List<int> _orderedDaysFor(WeekStart weekStart) {
       ? const [7, 1, 2, 3, 4, 5, 6]
       : const [1, 2, 3, 4, 5, 6, 7];
 }
+
 const _headerHeight = 40.0;
 const _timeGutterWidth = 64.0;
 const _minSlotHeight = 34.0;
@@ -97,9 +101,13 @@ class TimetablePage extends ConsumerStatefulWidget {
     super.key,
     this.compact = false,
     this.mobile = false,
+    this.visible = true,
+    this.account,
   });
 
   final bool compact;
+  final bool visible;
+  final String? account;
 
   /// 手机端专属：竖屏满屏周视图（7 列完整显示、12 节完整显示）。
   final bool mobile;
@@ -108,7 +116,15 @@ class TimetablePage extends ConsumerStatefulWidget {
   ConsumerState<TimetablePage> createState() => _TimetablePageState();
 }
 
-class _TimetablePageState extends ConsumerState<TimetablePage> {
+class _TimetablePageState extends ConsumerState<TimetablePage>
+    with WidgetsBindingObserver {
+  late final _scope = AccountScope.scopedName(
+    'timetable',
+    account: widget.account,
+  );
+
+  bool get _active => mounted && _scope == AccountScope.scopedName('timetable');
+
   /// 官方快照（只含同步结果，不含用户修改）。
   TimetableData _officialData = TimetableData.empty;
 
@@ -123,7 +139,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   bool _weekView = true;
   int? _selectedCellDay;
   int? _selectedCellPeriod;
-  int _lastNowMinute = DateTime.now().hour * 60 + DateTime.now().minute;
+  bool _routeVisible = true;
+  TimetableSchedule? _cachedSchedule;
   Timer? _minuteTimer;
   final ScrollController _scrollController = ScrollController();
 
@@ -134,8 +151,12 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   void initState() {
     super.initState();
     _loadNotes();
-    final shared = ref.read(timetableDataProvider);
-    final sharedOverlay = ref.read(timetableOverlayProvider);
+    final ownsSnapshot =
+        ref.read(timetableAccountProvider) == _scope || widget.account == null;
+    final shared = ownsSnapshot ? ref.read(timetableDataProvider) : null;
+    final sharedOverlay = ownsSnapshot
+        ? ref.read(timetableOverlayProvider)
+        : null;
     final savedView = ref.read(timetableViewProvider);
     // 周/日视图选择持久化在 settings.json；冷启动与主题重挂载都从设置读取。
     _weekView = ref.read(appSettingsProvider).timetableWeekView;
@@ -161,18 +182,55 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     }
     timetableChanged.addListener(_onTimetableChanged);
     courseOverridesChanged.addListener(_onOverridesChanged);
-    // "当前时间线"是信息不是装饰：每半分钟检查一次，只在跨过整分时重建。
-    _minuteTimer = Timer.periodic(const Duration(milliseconds: 15000), (_) {
-      final now = DateTime.now();
-      final minute = now.hour * 60 + now.minute;
-      if (minute != _lastNowMinute && mounted) {
-        setState(() => _lastNowMinute = minute);
-      }
-    });
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeVisible = ModalRoute.isCurrentOf(context) ?? true;
+    _scheduleClock();
+  }
+
+  @override
+  void didUpdateWidget(covariant TimetablePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visible != widget.visible) _scheduleClock();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _scheduleClock();
+    if (state == AppLifecycleState.resumed && widget.visible && _routeVisible) {
+      setState(() {});
+    }
+  }
+
+  void _scheduleClock() {
+    _minuteTimer?.cancel();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (!widget.visible ||
+        !_routeVisible ||
+        lifecycle == AppLifecycleState.hidden ||
+        lifecycle == AppLifecycleState.paused ||
+        lifecycle == AppLifecycleState.detached) {
+      return;
+    }
+    final now = DateTime.now();
+    final minute = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    _minuteTimer = Timer(
+      minute.add(const Duration(minutes: 1)).difference(now),
+      () {
+        if (!mounted) return;
+        setState(() {});
+        _scheduleClock();
+      },
+    );
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     timetableChanged.removeListener(_onTimetableChanged);
     courseOverridesChanged.removeListener(_onOverridesChanged);
     _minuteTimer?.cancel();
@@ -190,9 +248,10 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
 
   /// 冷启动 / 主题重挂载且 Provider 无缓存时：从磁盘读官方快照与覆盖层。
   Future<void> _bootstrap() async {
-    final cached = await const TimetableStore().read();
-    final overlay = await const CourseOverrideStore().read();
-    if (!mounted) return;
+    final loading = const TimetableStore().read(account: widget.account);
+    final overlay = await CourseOverrideStore(account: widget.account).read();
+    final cached = await loading;
+    if (!_active) return;
     _overlay = overlay;
     if (cached != null && cached.sessions.isNotEmpty) {
       _applyOfficial(cached, resetView: true);
@@ -206,23 +265,23 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
 
   /// 只补读覆盖层（Provider 已有官方数据但没有覆盖层时使用）。
   Future<void> _bootstrapOverlay() async {
-    final overlay = await const CourseOverrideStore().read();
-    if (!mounted) return;
+    final overlay = await CourseOverrideStore(account: widget.account).read();
+    if (!_active) return;
     _overlay = overlay;
     _recomputeOverlay();
   }
 
   Future<void> _loadCachedTimetable({bool force = false}) async {
-    final cached = await const TimetableStore().read();
-    if (!mounted || cached == null || cached.sessions.isEmpty) return;
+    final cached = await const TimetableStore().read(account: widget.account);
+    if (!_active || cached == null || identical(cached, _officialData)) return;
     if (!force && _officialData.sessions.isNotEmpty) return;
     _applyOfficial(cached, resetView: true);
   }
 
   /// 从磁盘重新读取覆盖层（设置里清除修改后会触发）。
   Future<void> _reloadOverlay() async {
-    final overlay = await const CourseOverrideStore().read();
-    if (!mounted) return;
+    final overlay = await CourseOverrideStore(account: widget.account).read();
+    if (!_active) return;
     _overlay = overlay;
     _recomputeOverlay();
   }
@@ -231,6 +290,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   void _applyOfficial(TimetableData official, {bool resetView = false}) {
     _officialData = official;
     _data = applyOverlay(_officialData, _overlay);
+    ref.read(timetableAccountProvider.notifier).state = _scope;
     ref.read(timetableDataProvider.notifier).state = _officialData;
     ref.read(timetableOverlayProvider.notifier).state = _overlay;
     final savedView = ref.read(timetableViewProvider);
@@ -245,8 +305,6 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         _selectedDay = (savedView.day ?? _selectedDay).clamp(1, 7);
       }
     });
-    // 同步到桌面小部件（今日课程），用合并后的展示数据。
-    unawaited(TimetableWidgetService.sync(_data));
     unawaited(_migrateNoteKeys());
   }
 
@@ -257,7 +315,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     ref.read(timetableOverlayProvider.notifier).state = _overlay;
     ref.read(timetableDataProvider.notifier).state = _officialData;
     setState(() {});
-    unawaited(const CourseOverrideStore().save(_overlay));
+    unawaited(CourseOverrideStore(account: widget.account).save(_overlay));
     unawaited(TimetableWidgetService.sync(_data));
   }
 
@@ -298,9 +356,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
 
   /// 备注按「课程名」共享；兼容旧数据里以课程 id 为键的备注。
   String _noteFor(CourseSession session) =>
-      _courseNotes[courseNameKey(session)] ??
-      _courseNotes[session.id] ??
-      '';
+      _courseNotes[courseNameKey(session)] ?? _courseNotes[session.id] ?? '';
 
   Future<void> _openExam(ExamEntry exam) {
     return showCourseDetail(context, exam: exam);
@@ -401,9 +457,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         ),
       );
       if (targetWeek != sourceWeek && mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('已移动到第 $targetWeek 周')),
-        );
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text('已移动到第 $targetWeek 周')));
       }
     }
     if (newName != oldName) {
@@ -542,10 +597,16 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     await const CourseNoteStore().save(next);
   }
 
-  TimetableSchedule get _schedule => TimetableSchedule(
-    _data,
-    weekStartSetting: ref.read(appSettingsProvider).weekStart,
-  );
+  TimetableSchedule get _schedule {
+    final start = ref.read(appSettingsProvider).weekStart;
+    final cached = _cachedSchedule;
+    if (cached != null &&
+        identical(cached.data, _data) &&
+        cached.weekStartSetting == start) {
+      return cached;
+    }
+    return _cachedSchedule = TimetableSchedule(_data, weekStartSetting: start);
+  }
 
   int get _nowWeek => _schedule.nowWeek();
 
@@ -648,10 +709,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         exams: _data.exams,
       );
     }
-    await const TimetableStore().save(imported);
-    if (!mounted) return;
-    // 官方快照更新后重算展示数据；覆盖层（用户修改）保持不变。
-    _applyOfficial(imported, resetView: true);
+    await const TimetableStore().save(imported, account: widget.account);
   }
 
   @override
@@ -915,11 +973,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       children: [
         Text(
           '我的课表',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontSize: 24,
-            height: 1.2,
-            letterSpacing: -0.3,
-          ),
+          style: Theme.of(context).textTheme.headlineSmall
+              ?.copyWith(fontSize: 24, height: 1.2, letterSpacing: -0.3),
         ),
         const SizedBox(height: 5),
         Text(
@@ -961,9 +1016,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
           weekView: _weekView,
           onChanged: (value) {
             setState(() => _weekView = value);
-            ref
-                .read(appSettingsProvider.notifier)
-                .setTimetableWeekView(value);
+            ref.read(appSettingsProvider.notifier).setTimetableWeekView(value);
             _persistView();
           },
         ),
@@ -1066,12 +1119,12 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
             _ViewToggle(
               weekView: _weekView,
               onChanged: (value) {
-            setState(() => _weekView = value);
-            ref
-                .read(appSettingsProvider.notifier)
-                .setTimetableWeekView(value);
-            _persistView();
-          },
+                setState(() => _weekView = value);
+                ref
+                    .read(appSettingsProvider.notifier)
+                    .setTimetableWeekView(value);
+                _persistView();
+              },
               dense: true,
             ),
           ],

@@ -215,10 +215,10 @@ class MailClient {
   }
 
   Map<String, String> get _headers => {
-        if (session.cookieHeader.isNotEmpty) 'Cookie': session.cookieHeader,
-        'X-Requested-With': 'XMLHttpRequest',
-        'Referer': '$_indexUrl?sid=${session.sid}',
-      };
+    if (session.cookieHeader.isNotEmpty) 'Cookie': session.cookieHeader,
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': '$_indexUrl?sid=${session.sid}',
+  };
 
   /// 收件箱（fid=1）邮件，按日期倒序（最新在上）。接口一次返回全部，不分页。
   /// 服务端虽已 `order=date&desc=1`，这里再做一次客户端排序兜底，避免服务端
@@ -287,6 +287,17 @@ class MailClient {
     required String mid,
     required String part,
   }) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in streamAttachment(mid: mid, part: part)) {
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
+  }
+
+  Stream<List<int>> streamAttachment({
+    required String mid,
+    required String part,
+  }) async* {
     final uri = Uri.parse(_jsonBase).replace(
       queryParameters: {
         'func': 'mbox:getMessageData',
@@ -295,27 +306,32 @@ class MailClient {
         'part': part,
       },
     );
-    Response<List<int>> response;
     try {
-      response = await _dio.get<List<int>>(
+      final response = await _dio.get<ResponseBody>(
         uri.toString(),
-        options: Options(headers: _headers, responseType: ResponseType.bytes),
+        options: Options(headers: _headers, responseType: ResponseType.stream),
       );
+      final body = response.data;
+      final status = response.statusCode ?? 0;
+      if (status >= 400) {
+        await body?.stream.listen(null).cancel();
+        throw MailException('HTTP$status', '附件下载失败（HTTP $status）');
+      }
+      var received = false;
+      if (body != null) {
+        await for (final chunk in body.stream) {
+          if (chunk.isEmpty) continue;
+          received = true;
+          yield chunk;
+        }
+      }
+      if (!received) throw const MailException('EMPTY', '附件内容为空');
     } on DioException catch (error) {
       throw MailException(
         'NETWORK',
         '附件下载失败：${error.message ?? error.type.name}',
       );
     }
-    final status = response.statusCode ?? 0;
-    if (status >= 400) {
-      throw MailException('HTTP$status', '附件下载失败（HTTP $status）');
-    }
-    final data = response.data ?? const <int>[];
-    if (data.isEmpty) {
-      throw const MailException('EMPTY', '附件内容为空');
-    }
-    return Uint8List.fromList(data);
   }
 
   /// 读信：元数据（readMessage）+ 正文（getMessageData 的原始 MIME）。
@@ -456,8 +472,7 @@ class MailClient {
         final name = '${a['name'] ?? a['filename'] ?? a['fileName'] ?? ''}'
             .trim();
         if (name.isEmpty) continue;
-        final sizeRaw =
-            a['estimateSize'] ?? a['size'] ?? a['contentLength'];
+        final sizeRaw = a['estimateSize'] ?? a['size'] ?? a['contentLength'];
         final partRaw = a['part'] ?? a['id'];
         final partId = partRaw == null ? null : '$partRaw'.trim();
         final contentType = '${a['contentType'] ?? ''}'.trim();
@@ -495,12 +510,8 @@ class MailClient {
     );
   }
 
-  static MimeMessage _parseMimePart(
-    Map<String, String> headers,
-    String body,
-  ) {
-    final contentType =
-        (headers['content-type'] ?? 'text/plain').toLowerCase();
+  static MimeMessage _parseMimePart(Map<String, String> headers, String body) {
+    final contentType = (headers['content-type'] ?? 'text/plain').toLowerCase();
     final params = _contentTypeParams(headers['content-type'] ?? '');
 
     if (contentType.startsWith('multipart/')) {
@@ -525,8 +536,9 @@ class MailClient {
       return const MimeMessage();
     }
 
-    final cte =
-        (headers['content-transfer-encoding'] ?? '').toLowerCase().trim();
+    final cte = (headers['content-transfer-encoding'] ?? '')
+        .toLowerCase()
+        .trim();
     final text = _decodeTextBody(body, cte, params['charset']);
     if (text.trim().isEmpty) return const MimeMessage();
     return contentType.startsWith('text/html')
@@ -642,13 +654,12 @@ String stripHtmlToText(String html) {
     RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false),
     ' ',
   );
+  text = text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
   text = text.replaceAll(
-    RegExp(r'<br\s*/?>', caseSensitive: false),
-    '\n',
-  );
-  text = text.replaceAll(
-    RegExp(r'</(p|div|tr|li|h[1-6]|table|blockquote|section|article)>',
-        caseSensitive: false),
+    RegExp(
+      r'</(p|div|tr|li|h[1-6]|table|blockquote|section|article)>',
+      caseSensitive: false,
+    ),
     '\n',
   );
   text = text.replaceAll(RegExp(r'<[^>]+>'), '');
@@ -677,8 +688,7 @@ String stripHtmlToText(String html) {
   String? currentKey;
   for (final line in headerText.replaceAll('\r\n', '\n').split('\n')) {
     if (line.isEmpty) continue;
-    if ((line.startsWith(' ') || line.startsWith('\t')) &&
-        currentKey != null) {
+    if ((line.startsWith(' ') || line.startsWith('\t')) && currentKey != null) {
       headers[currentKey] = '${headers[currentKey]} ${line.trim()}';
       continue;
     }
@@ -718,9 +728,7 @@ Map<String, String> _contentTypeParams(String header) {
     if (eq < 0) continue;
     final key = segment.substring(0, eq).trim().toLowerCase();
     var value = segment.substring(eq + 1).trim();
-    if (value.length >= 2 &&
-        value.startsWith('"') &&
-        value.endsWith('"')) {
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
       value = value.substring(1, value.length - 1);
     }
     params[key] = value;
@@ -791,24 +799,23 @@ List<int> _decodeQuotedPrintable(String input) {
 /// 解码 MIME encoded-word，如 `=?UTF-8?B?...?=` / `=?UTF-8?Q?...?=`。
 String _decodeEncodedWords(String input) {
   if (!input.contains('=?')) return input;
-  return input.replaceAllMapped(
-    RegExp(r'=\?([^?]+)\?([BbQq])\?([^?]*)\?='),
-    (match) {
-      final charset = match[1]!.toLowerCase();
-      final encoding = match[2]!.toUpperCase();
-      final data = match[3]!;
-      if (encoding == 'B') {
-        try {
-          final bytes = base64.decode(data.replaceAll(RegExp(r'\s'), ''));
-          return _decodeBytes(bytes, charset);
-        } catch (_) {
-          return match[0]!;
-        }
+  return input.replaceAllMapped(RegExp(r'=\?([^?]+)\?([BbQq])\?([^?]*)\?='), (
+    match,
+  ) {
+    final charset = match[1]!.toLowerCase();
+    final encoding = match[2]!.toUpperCase();
+    final data = match[3]!;
+    if (encoding == 'B') {
+      try {
+        final bytes = base64.decode(data.replaceAll(RegExp(r'\s'), ''));
+        return _decodeBytes(bytes, charset);
+      } catch (_) {
+        return match[0]!;
       }
-      final bytes = _decodeQuotedPrintable(data.replaceAll('_', ' '));
-      return _decodeBytes(bytes, charset);
-    },
-  );
+    }
+    final bytes = _decodeQuotedPrintable(data.replaceAll('_', ' '));
+    return _decodeBytes(bytes, charset);
+  });
 }
 
 String _decodeEntities(String input) {

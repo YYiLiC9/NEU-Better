@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -45,6 +46,25 @@ final sessionStoreProvider = Provider<SessionStore>((ref) {
   return const SecureSessionStore();
 });
 
+final initialSessionReadProvider = Provider<Future<AuthSession?>?>(
+  (ref) => null,
+);
+
+Future<AuthSession?> readStartupSession(SessionStore store) async {
+  final task = developer.TimelineTask()..start('Restore saved session');
+  try {
+    return await store.read().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => null,
+    );
+  } catch (error) {
+    debugPrint('[auth] session read failed: $error');
+    return null;
+  } finally {
+    task.finish();
+  }
+}
+
 final casClientProvider = Provider<CasClient>((ref) {
   return NeuCasClient();
 });
@@ -65,17 +85,9 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> _restore() async {
-    // Secure storage can throw on locked-down Windows accounts. A failed
-    // session read must never skip the saved-credential auto-login path.
-    AuthSession? session;
-    try {
-      session = await ref
-          .read(sessionStoreProvider)
-          .read()
-          .timeout(const Duration(seconds: 4), onTimeout: () => null);
-    } catch (error) {
-      debugPrint('[auth] session read failed: $error');
-    }
+    final session =
+        await (ref.read(initialSessionReadProvider) ??
+            readStartupSession(ref.read(sessionStoreProvider)));
 
     if (!ref.mounted || state is! AuthInitial) return;
     if (session != null && session.hasCookies) {

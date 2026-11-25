@@ -11,6 +11,7 @@ import '../core/settings/app_font.dart';
 import '../core/settings/app_settings.dart';
 import '../core/update/update_flow.dart';
 import '../core/update/update_manager.dart';
+import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_gate.dart';
 import 'theme/app_theme.dart';
 import 'theme/windows_font_library.dart';
@@ -44,12 +45,19 @@ class _NeuBetterAppState extends ConsumerState<NeuBetterApp>
     if (Platform.isWindows) {
       unawaited(WindowsWindow.setMinimumSize(780, 520));
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (!ref.read(appSettingsProvider).autoUpdate) return;
-      unawaited(_bootstrapUpdate());
-    });
+    ref.listenManual(authControllerProvider, (_, state) {
+      if (_updateCheckQueued || state is AuthInitial || state is AuthBusy) {
+        return;
+      }
+      _updateCheckQueued = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !ref.read(appSettingsProvider).autoUpdate) return;
+        unawaited(_bootstrapUpdate());
+      });
+    }, fireImmediately: true);
   }
+
+  bool _updateCheckQueued = false;
 
   /// 启动时自动检查：若有更新，弹「发现新版本」；若安装包已下载完成，直接提示安装。
   Future<void> _bootstrapUpdate() async {

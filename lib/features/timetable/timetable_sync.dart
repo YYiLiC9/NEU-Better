@@ -7,24 +7,29 @@ import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/auth/saved_credentials.dart';
 import '../../core/network/yjs_timetable_client.dart';
+import '../../core/storage/account_scope.dart';
 import 'timetable_import.dart';
 import 'timetable_models.dart';
 import 'timetable_store.dart';
 
 /// 后台课表同步：登录成功后自动拉一次并写入本地缓存。
 abstract final class TimetableSyncService {
-  static bool _inFlight = false;
+  static final _syncingAccounts = <String>{};
 
   /// 是否有后台自动同步正在进行。交互式同步页可据此避免与自动同步同时
   /// 走一次 CAS 登录（同一会话的 service ticket 一次性，并发会互相踢掉，
   /// 表现为“有时同步失败”）。
-  static bool get isSyncing => _inFlight;
+  static bool get isSyncing =>
+      _syncingAccounts.contains(AccountScope.scopedName('timetable'));
 
   /// 用当前登录会话免密同步课表；失败时返回 null，不打断主流程。
   static Future<TimetableData?> syncWithSession(AuthSession session) async {
     if (!session.hasCookies) return null;
-    if (_inFlight) return null;
-    _inFlight = true;
+    final account = AccountScope.scopedName(
+      'timetable',
+      account: session.studentId,
+    );
+    if (!_syncingAccounts.add(account)) return null;
     try {
       final raw = await YjsTimetableClient()
           .fetchWithSession(session: session)
@@ -37,14 +42,15 @@ abstract final class TimetableSyncService {
         // 1) 先用保存的账号密码重新登录：考试接口部署在部分后端节点上，
         //    少数会话会命中没有该接口的节点而返回 404。重新登录会换到新节点，
         //    多试几次基本都能拿到考试，保证「能读到课表就能读到考试」。
-        final recovered = await _recoverWithCredentials(
-          session,
-        ).timeout(const Duration(seconds: 12), onTimeout: () => null);
+        final recovered = await _recoverWithCredentials(session)
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
         if (recovered != null) {
           data = recovered;
         } else {
           // 2) 实在拿不到就保留上一次缓存的考试，绝不清空。
-          final previous = await const TimetableStore().read();
+          final previous = await const TimetableStore().read(
+            account: session.studentId,
+          );
           if (previous != null && previous.exams.isNotEmpty) {
             data = TimetableData(
               termName: data.termName,
@@ -58,13 +64,13 @@ abstract final class TimetableSyncService {
           }
         }
       }
-      await const TimetableStore().save(data);
+      await const TimetableStore().save(data, account: session.studentId);
       return data;
     } catch (error) {
       debugPrint('[timetable] auto sync skipped: $error');
       return null;
     } finally {
-      _inFlight = false;
+      _syncingAccounts.remove(account);
     }
   }
 
@@ -75,9 +81,10 @@ abstract final class TimetableSyncService {
   ) async {
     SavedCredentials? saved;
     try {
-      saved = await const SecureCredentialStore()
-          .read()
-          .timeout(const Duration(seconds: 3), onTimeout: () => null);
+      saved = await const SecureCredentialStore().read().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => null,
+      );
     } catch (error) {
       debugPrint('[timetable] exam recovery: credential read failed $error');
       return null;
@@ -91,11 +98,7 @@ abstract final class TimetableSyncService {
     for (var attempt = 1; attempt <= 2; attempt++) {
       try {
         final raw = await YjsTimetableClient()
-            .fetch(
-              username: saved.username,
-              password: password,
-              term: '20261',
-            )
+            .fetch(username: saved.username, password: password, term: '20261')
             .timeout(const Duration(seconds: 12));
         final data = parseEnvelope(raw);
         if (data != null && data.exams.isNotEmpty) {

@@ -4,7 +4,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/storage/account_scope.dart';
+import 'course_override_store.dart';
 import 'timetable_models.dart';
+import 'timetable_overlay.dart';
 import 'timetable_schedule.dart';
 
 /// 把课表数据导出到 Android 桌面小部件（原生侧计算并渲染今日课程）。
@@ -15,6 +18,18 @@ class TimetableWidgetService {
       '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
+
+  static Future<void> syncOfficial(
+    TimetableData official, {
+    String? account,
+  }) async {
+    if (!Platform.isAndroid) return;
+    final key = AccountScope.scopedName('timetable', account: account);
+    final overlay = await CourseOverrideStore(account: account).read();
+    if (key == AccountScope.scopedName('timetable')) {
+      await sync(applyOverlay(official, overlay));
+    }
+  }
 
   static Future<void> sync(TimetableData data) async {
     if (!Platform.isAndroid) return;

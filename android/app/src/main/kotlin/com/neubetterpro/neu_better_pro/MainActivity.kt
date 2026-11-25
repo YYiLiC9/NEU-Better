@@ -24,10 +24,10 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
-import java.io.FileOutputStream
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.StandardMethodCodec
 
 class MainActivity : FlutterActivity() {
     private val notificationPermissionRequestCode = 4201
@@ -221,39 +221,39 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        // 文件保存：邮件附件写系统「下载」目录（Android 10+ 走 MediaStore）。
+        // Stream from the completed private file without copying its bytes over Flutter's channel.
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
         val filesChannel = MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
+            messenger,
             "neu_better/files",
+            StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue(),
         )
         filesChannel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "saveToDownloads" -> {
-                    val fileName = call.argument<String>("fileName")
-                    val mime = call.argument<String>("mime") ?: "application/octet-stream"
-                    val bytes = call.argument<ByteArray>("bytes")
-                    if (fileName.isNullOrEmpty() || bytes == null) {
-                        result.error("bad_args", "fileName/bytes is null", null)
-                    } else {
-                        try {
-                            val path = saveToDownloads(fileName, mime, bytes)
-                            result.success(path)
-                        } catch (error: Exception) {
-                            result.error("save_failed", error.message, null)
-                        }
-                    }
-                }
-                else -> result.notImplemented()
+            if (call.method != "publishAttachment") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val fileName = call.argument<String>("fileName")
+            val mime = call.argument<String>("mime") ?: "application/octet-stream"
+            val path = call.argument<String>("path")
+            if (fileName.isNullOrEmpty() || path.isNullOrEmpty()) {
+                result.error("bad_args", "Missing attachment file name or path", null)
+                return@setMethodCallHandler
+            }
+            try {
+                val source = File(path).canonicalFile
+                val privateCache = cacheDir.canonicalFile
+                require(source.path.startsWith(privateCache.path + File.separator) && source.isFile)
+                result.success(publishAttachment(fileName, mime, source))
+            } catch (error: Exception) {
+                result.error("save_failed", error.message, null)
             }
         }
     }
 
-    /**
-     * 把字节保存到系统「下载」目录：Android 10+ 用 MediaStore.Downloads 插入
-     * DISPLAY_NAME/MIME 再写入；<29 用公共 Downloads 目录（同名加 (1)）兜底。
-     * 返回已保存文件的 URI 或绝对路径。
-     */
-    private fun saveToDownloads(fileName: String, mime: String, bytes: ByteArray): String {
+    /** Publishes a completed attachment, using MediaStore on Android 10+. */
+    private fun publishAttachment(fileName: String, mime: String, source: File): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -265,43 +265,50 @@ class MainActivity : FlutterActivity() {
             )
             val uri = contentResolver.insert(collection, values)
                 ?: throw IllegalStateException("无法创建下载条目")
-            val output = contentResolver.openOutputStream(uri)
-                ?: throw IllegalStateException("无法打开下载输出流")
-            output.use {
-                it.write(bytes)
-                it.flush()
+            try {
+                val output = contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("无法打开下载输出流")
+                output.use { sink -> source.inputStream().use { it.copyTo(sink) } }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                check(contentResolver.update(uri, values, null, null) > 0)
+                return uri.toString()
+            } catch (error: Exception) {
+                runCatching { contentResolver.delete(uri, null, null) }
+                throw error
             }
-            values.clear()
-            values.put(MediaStore.Downloads.IS_PENDING, 0)
-            contentResolver.update(uri, values, null, null)
-            return uri.toString()
         }
         val dir = Environment.getExternalStoragePublicDirectory(
             Environment.DIRECTORY_DOWNLOADS,
         )
         if (!dir.exists()) dir.mkdirs()
-        val dot = fileName.lastIndexOf('.')
-        var target = File(dir, fileName)
-        var index = 1
-        while (target.exists()) {
-            val candidate = if (dot > 0) {
-                "${fileName.substring(0, dot)}($index)${fileName.substring(dot)}"
-            } else {
-                "$fileName($index)"
+        val temporary = File.createTempFile(".neu-attachment-", ".part", dir)
+        try {
+            source.inputStream().use { input ->
+                temporary.outputStream().use { input.copyTo(it) }
             }
-            target = File(dir, candidate)
-            index++
+            val dot = fileName.lastIndexOf('.')
+            var target = File(dir, fileName)
+            var index = 1
+            while (!target.createNewFile()) {
+                val candidate = if (dot > 0) {
+                    "${fileName.substring(0, dot)}($index)${fileName.substring(dot)}"
+                } else {
+                    "$fileName($index)"
+                }
+                target = File(dir, candidate)
+                index++
+            }
+            if (!temporary.renameTo(target)) {
+                target.delete()
+                throw IllegalStateException("无法发布下载文件")
+            }
+            return target.absolutePath
+        } finally {
+            temporary.delete()
         }
-        FileOutputStream(target).use { it.write(bytes) }
-        return target.absolutePath
     }
 
-    /**
-     * 用 FileProvider 授权的 content:// 触发系统安装未知来源应用。
-     *
-     * 返回 "ok" 表示已拉起安装器；"need_permission" 表示用户尚未允许
-     * 「安装未知应用」，此时跳转系统授权页，用户允许后需再次点击更新。
-     */
     private fun installApk(path: String): String {        val file = File(path)
         require(file.exists() && file.length() > 0L) {
             "apk not found or empty: $path"

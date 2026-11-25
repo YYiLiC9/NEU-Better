@@ -7,15 +7,22 @@ import '../../app/theme/app_theme.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/credential_store.dart';
 import '../../core/network/ecode_client.dart';
+import 'ecode_feed.dart';
 
 /// 安卓 e码通：原生拉取 `ecode/api/qr-code` 并在本地渲染二维码。
 ///
 /// 相比内嵌官方 H5（WebView 首屏约 5~11 秒），原生接口 + 本地 QR 渲染可在
 /// 已有 Cookie 时亚秒级出码，并可按二维码有效期自动刷新。
 class EcodePage extends StatefulWidget {
-  const EcodePage({super.key, required this.session, this.active = true});
+  const EcodePage({
+    super.key,
+    required this.session,
+    this.active = true,
+    this.feed,
+  });
 
   final AuthSession session;
+  final EcodeFeed? feed;
 
   /// 当前是否处于可见的 e码通 tab。后台预热时 active=false：
   /// 仍会尝试加载一次二维码，但失败不重试、不弹「需要重新登录」，
@@ -27,8 +34,9 @@ class EcodePage extends StatefulWidget {
 }
 
 class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
-  final EcodeClient _client = EcodeClient();
-  final EcodeCookieStore _cookieStore = const EcodeCookieStore();
+  late final _feed =
+      widget.feed ??
+      EcodeFeed(widget.session, credentials: const SecureCredentialStore());
 
   EcodeQr? _qr;
   String? _error;
@@ -36,6 +44,9 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
   bool _busy = false;
   Timer? _timer;
   Timer? _retryTimer;
+  Timer? _expiryTimer;
+  bool _refreshing = false;
+  bool _foreground = true;
   int _failureCount = 0;
   bool _reloginPrompted = false;
   final Stopwatch _watch = Stopwatch()..start();
@@ -45,7 +56,9 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_refresh(initial: true));
+    _qr = _feed.current;
+    _loading = _qr == null;
+    unawaited(_refresh(initial: _loading, preferCached: true));
   }
 
   @override
@@ -53,6 +66,8 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _retryTimer?.cancel();
+    _expiryTimer?.cancel();
+    if (widget.feed == null) _feed.dispose();
     super.dispose();
   }
 
@@ -69,10 +84,11 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
           if (_qr == null) _loading = true;
         });
       }
-      unawaited(_refresh());
+      unawaited(_refresh(preferCached: true));
     } else if (oldWidget.active && !widget.active) {
       _timer?.cancel();
       _retryTimer?.cancel();
+      _expiryTimer?.cancel();
     }
   }
 
@@ -81,11 +97,14 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // 息屏/切后台时停止定时器，避免无效请求；恢复时立即补一次。
+      _foreground = false;
       _timer?.cancel();
       _retryTimer?.cancel();
+      _expiryTimer?.cancel();
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      _foreground = true;
       if (!widget.active) return;
       _failureCount = 0;
       _reloginPrompted = false;
@@ -99,54 +118,13 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<String> _ensureCookie() async {
-    final cached = await _cookieStore.read();
-    if (cached != null) return cached;
-    String? cookie;
-    final pass = passCookieOf(widget.session);
-    if (pass.isNotEmpty) {
-      try {
-        cookie = await _client.loginWithPassCookie(pass);
-      } catch (error) {
-        debugPrint('[ecode-native] pass-cookie login failed: $error');
-      }
-    }
-    if (cookie == null) {
-      final saved = await const SecureCredentialStore().read();
-      debugPrint(
-        '[ecode-native] saved credential: user=${saved?.username} '
-        'hasPassword=${saved?.password?.isNotEmpty ?? false}',
-      );
-      final password = saved?.password;
-      if (saved != null &&
-          password != null &&
-          password.isNotEmpty &&
-          saved.username.trim().isNotEmpty) {
-        cookie = await _client.login(
-          username: saved.username.trim(),
-          password: password,
-        );
-      }
-    }
-    if (cookie == null) {
-      throw const EcodeException('无法自动登录 e码通，请先在设置里保存账号密码或重新登录');
-    }
-    await _cookieStore.save(cookie);
-    return cookie;
-  }
-
-  Future<EcodeQr> _fetchWithRetry() async {
-    try {
-      final cookie = await _ensureCookie();
-      return await _client.fetchQr(cookie);
-    } on EcodeException {
-      await _cookieStore.clear();
-      final cookie = await _ensureCookie();
-      return _client.fetchQr(cookie);
-    }
-  }
-
-  Future<void> _refresh({bool initial = false, bool manual = false}) async {
+  Future<void> _refresh({
+    bool initial = false,
+    bool manual = false,
+    bool preferCached = false,
+  }) async {
+    if (_refreshing) return;
+    _refreshing = true;
     _retryTimer?.cancel();
     if (initial && mounted) {
       setState(() {
@@ -155,13 +133,15 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
       });
     }
     try {
-      final qr = await _fetchWithRetry();
+      final qr = await _feed.fetch(preferCached: preferCached);
       if (!mounted) return;
       _failureCount = 0;
       _reloginPrompted = false;
       if (!_loggedReady) {
         _loggedReady = true;
-        debugPrint('[ecode-native] first ready in ${_watch.elapsedMilliseconds}ms');
+        debugPrint(
+          '[ecode-native] first ready in ${_watch.elapsedMilliseconds}ms',
+        );
       }
       debugPrint(
         '[ecode-native] refresh ok at ${DateTime.now().toIso8601String()}',
@@ -172,12 +152,12 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
         _error = null;
         _busy = false;
       });
-      if (widget.active) _schedule();
+      if (widget.active && _foreground) _schedule();
     } catch (error) {
       if (!mounted) return;
       _failureCount++;
       debugPrint('[ecode-native] fetch failed ($_failureCount/3): $error');
-      if (!widget.active) {
+      if (!widget.active || !_foreground) {
         // 后台预热失败：静默记录错误，不重试也不弹窗。
         setState(() {
           _loading = false;
@@ -204,15 +184,26 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
         });
         _promptRelogin();
       }
+    } finally {
+      _refreshing = false;
     }
   }
 
   void _schedule() {
     _timer?.cancel();
+    _expiryTimer?.cancel();
+    final qr = _qr;
+    if (qr == null) return;
+    _expiryTimer = Timer(qr.invalidTime.difference(DateTime.now()), () {
+      if (mounted && identical(qr, _qr)) setState(() => _qr = null);
+    });
     // 按二维码生命周期的一半续码（上限 5 秒、下限 2 秒），确保展示的码始终在有效期内。
     final life = _qr?.lifetime.inMilliseconds ?? 10000;
     final waitMs = (life ~/ 2).clamp(2000, 5000);
-    _timer = Timer(Duration(milliseconds: waitMs), () {
+    final remaining =
+        _qr?.invalidTime.difference(DateTime.now()).inMilliseconds ?? waitMs;
+    final delay = remaining > 0 ? waitMs.clamp(1, remaining) : waitMs;
+    _timer = Timer(Duration(milliseconds: delay), () {
       if (!mounted) return;
       unawaited(_refresh());
     });
@@ -306,9 +297,7 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            Expanded(
-              child: Center(child: _buildBody()),
-            ),
+            Expanded(child: Center(child: _buildBody())),
           ],
         ),
       ),
@@ -327,7 +316,11 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
             child: Text(
               _error!,
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.5),
+              style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -338,7 +331,7 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
         ],
       );
     }
-    if (_qr == null) {
+    if (_qr == null || !DateTime.now().isBefore(_qr!.invalidTime)) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [

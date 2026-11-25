@@ -34,10 +34,7 @@ void main() {
     });
 
     test('无后缀时用声明的非通用类型', () {
-      expect(
-        mimeForFileName('附件', declared: 'image/png'),
-        'image/png',
-      );
+      expect(mimeForFileName('附件', declared: 'image/png'), 'image/png');
       expect(
         mimeForFileName('附件', declared: 'text/plain'),
         'application/octet-stream',
@@ -83,6 +80,40 @@ void main() {
       );
       expect(first, isNot(second));
       expect(second.endsWith('a(1).txt'), isTrue);
+    });
+
+    test('流中断时不发布部分附件，并清理暂存文件', () async {
+      Stream<List<int>> broken() async* {
+        yield [1, 2, 3];
+        throw StateError('download interrupted');
+      }
+
+      await expectLater(
+        saveAttachmentStreamToDownloads(
+          fileName: 'broken.pdf',
+          chunks: broken(),
+          windowsDownloadsDir: dir,
+        ),
+        throwsStateError,
+      );
+      expect(await dir.list().toList(), isEmpty);
+    });
+
+    test('并行下载同名附件时各自保存完整内容', () async {
+      final paths = await Future.wait([
+        for (final id in [1, 2])
+          saveAttachmentStreamToDownloads(
+            fileName: 'a.txt',
+            chunks: Stream.fromIterable([
+              [id],
+              [id],
+            ]),
+            windowsDownloadsDir: dir,
+          ),
+      ]);
+      expect(paths.toSet(), hasLength(2));
+      expect(await File(paths[0]).readAsBytes(), [1, 1]);
+      expect(await File(paths[1]).readAsBytes(), [2, 2]);
     });
   });
 }
