@@ -65,7 +65,9 @@ class HomeCardGallery extends StatelessWidget {
     // 不再重复展示，避免内置卡与插件行同名混淆。
     final pluginList = <PluginManifest>[
       for (final plugin in plugins)
-        if (plugin.isEnabled &&
+        // 已下载插件即使远程已下架（enabled=0）也要显示，便于用户删除/管理；
+        // 未下载的插件只显示 enabled=1 的在线条目。
+        if ((plugin.isEnabled || installedVersions.containsKey(plugin.id)) &&
             !builtins.any((info) => info.id == plugin.id))
           plugin,
     ];
@@ -110,12 +112,12 @@ class HomeCardGallery extends StatelessWidget {
         ),
       );
     }
-    if (catalogError != null && plugins.isEmpty) {
+    if (catalogError != null) {
       return Row(
         children: [
           Expanded(
             child: Text(
-              '暂时无法获取插件目录，请检查网络后重试。',
+              '当前为离线目录，在线插件暂时无法获取。',
               style: TextStyle(fontSize: 12, color: AppColors.muted),
             ),
           ),

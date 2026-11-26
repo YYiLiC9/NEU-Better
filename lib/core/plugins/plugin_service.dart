@@ -113,7 +113,8 @@ class PluginService {
         }
         final catalog = PluginCatalog.fromJson(jsonDecode(body));
         await _writeCache(body);
-        return await _mergeBundled(catalog);
+        // 在线目录为权威：同 id 的 enabled 以远程为准，避免随包旧配置覆盖。
+        return await _mergeBundled(catalog, preferBundled: false);
       } catch (error) {
         lastError = error;
         debugPrint('[plugin_service] catalog fetch failed ($url): $error');
@@ -151,17 +152,21 @@ class PluginService {
     }
   }
 
-  /// 合并随包内置目录：远程/缓存缺失的内置插件（如新闻）始终补上，避免旧缓存
-  /// 或断网导致可选插件消失。
-  Future<PluginCatalog> _mergeBundled(PluginCatalog catalog) async {
+  /// 合并随包内置目录。
+  ///
+  /// - 远程在线目录：`preferBundled:false`，远程同 id 配置优先，仅补缺失；
+  /// - 缓存/离线兜底：`preferBundled:true`，同名以随包为准，避免旧缓存里
+  ///   缺少或过期的 `enabled`（例如已下架的 library）继续显示。
+  Future<PluginCatalog> _mergeBundled(
+    PluginCatalog catalog, {
+    bool preferBundled = true,
+  }) async {
     final bundled = await _readBundledCatalog();
     if (bundled == null || bundled.plugins.isEmpty) return catalog;
-    final ids = catalog.plugins.map((p) => p.id).toSet();
-    final extra = bundled.plugins.where((p) => !ids.contains(p.id)).toList();
-    if (extra.isEmpty) return catalog;
-    return PluginCatalog(
-      version: catalog.version,
-      plugins: <PluginManifest>[...catalog.plugins, ...extra],
+    return PluginCatalog.mergeWithBundled(
+      catalog,
+      bundled,
+      preferBundled: preferBundled,
     );
   }
 

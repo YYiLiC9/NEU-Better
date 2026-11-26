@@ -278,9 +278,20 @@ class _HomePageState extends ConsumerState<HomePage>
         );
       }
       if (ref.read(_homeDestinationProvider).section == _HomeSection.gallery) {
-        unawaited(_fetchCatalog());
+        unawaited(_fetchCatalog(force: true));
       }
     });
+  }
+
+  /// 可见插件列表：在线目录 + 当前已下载插件。已下载插件无需等在线目录即可显示。
+  List<PluginManifest> _catalogWithInstalled(List<PluginManifest> catalog) {
+    final merged = <String, PluginManifest>{
+      for (final plugin in catalog) plugin.id: plugin,
+    };
+    for (final plugin in _installedPlugins) {
+      merged.putIfAbsent(plugin.id, () => plugin);
+    }
+    return merged.values.toList(growable: false);
   }
 
   /// 允许出现在首页的卡片 id：内置 + 已安装插件。
@@ -839,7 +850,10 @@ class _HomePageState extends ConsumerState<HomePage>
   final GlobalKey _dormCardKey = GlobalKey();
 
   void _showHomeSection(_HomeSection section, {PluginManifest? plugin}) {
-    if (section == _HomeSection.gallery) unawaited(_fetchCatalog());
+    // 插件库可选插件优先在线读取 GitHub 目录，每次进入都强制刷新。
+    if (section == _HomeSection.gallery) {
+      unawaited(_fetchCatalog(force: true));
+    }
     ref.read(_homeDestinationProvider.notifier).state = (
       section: section,
       plugin: plugin,
@@ -1310,7 +1324,7 @@ class _HomePageState extends ConsumerState<HomePage>
       _HomeSection.gallery => HomeCardGallery(
         cards: _homeCards,
         builtins: homeCardCatalog,
-        plugins: _catalogPlugins,
+        plugins: _catalogWithInstalled(_catalogPlugins),
         installedVersions: _installedPluginVersions,
         downloading: _downloadProgress,
         failed: _downloadFailed,
