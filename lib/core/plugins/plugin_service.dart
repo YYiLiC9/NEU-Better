@@ -24,15 +24,18 @@ class PluginService {
     List<File>? candidates,
     List<File>? cacheCandidates,
     Dio? dio,
+    String? appVersion,
   }) : _registry = registry ?? PluginRegistry(candidates: candidates),
        _candidates = candidates,
        _cacheCandidates = cacheCandidates,
-       _dio = dio ?? _buildDio();
+       _dio = dio ?? _buildDio(),
+       _appVersion = appVersion ?? 'dev';
 
   final PluginRegistry _registry;
   final List<File>? _candidates;
   final List<File>? _cacheCandidates;
   final Dio _dio;
+  final String _appVersion;
 
   PluginRegistry get registry => _registry;
 
@@ -58,7 +61,9 @@ class PluginService {
   List<File> get catalogCacheFiles => _catalogCacheFiles;
 
   List<File> get _catalogCacheFiles {
-    const name = 'plugins_catalog.json';
+    // 缓存按 App 版本隔离：版本升级后旧缓存自动失效，改用随新版安装包
+    // 打包的插件清单（assets/plugins/index.json），不自动联网。
+    final name = 'plugins_catalog_$_appVersion.json';
     if (_cacheCandidates != null) return _cacheCandidates;
     if (_candidates != null) {
       final dir = _candidates.first.parent.path;
@@ -93,14 +98,11 @@ class PluginService {
   Future<PluginCatalog> _fetchCatalog({required bool force}) async {
     if (!force) {
       final cached = await _readCache();
-      if (cached != null) return _mergeBundled(cached);
-      // 无缓存时先用随包内置目录秒开（断网/被墙也能看到可选插件），
-      // 同时后台静默刷新远程目录供下次使用。
+      if (cached != null) return _mergeBundled(cached, preferBundled: false);
+      // 无当前版本缓存：直接用随包内置目录（版本更新即随包数据），
+      // 不发起任何网络请求；仅手动刷新或首次手动刷新才联网。
       final bundled = await _readBundledCatalog();
-      if (bundled != null) {
-        unawaited(_refreshCacheFromRemote());
-        return bundled;
-      }
+      if (bundled != null) return bundled;
     }
     Object? lastError;
     for (final url in catalogUrls) {
@@ -121,26 +123,10 @@ class PluginService {
       }
     }
     final cached = await _readCache();
-    if (cached != null) return _mergeBundled(cached);
+    if (cached != null) return _mergeBundled(cached, preferBundled: false);
     final bundled = await _readBundledCatalog();
     if (bundled != null) return bundled;
     throw PluginException('无法获取插件目录：$lastError');
-  }
-
-  /// 后台静默刷新远程目录缓存（失败忽略），不阻塞 UI。
-  Future<void> _refreshCacheFromRemote() async {
-    for (final url in catalogUrls) {
-      try {
-        final response = await _dio.get<String>(url);
-        final body = response.data;
-        if (body == null || body.length > _maxCatalogBytes) continue;
-        if (PluginCatalog.fromJson(jsonDecode(body)).plugins.isEmpty) continue;
-        await _writeCache(body);
-        return;
-      } catch (error) {
-        debugPrint('[plugin_service] background catalog refresh failed: $error');
-      }
-    }
   }
 
   Future<PluginCatalog?> _readBundledCatalog() async {    try {

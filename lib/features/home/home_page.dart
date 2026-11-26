@@ -58,6 +58,7 @@ import '../timetable/timetable_schedule.dart';
 import 'home_card_catalog.dart';
 import 'home_card_layout.dart';
 import 'home_layout_store.dart';
+import '../../core/update/update_service.dart';
 import 'widgets/campus_network_card.dart';
 import 'widgets/news_card.dart';
 import 'widgets/plugin_card.dart';
@@ -70,7 +71,7 @@ part 'widgets/home_grid.dart';
 /// 放在 ProviderScope 层：主题切换会重挂载根子树，重建后仍停留原页面。
 final homeTabProvider = StateProvider<int>((ref) => 0);
 final homePluginServiceProvider = Provider<PluginService>(
-  (ref) => PluginService(),
+  (ref) => PluginService(appVersion: UpdateService.currentVersion),
 );
 
 enum _HomeSection {
@@ -278,7 +279,7 @@ class _HomePageState extends ConsumerState<HomePage>
         );
       }
       if (ref.read(_homeDestinationProvider).section == _HomeSection.gallery) {
-        unawaited(_fetchCatalog(force: true));
+        unawaited(_fetchCatalog());
       }
     });
   }
@@ -411,6 +412,19 @@ class _HomePageState extends ConsumerState<HomePage>
         _catalogError = error.toString();
         _catalogLoading = false;
       });
+    }
+  }
+
+  Future<void> _refreshCatalog() async {
+    await _fetchCatalog(force: true);
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (_catalogError == null) {
+      messenger?.showSnackBar(const SnackBar(content: Text('插件列表已更新')));
+    } else {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('无法获取在线插件目录，请检查网络后重试')),
+      );
     }
   }
 
@@ -850,9 +864,9 @@ class _HomePageState extends ConsumerState<HomePage>
   final GlobalKey _dormCardKey = GlobalKey();
 
   void _showHomeSection(_HomeSection section, {PluginManifest? plugin}) {
-    // 插件库可选插件优先在线读取 GitHub 目录，每次进入都强制刷新。
+    // 插件库默认读取本地缓存/随包清单，只有用户点刷新按钮才在线联网。
     if (section == _HomeSection.gallery) {
-      unawaited(_fetchCatalog(force: true));
+      unawaited(_fetchCatalog());
     }
     ref.read(_homeDestinationProvider.notifier).state = (
       section: section,
@@ -1341,6 +1355,7 @@ class _HomePageState extends ConsumerState<HomePage>
         onDeletePlugin: (id) => unawaited(_uninstallPlugin(id)),
         onUpdate: _downloadPlugin,
         onRetryCatalog: () => unawaited(_fetchCatalog(force: true)),
+        onRefreshCatalog: () => unawaited(_refreshCatalog()),
       ),
       _HomeSection.mail => MailPage(
         session: widget.session,

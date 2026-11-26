@@ -188,4 +188,71 @@ void main() {
     expect(appearances['remote']?.sidebar, isTrue);
     expect(appearances['remote']?.home, isFalse);
   });
+
+  testWidgets('catalog header exposes manual refresh button', (tester) async {
+    var refreshes = 0;
+    await tester.pumpWidget(
+      _wrap(
+        HomeCardGallery(
+          cards: const <HomeCardLayout>[],
+          builtins: const <HomeCardInfo>[],
+          plugins: const <PluginManifest>[],
+          onRefreshCatalog: () => refreshes++,
+          onBack: () {},
+          onAdd: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('刷新在线插件目录'), findsOneWidget);
+    await tester.tap(find.byTooltip('刷新在线插件目录'));
+    expect(refreshes, 1);
+  });
+
+  testWidgets('catalog refresh is disabled while loading', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        HomeCardGallery(
+          cards: const <HomeCardLayout>[],
+          builtins: const <HomeCardInfo>[],
+          plugins: const <PluginManifest>[],
+          catalogLoading: true,
+          onRefreshCatalog: () {},
+          onBack: () {},
+          onAdd: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    final button = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.refresh_rounded),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('installed but disabled plugin shows 已下架 and delete only', (
+    tester,
+  ) async {
+    final plugins = <PluginManifest>[
+      _manifest('library', '1.0.0', enabled: 0),
+    ];
+    await tester.pumpWidget(
+      _wrap(
+        HomeCardGallery(
+          cards: const <HomeCardLayout>[],
+          builtins: const <HomeCardInfo>[],
+          plugins: plugins,
+          installedVersions: const <String, String>{'library': '1.0.0'},
+          onBack: () {},
+          onAdd: (_) {},
+          onDeletePlugin: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('已下架'), findsOneWidget);
+    expect(find.text('下载'), findsNothing);
+    expect(find.text('更新'), findsNothing);
+    expect(find.text('删除'), findsOneWidget);
+  });
 }
