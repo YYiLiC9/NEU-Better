@@ -32,6 +32,45 @@ class UpdateManager extends ChangeNotifier {
 
   bool get hasUpdate => info != null;
 
+  /// 已下载的部分字节数（用于「下载未完成」提示）。
+  int get partialBytes {
+    final current = info;
+    if (current == null) return 0;
+    try {
+      final file = UpdateInfo.packageFile(
+        current.version,
+        android: Platform.isAndroid,
+        windowsFileName: current.windowsFileName,
+      );
+      return file.existsSync() ? file.lengthSync() : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  void clearError() {
+    if (error == null) return;
+    error = null;
+    notifyListeners();
+  }
+
+  void _log(String message) {
+    debugPrint('[update] $message');
+    try {
+      final sep = Platform.pathSeparator;
+      final base = Platform.environment['LOCALAPPDATA'];
+      if (base == null || base.isEmpty) return;
+      final dir = Directory('$base${sep}NEU Better');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final file = File('${dir.path}${sep}update.log');
+      file.writeAsStringSync(
+        '${DateTime.now().toIso8601String()} $message\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
+  }
+
   String? get _downloadUrl {
     final current = info;
     if (current == null) return null;
@@ -50,7 +89,13 @@ class UpdateManager extends ChangeNotifier {
 
   /// 检查是否有新版本，并顺带探测本地是否已有完整安装包可直接复用。
   Future<UpdateInfo?> check() async {
-    info = await _service.check();
+    final installMode = Platform.isWindows
+        ? (UpdateInstaller.isSetupInstalled ? 'setup' : 'portable')
+        : 'android';
+    _log('check start mode=$installMode');
+    info = await _service.check(
+      preferWindowsSetup: UpdateInstaller.isSetupInstalled,
+    );
     readyFile = null;
     final current = info;
     if (current != null && _downloadUrl != null) {
@@ -63,6 +108,9 @@ class UpdateManager extends ChangeNotifier {
         readyFile = file;
       }
     }
+    _log(
+      'check result version=${current?.version} windowsFile=${current?.windowsFileName} ready=${readyFile?.path}',
+    );
     notifyListeners();
     return info;
   }
@@ -87,6 +135,7 @@ class UpdateManager extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
+      _log('download start ${_downloadUrl!} -> ${target.path}');
       await _service.download(
         _downloadUrl!,
         target,
@@ -100,11 +149,14 @@ class UpdateManager extends ChangeNotifier {
       );
       if (UpdateInfo.isCompletePackage(target, _expectedSize)) {
         readyFile = target;
+        _log('download complete ${target.path}');
       } else {
         error = '安装包下载不完整';
+        _log('download incomplete ${target.path} bytes=$partialBytes');
       }
     } catch (e) {
       error = '$e';
+      _log('download failed bytes=$partialBytes error=$e');
     } finally {
       downloading = false;
       notifyListeners();

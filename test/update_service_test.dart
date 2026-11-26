@@ -64,6 +64,45 @@ void main() {
       expect(info.windowsSize, 200);
     });
 
+    test('preferWindowsSetup=false selects zip even when exe exists', () {
+      final info = UpdateInfoParser.fromRelease({
+        'tag_name': 'v0.4.1',
+        'assets': [
+          {
+            'name': 'NEU-Better-0.4.1-x64-installer.exe',
+            'browser_download_url': 'https://example.com/installer.exe',
+            'size': 200,
+          },
+          {
+            'name': 'NEU-Better-0.4.1-windows-x64.zip',
+            'browser_download_url': 'https://example.com/win.zip',
+            'size': 100,
+          },
+        ],
+      }, preferWindowsSetup: false);
+      expect(info, isNotNull);
+      expect(info!.windowsUrl, 'https://example.com/win.zip');
+      expect(info.windowsFileName, 'NEU-Better-0.4.1-windows-x64.zip');
+      expect(info.windowsSize, 100);
+    });
+
+    test('recognizes installer exe with new non-windows name', () {
+      final info = UpdateInfoParser.fromRelease({
+        'tag_name': 'v0.4.2',
+        'assets': [
+          {
+            'name': 'NEU-Better-0.4.2-x64-installer.exe',
+            'browser_download_url': 'https://example.com/new-installer.exe',
+            'size': 300,
+          },
+        ],
+      });
+      expect(info, isNotNull);
+      expect(info!.windowsUrl, 'https://example.com/new-installer.exe');
+      expect(info.windowsFileName, 'NEU-Better-0.4.2-x64-installer.exe');
+      expect(info.windowsSize, 300);
+    });
+
     test('returns null without tag', () {
       expect(UpdateInfoParser.fromRelease({'body': 'x'}), isNull);
     });
