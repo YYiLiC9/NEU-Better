@@ -103,7 +103,7 @@ Future<void> showUpdateAvailableDialog(BuildContext context) async {
 
   if (!context.mounted) return;
   if (choice == 'background') {
-    unawaited(manager.ensureDownloaded(background: true));
+    unawaited(_downloadInBackground(context, manager));
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(content: Text('已开始后台下载，完成后会提醒你更新')),
     );
@@ -111,16 +111,8 @@ Future<void> showUpdateAvailableDialog(BuildContext context) async {
   }
   if (choice != 'now') return;
   if (manager.readyFile == null) {
-    await _downloadForeground(context);
-    if (!context.mounted) return;
-    if (manager.readyFile == null) {
-      if (manager.error != null) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('下载失败：${manager.error}')),
-        );
-      }
-      return;
-    }
+    await _downloadWithRetry(context);
+    return;
   }
   await _install(context);
 }
@@ -150,6 +142,89 @@ Future<void> showUpdateReadyDialog(BuildContext context) async {
   if (choice == 'now') {
     await _install(context);
   }
+}
+
+Future<void> _downloadWithRetry(BuildContext context) async {
+  final manager = UpdateManager.instance;
+  while (true) {
+    await _downloadForeground(context);
+    if (!context.mounted) return;
+    if (manager.readyFile != null) {
+      await _install(context);
+      return;
+    }
+    final retry = await _showDownloadFailedDialog(context, manager);
+    if (!context.mounted || !retry) return;
+    manager.clearError();
+  }
+}
+
+Future<bool> _showDownloadFailedDialog(
+  BuildContext context,
+  UpdateManager manager,
+) async {
+  final info = manager.info;
+  final total = Platform.isWindows ? info?.windowsSize : info?.androidSize;
+  final partial = manager.partialBytes;
+  final received = _formatBytes(partial);
+  final totalText = total != null && total > 0
+      ? ' / ${_formatBytes(total)}'
+      : '';
+  final reason = (manager.error ?? '网络中断或连接超时')
+      .replaceAll('\n', ' ')
+      .trim();
+  final choice = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('更新包下载未完成'),
+      content: Text(
+        '已接收 $received$totalText。\n$reason\n\n'
+        '可以从中断处继续下载，无需重新开始。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('稍后'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('重新下载'),
+        ),
+      ],
+    ),
+  );
+  return choice ?? false;
+}
+
+Future<void> _downloadInBackground(
+  BuildContext context,
+  UpdateManager manager,
+) async {
+  await manager.ensureDownloaded(background: true);
+  if (!context.mounted || manager.error == null) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  messenger?.showSnackBar(
+    SnackBar(
+      content: const Text('更新包下载未完成'),
+      action: SnackBarAction(
+        label: '重试',
+        onPressed: () {
+          manager.clearError();
+          unawaited(_downloadInBackground(context, manager));
+        },
+      ),
+    ),
+  );
+}
+
+String _formatBytes(int bytes) {
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  if (bytes >= 1024) {
+    return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  }
+  return '$bytes B';
 }
 
 Future<void> _downloadForeground(BuildContext context) async {

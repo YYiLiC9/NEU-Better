@@ -138,21 +138,22 @@ class PluginService {
     }
   }
 
-  /// 合并随包内置目录。
-  ///
-  /// - 远程在线目录：`preferBundled:false`，远程同 id 配置优先，仅补缺失；
-  /// - 缓存/离线兜底：`preferBundled:true`，同名以随包为准，避免旧缓存里
-  ///   缺少或过期的 `enabled`（例如已下架的 library）继续显示。
+  /// Merge remote/cache catalog with bundled catalog.
+  /// - preferBundled true: bundled wins for same id (keeps enabled flags authoritative).
+  /// - preferBundled false: remote/cache wins, bundled only fills missing ids.
   Future<PluginCatalog> _mergeBundled(
     PluginCatalog catalog, {
     bool preferBundled = true,
   }) async {
     final bundled = await _readBundledCatalog();
     if (bundled == null || bundled.plugins.isEmpty) return catalog;
+    if (preferBundled) {
+      return PluginCatalog.mergePreferBundled(catalog, bundled);
+    }
     return PluginCatalog.mergeWithBundled(
       catalog,
       bundled,
-      preferBundled: preferBundled,
+      preferBundled: false,
     );
   }
 
@@ -162,7 +163,14 @@ class PluginService {
         if (!await file.exists()) continue;
         final text = await file.readAsString();
         if (text.length > _maxCatalogBytes) continue;
-        return PluginCatalog.fromJson(jsonDecode(text));
+        final catalog = PluginCatalog.fromJson(jsonDecode(text));
+        // 0.4.1 之前生成的目录没有 enabled 字段；这种旧缓存不能直接使用，
+        // 否则会按默认值 1 把已下架插件（如图书馆）重新显示出来。
+        if (catalog.hasLegacyEnabledFlags) {
+          debugPrint('[plugin_service] ignore legacy catalog cache: ${file.path}');
+          continue;
+        }
+        return catalog;
       } catch (error) {
         debugPrint('[plugin_service] cache read failed at ${file.path}: $error');
       }

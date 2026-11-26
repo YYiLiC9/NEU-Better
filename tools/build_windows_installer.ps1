@@ -42,7 +42,7 @@ $iss = Join-Path $root "installer\windows\NEUBetterPro.iss"
 & $iscc "/DMyAppVersion=$Version" "/Qp" $iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed (exit $LASTEXITCODE)" }
 
-$out = Join-Path $root "dist\NEU-Better-$Version-windows-x64-setup.exe"
+$out = Join-Path $root "dist\NEU-Better-$Version-x64-installer.exe"
 if (-not (Test-Path $out)) { throw "Installer output not found: $out" }
 $item = Get-Item $out
 Write-Host ("Installer: {0} ({1:N0} bytes)" -f $item.FullName, $item.Length)

@@ -156,7 +156,11 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
     } catch (error) {
       if (!mounted) return;
       _failureCount++;
-      debugPrint('[ecode-native] fetch failed ($_failureCount/3): $error');
+      final isAuthError = error is EcodeAuthException;
+      debugPrint(
+        '[ecode-native] fetch failed ($_failureCount/3, '
+        '${isAuthError ? 'auth' : 'transient'}): $error',
+      );
       if (!widget.active || !_foreground) {
         // 后台预热失败：静默记录错误，不重试也不弹窗。
         setState(() {
@@ -166,23 +170,38 @@ class _EcodePageState extends State<EcodePage> with WidgetsBindingObserver {
         });
         return;
       }
-      if (_failureCount < 3) {
-        // 前两次失败：保留当前二维码，2 秒后自动重试。
-        setState(() {
-          _loading = false;
-          _busy = false;
-        });
-        _retryTimer = Timer(const Duration(seconds: 2), () {
+      if (isAuthError) {
+        if (_failureCount < 2) {
+          // EcodeFeed 内部已自动重登一次；这里再给一次短暂重试。
+          _retryTimer = Timer(const Duration(seconds: 2), () {
+            if (mounted) unawaited(_refresh(manual: manual));
+          });
+        } else {
+          setState(() {
+            _loading = false;
+            _busy = false;
+            _error = 'e码通登录状态已失效，请重新登录';
+          });
+          _promptRelogin();
+        }
+        return;
+      }
+      // 网络/服务临时故障：保留当前二维码并按 2s→5s→10s 退避重试，
+      // 绝不提示「需要重新登录」。
+      setState(() {
+        _loading = false;
+        _busy = false;
+        _error = _describeError(error);
+      });
+      if (_failureCount <= 3) {
+        final delaySeconds = switch (_failureCount) {
+          1 => 2,
+          2 => 5,
+          _ => 10,
+        };
+        _retryTimer = Timer(Duration(seconds: delaySeconds), () {
           if (mounted) unawaited(_refresh(manual: manual));
         });
-      } else {
-        // 连续失败三次：停止自动刷新并提示重新登录。
-        setState(() {
-          _loading = false;
-          _busy = false;
-          _error = _describeError(error);
-        });
-        _promptRelogin();
       }
     } finally {
       _refreshing = false;

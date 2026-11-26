@@ -13,12 +13,16 @@ class EcodeQr {
     required this.code,
     required this.createTime,
     required this.invalidTime,
+    this.refreshedCookie,
   });
 
   /// 二维码内容（`NEU...` 字符串）。
   final String code;
   final DateTime createTime;
   final DateTime invalidTime;
+
+  /// 服务端在响应中续期后的 Cookie；没有变化时为 null。
+  final String? refreshedCookie;
 
   Duration get lifetime => invalidTime.difference(createTime);
 }
@@ -28,6 +32,16 @@ class EcodeException implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// 明确的登录/会话失效（只在这种情况下才提示用户重新登录）。
+class EcodeAuthException extends EcodeException {
+  const EcodeAuthException(super.message);
+}
+
+/// 网络、超时、服务端 5xx/429 等临时故障，不应被当成登录失效。
+class EcodeTransientException extends EcodeException {
+  const EcodeTransientException(super.message);
 }
 
 /// 原生 e码通接口客户端：CAS 登录 → ecode SESSION Cookie → 拉取二维码。
@@ -167,46 +181,93 @@ class EcodeClient {
     }
   }
 
-  /// 拉取当前有效二维码；Cookie 失效时抛 [EcodeException]。
+  /// 拉取当前有效二维码；认证失败与临时故障分别抛不同类型。
   Future<EcodeQr> fetchQr(String cookie) async {
-    final r = await _dio.get<String>(
-      '$_apiBase/qr-code',
-      options: Options(
-        headers: {
-          'Cookie': cookie,
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      ),
-    );
+    Response<String> r;
+    try {
+      r = await _dio.get<String>(
+        '$_apiBase/qr-code',
+        options: Options(
+          headers: {
+            'Cookie': cookie,
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+        ),
+      );
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status == 401 || status == 403) {
+        throw const EcodeAuthException('e码通登录状态已失效');
+      }
+      throw EcodeTransientException(_networkMessage(error));
+    }
     if (r.statusCode == 401 || r.statusCode == 403) {
-      throw const EcodeException('e码通登录状态已失效');
+      throw const EcodeAuthException('e码通登录状态已失效');
+    }
+    if (r.statusCode == 429 ||
+        (r.statusCode != null && r.statusCode! >= 500)) {
+      throw EcodeTransientException('e码通服务暂时不可用（HTTP ${r.statusCode}）');
     }
     if (r.statusCode != 200) {
-      throw EcodeException('获取二维码失败（HTTP ${r.statusCode}）');
+      throw EcodeTransientException('获取二维码失败（HTTP ${r.statusCode}）');
     }
-    final decoded = jsonDecode(r.data ?? '{}');
-    final data = decoded is Map ? decoded['data'] : null;
+    final Map<String, dynamic> decoded;
+    try {
+      final raw = jsonDecode(r.data ?? '{}');
+      decoded = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
+    } on FormatException {
+      throw const EcodeTransientException('二维码数据格式异常');
+    }
+    final data = decoded['data'];
     if (data is! List || data.isEmpty) {
-      throw const EcodeException('二维码数据为空');
+      throw const EcodeTransientException('二维码数据为空');
     }
     final attrs = (data.first is Map)
         ? (data.first as Map)['attributes']
         : null;
-    if (attrs is! Map) throw const EcodeException('二维码数据格式异常');
+    if (attrs is! Map) {
+      throw const EcodeTransientException('二维码数据格式异常');
+    }
     final code = attrs['qrCode'];
     if (code is! String || code.isEmpty) {
-      throw const EcodeException('未获取到有效二维码');
+      throw const EcodeTransientException('未获取到有效二维码');
     }
     final now = DateTime.now().millisecondsSinceEpoch;
     final create = int.tryParse('${attrs['createTime'] ?? ''}') ?? now;
     final invalid =
         int.tryParse('${attrs['qrInvalidTime'] ?? ''}') ?? (now + 10000);
+    final jar = <String, String>{};
+    for (final part in cookie.split(';')) {
+      final t = part.trim();
+      final i = t.indexOf('=');
+      if (i > 0) jar[t.substring(0, i)] = t.substring(i + 1);
+    }
+    final setCookies = r.headers.map['set-cookie'];
+    if (setCookies != null && setCookies.isNotEmpty) {
+      for (final line in setCookies) {
+        final first = line.split(';').first.trim();
+        final i = first.indexOf('=');
+        if (i > 0) {
+          jar[first.substring(0, i)] = first.substring(i + 1);
+        }
+      }
+    }
+    final merged = jar.entries.map((e) => '${e.key}=${e.value}').join('; ');
     return EcodeQr(
       code: code,
       createTime: DateTime.fromMillisecondsSinceEpoch(create),
       invalidTime: DateTime.fromMillisecondsSinceEpoch(invalid),
+      refreshedCookie: merged == cookie ? null : merged,
     );
+  }
+
+  String _networkMessage(DioException error) {
+    final text = error.toString();
+    if (text.contains('Timeout') || error.type == DioExceptionType.connectionTimeout) {
+      return '连接 e码通服务超时';
+    }
+    return '网络连接失败，请检查网络后重试';
   }
 }
 

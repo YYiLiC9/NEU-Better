@@ -70,7 +70,7 @@ class UpdateInfo {
     } else if (windowsFileName != null && windowsFileName.isNotEmpty) {
       name = windowsFileName;
     } else {
-      name = 'NEU-Better-$version-windows-x64-setup.exe';
+      name = 'NEU-Better-$version-x64-installer.exe';
     }
     return File('${downloadDirectory(android: android).path}$sep$name');
   }
@@ -129,7 +129,7 @@ class UpdateService {
   static const String currentVersion = '0.4.1';
 
   /// 返回比当前版本更新的 Release；已是最新或网络异常时返回 null。
-  Future<UpdateInfo?> check() async {
+  Future<UpdateInfo?> check({bool preferWindowsSetup = true}) async {
     for (final url in _githubCandidates(
       'https://api.github.com/repos/$repo/releases/latest',
     )) {
@@ -140,6 +140,7 @@ class UpdateService {
         if (decoded is! Map) continue;
         final info = UpdateInfoParser.fromRelease(
           Map<String, dynamic>.from(decoded),
+          preferWindowsSetup: preferWindowsSetup,
         );
         if (info == null) continue;
         if (compareVersions(info.version, currentVersion) <= 0) return null;
@@ -277,7 +278,10 @@ class UpdateService {
 
 /// 把 GitHub release JSON 解析成 [UpdateInfo]（独立出来便于单测）。
 abstract final class UpdateInfoParser {
-  static UpdateInfo? fromRelease(Map<String, dynamic> release) {
+  static UpdateInfo? fromRelease(
+    Map<String, dynamic> release, {
+    bool preferWindowsSetup = true,
+  }) {
     final tag = (release['tag_name'] as String?)?.trim();
     if (tag == null || tag.isEmpty) return null;
     final version = normalizeVersion(tag);
@@ -289,6 +293,9 @@ abstract final class UpdateInfoParser {
     int? windowsSize;
     int? androidSize;
     String? windowsFileName;
+    String? setupUrl;
+    int? setupSize;
+    String? setupFileName;
     String? windowsZipUrl;
     int? windowsZipSize;
     String? windowsZipName;
@@ -303,26 +310,34 @@ abstract final class UpdateInfoParser {
         if (name.endsWith('.apk')) {
           androidUrl = url;
           androidSize = sizeValue;
-        } else if (name.endsWith('.exe') &&
-            (name.contains('windows') ||
-                name.contains('win') ||
-                name.contains('setup'))) {
-          // 优先使用安装程序 setup.exe。
-          windowsUrl = url;
-          windowsSize = sizeValue;
-          windowsFileName = raw['name'] as String?;
+        } else if (name.endsWith('.exe')) {
+          // 安装程序（新版命名不含 windows/win/setup，也能被旧版识别为普通 exe
+          // 而旧版会忽略它回退 zip）。
+          setupUrl = url;
+          setupSize = sizeValue;
+          setupFileName = raw['name'] as String?;
         } else if (name.endsWith('.zip') &&
             (name.contains('windows') || name.contains('win'))) {
-          // 旧版仍用 zip；仅在没有 setup.exe 时回退。
           windowsZipUrl = url;
           windowsZipSize = sizeValue;
           windowsZipName = raw['name'] as String?;
         }
       }
     }
-    windowsUrl ??= windowsZipUrl;
-    windowsSize ??= windowsZipSize;
-    windowsFileName ??= windowsZipName;
+    if (preferWindowsSetup && setupUrl != null) {
+      windowsUrl = setupUrl;
+      windowsSize = setupSize;
+      windowsFileName = setupFileName;
+    } else if (windowsZipUrl != null) {
+      windowsUrl = windowsZipUrl;
+      windowsSize = windowsZipSize;
+      windowsFileName = windowsZipName;
+    } else if (setupUrl != null) {
+      // 只有安装包时，便携版也只能使用它（由更新器按实际文件类型处理）。
+      windowsUrl = setupUrl;
+      windowsSize = setupSize;
+      windowsFileName = setupFileName;
+    }
 
     return UpdateInfo(
       version: version,

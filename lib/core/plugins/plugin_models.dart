@@ -231,6 +231,31 @@ class PluginCatalog {
     return null;
   }
 
+  /// 旧缓存可能没有 enabled 字段：这种目录不能作为权威数据继续使用。
+  bool get hasLegacyEnabledFlags =>
+      plugins.any((plugin) => plugin.raw['enabled'] == null);
+
+  /// 合并随包目录：同名插件以随包清单为准（尤其 `enabled` 开关），
+  /// 随包新增但目录缺失的插件补在末尾。这样旧缓存不会把已下架的
+  /// 内置插件重新显示出来。
+  static PluginCatalog mergePreferBundled(
+    PluginCatalog catalog,
+    PluginCatalog bundled,
+  ) {
+    if (bundled.plugins.isEmpty) return catalog;
+    final bundledById = bundled.byIdMap();
+    final merged = <PluginManifest>[];
+    final seen = <String>{};
+    for (final plugin in catalog.plugins) {
+      merged.add(bundledById[plugin.id] ?? plugin);
+      seen.add(plugin.id);
+    }
+    for (final plugin in bundled.plugins) {
+      if (seen.add(plugin.id)) merged.add(plugin);
+    }
+    return PluginCatalog(version: catalog.version, plugins: merged);
+  }
+
   Map<String, PluginManifest> byIdMap() => <String, PluginManifest>{
     for (final plugin in plugins) plugin.id: plugin,
   };
