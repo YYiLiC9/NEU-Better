@@ -209,7 +209,9 @@ void main() {
     expect(refreshes, 1);
   });
 
-  testWidgets('catalog refresh is disabled while loading', (tester) async {
+  testWidgets('catalog refresh icon becomes a spinner while loading', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(
         HomeCardGallery(
@@ -224,10 +226,8 @@ void main() {
       ),
     );
     await tester.pump();
-    final button = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.refresh_rounded),
-    );
-    expect(button.onPressed, isNull);
+    expect(find.byTooltip('刷新在线插件目录'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
   testWidgets('installed but disabled plugin shows 已下架 and delete only', (

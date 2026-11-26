@@ -98,14 +98,23 @@ class HomeCardGallery extends StatelessWidget {
   }
 
   Widget _buildCatalogHeader(BuildContext context) {
-    final refresh = IconButton(
-      tooltip: '刷新在线插件目录',
-      onPressed: catalogLoading ? null : onRefreshCatalog,
-      icon: const Icon(Icons.refresh_rounded, size: 18),
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-    );
+    final refresh = catalogLoading
+        ? const SizedBox(
+            width: 30,
+            height: 30,
+            child: Padding(
+              padding: EdgeInsets.all(7),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        : IconButton(
+            tooltip: '刷新在线插件目录',
+            onPressed: onRefreshCatalog,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+          );
     final header = Row(
       children: [
         Expanded(
@@ -118,15 +127,6 @@ class HomeCardGallery extends StatelessWidget {
             ),
           ),
         ),
-        if (catalogLoading)
-          const Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
         refresh,
       ],
     );
