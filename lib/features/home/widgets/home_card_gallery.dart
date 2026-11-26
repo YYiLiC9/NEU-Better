@@ -26,6 +26,7 @@ class HomeCardGallery extends StatelessWidget {
     this.onDeletePlugin,
     this.onUpdate,
     this.onRetryCatalog,
+    this.onRefreshCatalog,
     this.appearances = const <String, PluginAppearance>{},
     this.onSetAppearance,
     this.allowPlacementOptions = false,
@@ -46,6 +47,7 @@ class HomeCardGallery extends StatelessWidget {
   final void Function(String id)? onDeletePlugin;
   final void Function(PluginManifest manifest)? onUpdate;
   final VoidCallback? onRetryCatalog;
+  final VoidCallback? onRefreshCatalog;
   final Map<String, PluginAppearance> appearances;
   final void Function(String id, PluginAppearance appearance)? onSetAppearance;
 
@@ -65,7 +67,9 @@ class HomeCardGallery extends StatelessWidget {
     // 不再重复展示，避免内置卡与插件行同名混淆。
     final pluginList = <PluginManifest>[
       for (final plugin in plugins)
-        if (plugin.isEnabled &&
+        // 已下载插件即使远程已下架（enabled=0）也要显示，便于用户删除/管理；
+        // 未下载的插件只显示 enabled=1 的在线条目。
+        if ((plugin.isEnabled || installedVersions.containsKey(plugin.id)) &&
             !builtins.any((info) => info.id == plugin.id))
           plugin,
     ];
@@ -94,46 +98,63 @@ class HomeCardGallery extends StatelessWidget {
   }
 
   Widget _buildCatalogHeader(BuildContext context) {
-    if (catalogLoading) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 6),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
+    // 固定 30×30 槽位：图标与加载圈共用同一尺寸，刷新时行宽不抖动。
+    final refresh = SizedBox(
+      width: 30,
+      height: 30,
+      child: catalogLoading
+          ? const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : IconButton(
+              tooltip: '刷新在线插件目录',
+              onPressed: onRefreshCatalog,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              padding: EdgeInsets.zero,
+              style: IconButton.styleFrom(
+                minimumSize: const Size(30, 30),
+                maximumSize: const Size(30, 30),
+                padding: EdgeInsets.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
             ),
-            SizedBox(width: 8),
-            Text('正在获取插件目录…', style: TextStyle(fontSize: 12)),
+    );
+    final header = Row(
+      children: [
+        Expanded(
+          child: Text(
+            '可选插件',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.muted,
+            ),
+          ),
+        ),
+        refresh,
+      ],
+    );
+    if (catalogError != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            header,
+            const SizedBox(height: 2),
+            Text(
+              '当前为离线目录，点击刷新可在线获取最新插件。',
+              style: TextStyle(fontSize: 12, color: AppColors.muted),
+            ),
           ],
         ),
       );
     }
-    if (catalogError != null && plugins.isEmpty) {
-      return Row(
-        children: [
-          Expanded(
-            child: Text(
-              '暂时无法获取插件目录，请检查网络后重试。',
-              style: TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-          ),
-          TextButton(onPressed: onRetryCatalog, child: const Text('重试')),
-        ],
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Text(
-        '可选插件',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: AppColors.muted,
-        ),
-      ),
-    );
+    return Padding(padding: const EdgeInsets.only(top: 6), child: header);
   }
 
   Widget _buildBuiltinItem(BuildContext context, HomeCardInfo info) {
@@ -185,6 +206,33 @@ class HomeCardGallery extends StatelessWidget {
     final unsupported = !manifest.rendererSupported;
     final updateAvailable =
         installed && installedVersion != manifest.version;
+
+    // 已安装但远程已下架：保留一行「已下架」，仅允许删除/卸载，避免用户
+    // 无法管理已安装插件；未下载的下架插件在列表构建阶段已过滤。
+    if (installed && !manifest.isEnabled) {
+      return _GalleryItem(
+        icon: resolvePluginIcon(manifest.icon),
+        badge: manifest.icon?.type == 'text' ? manifest.icon!.value : null,
+        name: manifest.name,
+        description: '${manifest.description} · 已下架',
+        trailing: _actionColumns(
+          SizedBox(
+            width: 96,
+            child: Text(
+              '已下架',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.faint),
+            ),
+          ),
+          delete: onDeletePlugin != null
+              ? _deleteAction(
+                  () => _confirmUninstall(context, manifest),
+                  key: ValueKey('delete-plugin-${manifest.id}'),
+                )
+              : null,
+        ),
+      );
+    }
     // 「下载」态没有删除按钮：把版本号放在右侧同一列（与删除按钮对齐），
     // 描述行不再重复显示版本号。
     final versionInColumn =
@@ -192,7 +240,8 @@ class HomeCardGallery extends StatelessWidget {
 
     // 远程已下载、非内置、且平台允许多选摆放时：描述下方展示三选项，
     // 右侧仅保留「更新 / 删除」。
-    final showAppearance = installed && !unsupported && _showOptions;
+    final showAppearance =
+        installed && !unsupported && _showOptions && manifest.isEnabled;
     if (showAppearance) {
       return _PlacementGalleryItem(
         icon: resolvePluginIcon(manifest.icon),

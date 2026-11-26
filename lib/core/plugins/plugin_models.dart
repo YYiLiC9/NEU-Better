@@ -262,6 +262,36 @@ class PluginCatalog {
 
   static const PluginCatalog empty = PluginCatalog(version: 0, plugins: <PluginManifest>[]);
 
+  /// 仅 enabled==1 的可选插件。
+  List<PluginManifest> get enabledPlugins =>
+      plugins.where((plugin) => plugin.isEnabled).toList(growable: false);
+
+  /// 与随包目录合并。
+  /// [preferBundled]=true 时同名以随包为准（用于缓存/离线兜底）；
+  /// false 时同名以 [catalog] 为准（远程在线目录优先），仅补充随包中缺失的 id。
+  static PluginCatalog mergeWithBundled(
+    PluginCatalog catalog,
+    PluginCatalog bundled, {
+    bool preferBundled = true,
+  }) {
+    final merged = <String, PluginManifest>{
+      for (final plugin in catalog.plugins) plugin.id: plugin,
+    };
+    if (preferBundled) {
+      for (final plugin in bundled.plugins) {
+        merged[plugin.id] = plugin;
+      }
+    } else {
+      for (final plugin in bundled.plugins) {
+        merged.putIfAbsent(plugin.id, () => plugin);
+      }
+    }
+    return PluginCatalog(
+      version: catalog.version,
+      plugins: merged.values.toList(growable: false),
+    );
+  }
+
   static PluginCatalog fromJson(Object? json) {
     if (json is! Map) return empty;
     final version = int.tryParse(json['version']?.toString() ?? '') ?? 0;
