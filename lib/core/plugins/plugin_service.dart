@@ -152,17 +152,11 @@ class PluginService {
   }
 
   /// 合并随包内置目录：远程/缓存缺失的内置插件（如新闻）始终补上，避免旧缓存
-  /// 或断网导致可选插件消失。
+  /// 或断网导致可选插件消失；同名项以随包目录为准，确保 `enabled` 开关生效。
   Future<PluginCatalog> _mergeBundled(PluginCatalog catalog) async {
     final bundled = await _readBundledCatalog();
     if (bundled == null || bundled.plugins.isEmpty) return catalog;
-    final ids = catalog.plugins.map((p) => p.id).toSet();
-    final extra = bundled.plugins.where((p) => !ids.contains(p.id)).toList();
-    if (extra.isEmpty) return catalog;
-    return PluginCatalog(
-      version: catalog.version,
-      plugins: <PluginManifest>[...catalog.plugins, ...extra],
-    );
+    return PluginCatalog.mergePreferBundled(catalog, bundled);
   }
 
   Future<PluginCatalog?> _readCache() async {
@@ -171,7 +165,14 @@ class PluginService {
         if (!await file.exists()) continue;
         final text = await file.readAsString();
         if (text.length > _maxCatalogBytes) continue;
-        return PluginCatalog.fromJson(jsonDecode(text));
+        final catalog = PluginCatalog.fromJson(jsonDecode(text));
+        // 0.4.1 之前生成的目录没有 enabled 字段；这种旧缓存不能直接使用，
+        // 否则会按默认值 1 把已下架插件（如图书馆）重新显示出来。
+        if (catalog.hasLegacyEnabledFlags) {
+          debugPrint('[plugin_service] ignore legacy catalog cache: ${file.path}');
+          continue;
+        }
+        return catalog;
       } catch (error) {
         debugPrint('[plugin_service] cache read failed at ${file.path}: $error');
       }
