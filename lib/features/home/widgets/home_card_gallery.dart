@@ -98,23 +98,31 @@ class HomeCardGallery extends StatelessWidget {
   }
 
   Widget _buildCatalogHeader(BuildContext context) {
-    final refresh = catalogLoading
-        ? const SizedBox(
-            width: 30,
-            height: 30,
-            child: Padding(
-              padding: EdgeInsets.all(7),
-              child: CircularProgressIndicator(strokeWidth: 2),
+    // 固定 30×30 槽位：图标与加载圈共用同一尺寸，刷新时行宽不抖动。
+    final refresh = SizedBox(
+      width: 30,
+      height: 30,
+      child: catalogLoading
+          ? const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : IconButton(
+              tooltip: '刷新在线插件目录',
+              onPressed: onRefreshCatalog,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              padding: EdgeInsets.zero,
+              style: IconButton.styleFrom(
+                minimumSize: const Size(30, 30),
+                maximumSize: const Size(30, 30),
+                padding: EdgeInsets.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
             ),
-          )
-        : IconButton(
-            tooltip: '刷新在线插件目录',
-            onPressed: onRefreshCatalog,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-          );
+    );
     final header = Row(
       children: [
         Expanded(
