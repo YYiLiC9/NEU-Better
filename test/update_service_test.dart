@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neu_better_pro/core/update/update_service.dart';
 
@@ -34,10 +36,65 @@ void main() {
       expect(info.notes, '修复若干问题');
       expect(info.windowsUrl, 'https://example.com/win.zip');
       expect(info.androidUrl, 'https://example.com/app.apk');
+      expect(info.windowsFileName, 'NEU-Better-0.2.0-windows-x64.zip');
+    });
+
+    test('prefers windows setup .exe over zip when both exist', () {
+      final info = UpdateInfoParser.fromRelease({
+        'tag_name': 'v0.4.1',
+        'assets': [
+          {
+            'name': 'NEU-Better-0.4.1-windows-x64.zip',
+            'browser_download_url': 'https://example.com/win.zip',
+            'size': 100,
+          },
+          {
+            'name': 'NEU-Better-0.4.1-windows-x64-setup.exe',
+            'browser_download_url': 'https://example.com/setup.exe',
+            'size': 200,
+          },
+        ],
+      });
+      expect(info, isNotNull);
+      expect(info!.windowsUrl, 'https://example.com/setup.exe');
+      expect(
+        info.windowsFileName,
+        'NEU-Better-0.4.1-windows-x64-setup.exe',
+      );
+      expect(info.windowsSize, 200);
     });
 
     test('returns null without tag', () {
       expect(UpdateInfoParser.fromRelease({'body': 'x'}), isNull);
+    });
+  });
+
+  group('isCompletePackage', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('upd_test_'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('accepts exe with MZ header and zip/apk with PK header', () {
+      final exe = File('${dir.path}/setup.exe')
+        ..writeAsBytesSync([
+          0x4D,
+          0x5A,
+          ...List<int>.filled(1024 * 1024, 0),
+        ]);
+      final zip = File('${dir.path}/pkg.zip')
+        ..writeAsBytesSync([
+          0x50,
+          0x4B,
+          ...List<int>.filled(1024 * 1024, 0),
+        ]);
+      expect(UpdateInfo.isCompletePackage(exe, null), isTrue);
+      expect(UpdateInfo.isCompletePackage(zip, null), isTrue);
+    });
+
+    test('rejects exe with wrong header', () {
+      final bad = File('${dir.path}/bad.exe')
+        ..writeAsBytesSync(List<int>.filled(1024 * 1024, 0x41));
+      expect(UpdateInfo.isCompletePackage(bad, null), isFalse);
     });
   });
 }

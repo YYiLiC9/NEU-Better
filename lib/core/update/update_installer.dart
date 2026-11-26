@@ -43,29 +43,42 @@ abstract final class UpdateInstaller {
     } catch (_) {}
   }
 
-  static Future<void> applyWindows(File zip) async {
+  static Future<void> applyWindows(File package) async {
     final exe = File(Platform.resolvedExecutable);
     final installDir = exe.parent.path;
     final temp = Directory.systemTemp.createTempSync('neubetter_upd_');
-    final extractDir = '${temp.path}\\extract';
     final bat = File('${temp.path}\\apply_update.bat');
 
-    // 批处理：等本进程退出 → 解压 zip → 找到解压出来的 exe 所在目录并
-    // 整体覆盖安装目录 → 重新启动程序（exe 名可能是 NEUBetterPro.exe 或旧名）。
-    final script = <String>[
-      '@echo off',
-      'timeout /t 2 /nobreak >nul',
-      'powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive '
-          "-LiteralPath '${zip.path}' -DestinationPath '$extractDir' -Force\"",
-      'powershell -NoProfile -ExecutionPolicy Bypass -Command "\$src = '
-          "Get-ChildItem -Path '$extractDir' -Recurse -Filter "
-          "*.exe | Select-Object -First 1; if (\$src) { Copy-Item "
-          "-Path (Join-Path \$src.DirectoryName '*') -Destination '$installDir' "
-          '-Recurse -Force }"',
-      'start "" "${exe.path}"',
-      'exit',
-    ].join('\r\n');
-    bat.writeAsStringSync(script);
+    final bool isSetup = package.path.toLowerCase().endsWith('.exe');
+    final List<String> script;
+    if (isSetup) {
+      // 新版安装程序：静默安装到当前安装目录（保留用户选择的位置），再启动。
+      script = <String>[
+        '@echo off',
+        'timeout /t 2 /nobreak >nul',
+        'start "" /wait "${package.path}" /VERYSILENT /SUPPRESSMSGBOXES '
+            '/NORESTART /SP- /CLOSEAPPLICATIONS /DIR="$installDir"',
+        'start "" "${exe.path}"',
+        'exit',
+      ];
+    } else {
+      // 旧版 zip：等本进程退出 → 解压 → 覆盖安装目录 → 重新启动。
+      final extractDir = '${temp.path}\\extract';
+      script = <String>[
+        '@echo off',
+        'timeout /t 2 /nobreak >nul',
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive '
+            "-LiteralPath '${package.path}' -DestinationPath '$extractDir' -Force\"",
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "\$src = '
+            "Get-ChildItem -Path '$extractDir' -Recurse -Filter "
+            "*.exe | Select-Object -First 1; if (\$src) { Copy-Item "
+            "-Path (Join-Path \$src.DirectoryName '*') -Destination '$installDir' "
+            '-Recurse -Force }"',
+        'start "" "${exe.path}"',
+        'exit',
+      ];
+    }
+    bat.writeAsStringSync(script.join('\r\n'));
 
     await Process.start(
       'cmd',

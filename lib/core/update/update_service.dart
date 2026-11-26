@@ -14,6 +14,7 @@ class UpdateInfo {
     this.windowsUrl,
     this.androidUrl,
     this.windowsSize,
+    this.windowsFileName,
     this.androidSize,
   });
 
@@ -33,6 +34,9 @@ class UpdateInfo {
 
   /// 安装包字节大小（用于校验已下载文件是否完整）；未知为 null。
   final int? windowsSize;
+
+  /// Windows 安装包真实文件名（setup.exe 或旧版 zip）；用于下载到对应扩展名。
+  final String? windowsFileName;
   final int? androidSize;
 
   bool get hasAnyAsset => windowsUrl != null || androidUrl != null;
@@ -54,14 +58,25 @@ class UpdateInfo {
   }
 
   /// 存放已下载安装包的稳定路径（按版本命名，便于命中复用）。
-  static File packageFile(String version, {required bool android}) {
+  static File packageFile(
+    String version, {
+    required bool android,
+    String? windowsFileName,
+  }) {
     final sep = Platform.pathSeparator;
-    final name = 'NEU-Better-$version.${android ? 'apk' : 'zip'}';
+    final String name;
+    if (android) {
+      name = 'NEU-Better-$version.apk';
+    } else if (windowsFileName != null && windowsFileName.isNotEmpty) {
+      name = windowsFileName;
+    } else {
+      name = 'NEU-Better-$version-windows-x64-setup.exe';
+    }
     return File('${downloadDirectory(android: android).path}$sep$name');
   }
 
-  /// 判断本地安装包是否完整可用：[expected] 已知时按字节数比对，否则宽松
-  /// 校验为「足够大且是 ZIP/APK（PK 开头）」。
+  /// 判断本地安装包是否完整可用：[expected] 已知时按字节数比对，否则按扩展名
+  /// 宽松校验（.exe 需 MZ 头，.zip/.apk 需 PK 头）。
   static bool isCompletePackage(File file, int? expected) {
     try {
       if (!file.existsSync()) return false;
@@ -73,7 +88,13 @@ class UpdateInfo {
       final raf = file.openSync();
       final head = raf.readSync(2);
       raf.closeSync();
-      return head.length == 2 && head[0] == 0x50 && head[1] == 0x4B;
+      if (head.length != 2) return false;
+      final isExe = file.path.toLowerCase().endsWith('.exe');
+      if (isExe) {
+        // PE 可执行文件（安装程序）以 "MZ" 开头。
+        return head[0] == 0x4D && head[1] == 0x5A;
+      }
+      return head[0] == 0x50 && head[1] == 0x4B;
     } catch (_) {
       return false;
     }
@@ -267,6 +288,10 @@ abstract final class UpdateInfoParser {
     String? androidUrl;
     int? windowsSize;
     int? androidSize;
+    String? windowsFileName;
+    String? windowsZipUrl;
+    int? windowsZipSize;
+    String? windowsZipName;
     if (assets is List) {
       for (final raw in assets) {
         if (raw is! Map) continue;
@@ -278,13 +303,26 @@ abstract final class UpdateInfoParser {
         if (name.endsWith('.apk')) {
           androidUrl = url;
           androidSize = sizeValue;
-        } else if (name.endsWith('.zip') &&
-            (name.contains('windows') || name.contains('win'))) {
+        } else if (name.endsWith('.exe') &&
+            (name.contains('windows') ||
+                name.contains('win') ||
+                name.contains('setup'))) {
+          // 优先使用安装程序 setup.exe。
           windowsUrl = url;
           windowsSize = sizeValue;
+          windowsFileName = raw['name'] as String?;
+        } else if (name.endsWith('.zip') &&
+            (name.contains('windows') || name.contains('win'))) {
+          // 旧版仍用 zip；仅在没有 setup.exe 时回退。
+          windowsZipUrl = url;
+          windowsZipSize = sizeValue;
+          windowsZipName = raw['name'] as String?;
         }
       }
     }
+    windowsUrl ??= windowsZipUrl;
+    windowsSize ??= windowsZipSize;
+    windowsFileName ??= windowsZipName;
 
     return UpdateInfo(
       version: version,
@@ -296,6 +334,7 @@ abstract final class UpdateInfoParser {
       windowsUrl: windowsUrl,
       androidUrl: androidUrl,
       windowsSize: windowsSize,
+      windowsFileName: windowsFileName,
       androidSize: androidSize,
     );
   }

@@ -57,6 +57,7 @@ class UpdateManager extends ChangeNotifier {
       final file = UpdateInfo.packageFile(
         current.version,
         android: Platform.isAndroid,
+        windowsFileName: current.windowsFileName,
       );
       if (UpdateInfo.isCompletePackage(file, _expectedSize)) {
         readyFile = file;
@@ -73,6 +74,7 @@ class UpdateManager extends ChangeNotifier {
     final target = UpdateInfo.packageFile(
       current.version,
       android: Platform.isAndroid,
+      windowsFileName: current.windowsFileName,
     );
     if (UpdateInfo.isCompletePackage(target, _expectedSize)) {
       readyFile = target;
